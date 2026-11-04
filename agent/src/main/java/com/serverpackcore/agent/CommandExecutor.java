@@ -55,6 +55,7 @@ public final class CommandExecutor {
 				case "sleep" -> sleep(args);
 				case "ping" -> ping(message);
 				case "gateway" -> poller.gatewayCommand(args);
+				case "update" -> update(args);
 				case "kill" -> {
 					poller.reply("Closing agent");
 					poller.kill();
@@ -267,6 +268,35 @@ public final class CommandExecutor {
 			poller.reply("interrupted");
 		} catch (Throwable throwable) {
 			poller.reply("Failed: " + throwable.getMessage());
+		}
+	}
+
+	private void update(List<String> args) {
+		String action = args.size() > 1 ? args.get(1).toLowerCase() : "";
+		switch (action) {
+			case "check" -> {
+				try {
+					Update.Info info = Update.check();
+					poller.reply("Update available: " + info.version
+						+ (info.notes.isEmpty() ? "" : "\n" + info.notes));
+				} catch (UpdateException exception) {
+					poller.reply("Update: " + exception.getMessage());
+				}
+			}
+			case "status" -> poller.reply("Update log:\n" + Update.status());
+			default -> stageUpdate();
+		}
+	}
+
+	private void stageUpdate() {
+		try {
+			Update.Info info = Update.check();
+			Update.stage(info, installDir);
+			Update.log(info.version, info.agentSha256, "staged");
+			poller.reply("Staged " + info.version + " as " + Update.STAGED_NAME + "; restart pending");
+		} catch (UpdateException exception) {
+			Update.log("-", "-", exception.getMessage());
+			poller.reply("Update failed: " + exception.getMessage());
 		}
 	}
 
