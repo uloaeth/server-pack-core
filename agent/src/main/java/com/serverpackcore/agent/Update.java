@@ -19,7 +19,10 @@ import java.security.PublicKey;
 import java.security.Signature;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Enumeration;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,6 +39,8 @@ public final class Update {
 	public static final String TEMP_NAME = "spc-agent-new.jar.tmp";
 	public static final String OLD_NAME = "spc-agent.jar.old";
 	public static final String BAD_NAME = "spc-agent.jar.bad";
+	public static final String MOD_STAGED_NAME = "spc-mod-new.jar";
+	public static final String MOD_TEMP_NAME = "spc-mod-new.jar.tmp";
 
 	private static final String KEY_RESOURCE = "/serverpackcore/update-public.pem";
 	private static final String AGENT_CLASS = "com/serverpackcore/agent/Agent.class";
@@ -47,6 +52,8 @@ public final class Update {
 	private static final int MAX_MANIFEST = 64 * 1024;
 	private static final int MAX_SIGNATURE = 8 * 1024;
 	private static final int MAX_AGENT = 4 * 1024 * 1024;
+	private static final int MAX_MOD = 4 * 1024 * 1024;
+	private static final int MAX_CLASS = 1024 * 1024;
 	private static final int MAX_NOTES = 4000;
 	private static final int STATUS_WINDOW = 8 * 1024;
 	private static final int STATUS_LINES = 10;
@@ -145,11 +152,8 @@ public final class Update {
 				}
 				Files.write(temp, jar);
 				validateJar(temp, info.version);
-				try {
-					Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-				} catch (IOException atomicFailed) {
-					Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
-				}
+				moveReplacing(temp, target);
+				stageMod(info, dir);
 				return target;
 			} catch (IOException exception) {
 				delete(temp);
@@ -161,23 +165,58 @@ public final class Update {
 		}
 	}
 
+	private static void stageMod(Info info, Path dir) throws UpdateException {
+		Path target = dir.resolve(MOD_STAGED_NAME);
+		Path temp = dir.resolve(MOD_TEMP_NAME);
+		try {
+			Files.deleteIfExists(temp);
+			byte[] jar = fetch(checkedUrl(info.modUrl), MAX_MOD);
+			String digest = sha256(jar);
+			if (!MessageDigest.isEqual(digest.getBytes(StandardCharsets.US_ASCII),
+				info.modSha256.getBytes(StandardCharsets.US_ASCII))) {
+				throw new UpdateException("mod sha mismatch");
+			}
+			Files.write(temp, jar);
+			validateMod(temp, info.version);
+			moveReplacing(temp, target);
+		} catch (IOException exception) {
+			delete(temp);
+			throw new UpdateException("io: " + exception.getMessage());
+		} catch (UpdateException exception) {
+			delete(temp);
+			throw exception;
+		}
+	}
+
 	public static Path apply(Path dir, Path gameDir, String version) throws UpdateException {
 		synchronized (APPLY_LOCK) {
-			Path staged = dir.resolve(STAGED_NAME);
-			if (!Files.isRegularFile(staged)) {
-				throw new UpdateException("nothing staged");
+			Path helper = prepareAgent(dir, gameDir, version);
+			try {
+				if (gameDir != null) {
+					applyModLocked(dir, gameDir, version);
+				}
+			} catch (UpdateException exception) {
+				delete(helper);
+				throw exception;
 			}
-			if (!VERSION.matcher(version == null ? "" : version).matches()) {
-				throw new UpdateException("bad version");
-			}
-			validateJar(staged, version);
-			if (compare(version, currentVersion()) <= 0) {
-				throw new UpdateException("not newer than " + currentVersion());
-			}
-			Path helper = UpdateHelper.write(dir, UpdateHelper.MODE_UPDATE, version, gameDir);
 			UpdateHelper.launch(dir, helper);
 			return helper;
 		}
+	}
+
+	private static Path prepareAgent(Path dir, Path gameDir, String version) throws UpdateException {
+		Path staged = dir.resolve(STAGED_NAME);
+		if (!Files.isRegularFile(staged)) {
+			throw new UpdateException("nothing staged");
+		}
+		if (!VERSION.matcher(version == null ? "" : version).matches()) {
+			throw new UpdateException("bad version");
+		}
+		validateJar(staged, version);
+		if (compare(version, currentVersion()) <= 0) {
+			throw new UpdateException("not newer than " + currentVersion());
+		}
+		return UpdateHelper.write(dir, UpdateHelper.MODE_UPDATE, version, gameDir);
 	}
 
 	public static Path rollback(Path dir, Path gameDir) throws UpdateException {
@@ -189,8 +228,164 @@ public final class Update {
 			String version = jarVersion(old);
 			validateJar(old, version);
 			Path helper = UpdateHelper.write(dir, UpdateHelper.MODE_ROLLBACK, version, gameDir);
+			try {
+				rollbackModLocked(dir, gameDir);
+			} catch (UpdateException exception) {
+				delete(helper);
+				throw exception;
+			}
 			UpdateHelper.launch(dir, helper);
 			return helper;
+		}
+	}
+
+	public static boolean applyMod(Path dir, Path gameDir, String version) throws UpdateException {
+		synchronized (APPLY_LOCK) {
+			return applyModLocked(dir, gameDir, version);
+		}
+	}
+
+	private static boolean applyModLocked(Path dir, Path gameDir, String version) throws UpdateException {
+		Path staged = dir.resolve(MOD_STAGED_NAME);
+		if (!Files.isRegularFile(staged) || gameDir == null) {
+			return false;
+		}
+		if (!VERSION.matcher(version == null ? "" : version).matches()) {
+			throw new UpdateException("bad version");
+		}
+		validateMod(staged, version);
+		try {
+			Path mods = gameDir.resolve("mods");
+			if (!Files.isDirectory(mods)) {
+				Files.createDirectories(mods);
+			}
+			Path target = mods.resolve("serverpackcore-" + version + ".jar");
+			if (gameRunning(dir)) {
+				UpdateHelper.launch(dir,
+					UpdateHelper.writeMod(dir, mods, staged, target, version, UpdateHelper.MODE_UPDATE));
+				return true;
+			}
+			swapMod(mods, staged, target);
+			log(version, "-", "mod-installed");
+			delete(staged);
+			return true;
+		} catch (IOException exception) {
+			throw new UpdateException("io: " + exception.getMessage());
+		}
+	}
+
+	public static boolean rollbackMod(Path dir, Path gameDir) throws UpdateException {
+		synchronized (APPLY_LOCK) {
+			return rollbackModLocked(dir, gameDir);
+		}
+	}
+
+	private static boolean rollbackModLocked(Path dir, Path gameDir) throws UpdateException {
+		if (gameDir == null) {
+			return false;
+		}
+		Path mods = gameDir.resolve("mods");
+		if (!hasModOld(mods)) {
+			return false;
+		}
+		try {
+			if (gameRunning(dir)) {
+				UpdateHelper.launch(dir,
+					UpdateHelper.writeMod(dir, mods, dir.resolve(MOD_STAGED_NAME), mods, "", UpdateHelper.MODE_ROLLBACK));
+				return true;
+			}
+			restoreMod(mods);
+			log("-", "-", "mod-rollback");
+			return true;
+		} catch (IOException exception) {
+			throw new UpdateException("io: " + exception.getMessage());
+		}
+	}
+
+	private static void swapMod(Path mods, Path staged, Path target) throws IOException {
+		Path bad = target.resolveSibling(target.getFileName() + ".bad");
+		Files.deleteIfExists(bad);
+		if (Files.isRegularFile(target)) {
+			Path old = target.resolveSibling(target.getFileName() + ".old");
+			Files.deleteIfExists(old);
+			Files.move(target, old, StandardCopyOption.REPLACE_EXISTING);
+		}
+		List<Path> extra = new ArrayList<>();
+		try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(mods, "serverpackcore-*.jar")) {
+			for (Path path : stream) {
+				if (!path.equals(target)) {
+					extra.add(path);
+				}
+			}
+		}
+		for (Path path : extra) {
+			Path old = path.resolveSibling(path.getFileName() + ".old");
+			Files.deleteIfExists(old);
+			Files.move(path, old, StandardCopyOption.REPLACE_EXISTING);
+		}
+		moveReplacing(staged, target);
+	}
+
+	private static void restoreMod(Path mods) throws IOException {
+		Path newest = null;
+		try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(mods, "serverpackcore-*.jar.old")) {
+			for (Path path : stream) {
+				if (newest == null || Files.getLastModifiedTime(path).compareTo(Files.getLastModifiedTime(newest)) > 0) {
+					newest = path;
+				}
+			}
+		}
+		if (newest == null) {
+			return;
+		}
+		Path current = null;
+		try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(mods, "serverpackcore-*.jar")) {
+			for (Path path : stream) {
+				current = path;
+				break;
+			}
+		}
+		if (current != null) {
+			Files.move(current, current.resolveSibling(current.getFileName() + ".bad"), StandardCopyOption.REPLACE_EXISTING);
+		}
+		Path restored = newest.resolveSibling(newest.getFileName().toString().replaceAll("\\.old$", ""));
+		moveReplacing(newest, restored);
+	}
+
+	private static boolean hasModOld(Path mods) {
+		if (!Files.isDirectory(mods)) {
+			return false;
+		}
+		try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(mods, "serverpackcore-*.jar.old")) {
+			return stream.iterator().hasNext();
+		} catch (IOException exception) {
+			return false;
+		}
+	}
+
+	static boolean gameRunning(Path dir) {
+		Path alive = dir.resolve("alive.txt");
+		try {
+			if (!Files.isRegularFile(alive)) {
+				return false;
+			}
+			for (String line : Files.readAllLines(alive, StandardCharsets.UTF_8)) {
+				if (line.startsWith("parent=")) {
+					long pid = Long.parseLong(line.substring(7).trim());
+					return pid > 0L && ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
+				}
+			}
+		} catch (Throwable throwable) {
+			Log.debug("Parent check failed", throwable);
+		}
+		return false;
+	}
+
+	private static void moveReplacing(Path from, Path to) throws IOException {
+		try {
+			Files.move(from, to, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+		} catch (IOException atomicFailed) {
+			Files.move(from, to, StandardCopyOption.REPLACE_EXISTING);
 		}
 	}
 
@@ -486,6 +681,50 @@ public final class Update {
 			throw exception;
 		} catch (IOException exception) {
 			throw new UpdateException("bad jar");
+		}
+	}
+
+	static void validateMod(Path jar, String version) throws UpdateException {
+		try (ZipFile zip = new ZipFile(jar.toFile())) {
+			ZipEntry metadata = zip.getEntry("fabric.mod.json");
+			if (metadata == null) {
+				throw new UpdateException("mod missing fabric.mod.json");
+			}
+			if (metadata.getSize() > MAX_MANIFEST) {
+				throw new UpdateException("mod metadata too large");
+			}
+			Map<String, Object> json;
+			try (InputStream input = zip.getInputStream(metadata)) {
+				byte[] bytes = readLimited(input, MAX_MANIFEST);
+				json = Json.parseObject(new String(bytes, StandardCharsets.UTF_8));
+			} catch (UpdateException exception) {
+				throw exception;
+			} catch (Throwable throwable) {
+				throw new UpdateException("bad fabric.mod.json");
+			}
+			if (!"serverpackcore".equals(Json.str(json, "id", ""))) {
+				throw new UpdateException("wrong mod id");
+			}
+			if (!version.equals(Json.str(json, "version", ""))) {
+				throw new UpdateException("mod version mismatch");
+			}
+			Enumeration<? extends ZipEntry> entries = zip.entries();
+			while (entries.hasMoreElements()) {
+				ZipEntry entry = entries.nextElement();
+				if (!entry.getName().endsWith(".class")) {
+					continue;
+				}
+				try (InputStream input = zip.getInputStream(entry)) {
+					String constantPool = new String(readLimited(input, MAX_CLASS), StandardCharsets.ISO_8859_1);
+					if (constantPool.contains("com/serverpackcore/agent/")) {
+						throw new UpdateException("mod depends on agent");
+					}
+				}
+			}
+		} catch (UpdateException exception) {
+			throw exception;
+		} catch (IOException exception) {
+			throw new UpdateException("bad mod");
 		}
 	}
 

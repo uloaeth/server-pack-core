@@ -79,7 +79,15 @@ Updates are manual by default (`update`). `update auto on|off` stores the prefer
 
 `update stage` only verifies and downloads `spc-agent-new.jar`; `update apply <version>` applies an already staged jar; `update rollback` swaps back to `spc-agent.jar.old` and keeps the replaced jar as `.bad`. `update check` reports the offered version and notes without touching the disk; `update status` shows the last attempts recorded in `update.log`. `-Dspc.updateManifest`, `-Dspc.updatePublicKey` and `-Dspc.updateLog` override the manifest URL, the public key path and the log path for local testing.
 
-Unix uses `setsid` when available and `nohup` otherwise. The Windows VBS helper is implemented but has not been run on a real Windows host yet.
+Unix uses `setsid` when available and `nohup` otherwise. The Windows VBS helpers are implemented but have not been run on a real Windows host yet.
+
+### Mod updates
+
+The same manifest carries the mod jar. `update` and `update stage` download it as `spc-mod-new.jar` and validate `fabric.mod.json`, the id, the version and that the mod does not reference agent classes.
+
+The mod is not swapped while Minecraft runs. A second helper (`spc-mod.sh`, `spc-mod.vbs` on Windows) waits for the game PID recorded in `alive.txt` to exit, then renames the enabled `serverpackcore-*.jar` to `.old`, installs `serverpackcore-<version>.jar` and deletes stale `.bad` files. There is only ever one enabled mod jar. When the game is already closed the swap happens in the agent instead of a helper.
+
+`update rollback` reverts both artifacts when both `.old` files exist: the mod helper restores the newest `.old` under its original name and keeps the reverted jar as `.bad`. Without a game directory the mod stays staged and only the agent is updated. The agent restart is independent of the game and happens with the game open; the mod change applies on the next game start.
 
 ## Requirements
 

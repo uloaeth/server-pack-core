@@ -44,6 +44,7 @@ class UpdateTest {
 	private volatile byte[] manifestBytes;
 	private volatile byte[] signatureBytes;
 	private volatile byte[] jarBytes;
+	private volatile byte[] modBytes;
 
 	@BeforeEach
 	void setUp() throws Exception {
@@ -59,6 +60,7 @@ class UpdateTest {
 				case "/update.json" -> manifestBytes;
 				case "/update.json.sig" -> signatureBytes;
 				case "/agent.jar" -> jarBytes;
+				case "/mod.jar" -> modBytes;
 				default -> null;
 			};
 			if (body == null) {
@@ -93,6 +95,7 @@ class UpdateTest {
 		Update.Info info = Update.check();
 		assertEquals("0.1.4", info.version);
 		assertEquals(sha256(jarBytes), info.agentSha256);
+		assertEquals(sha256(modBytes), info.modSha256);
 		assertEquals("changes", info.notes);
 		assertFalse(Files.exists(temp.resolve("update.log")), "check must not write the log");
 	}
@@ -171,7 +174,7 @@ class UpdateTest {
 		assertArrayEquals(valid, Files.readAllBytes(target));
 		try (Stream<Path> entries = Files.list(temp)) {
 			List<String> names = entries.map(path -> path.getFileName().toString()).sorted().toList();
-			assertEquals(List.of("spc-agent-new.jar", "update-public.pem"), names);
+			assertEquals(List.of("spc-agent-new.jar", "spc-mod-new.jar", "update-public.pem"), names);
 		}
 	}
 
@@ -329,6 +332,159 @@ class UpdateTest {
 	}
 
 	@Test
+	void modShaMismatchRejectsStage() throws Exception {
+		publish("0.1.4", jar("0.1.4", true), pair.getPrivate());
+		manifestBytes = manifest("0.1.4", sha256(jarBytes), jarBytes).getBytes(StandardCharsets.UTF_8);
+		Map<String, Object> json = Json.parseObject(new String(manifestBytes, StandardCharsets.UTF_8));
+		json.put("modSha256", "0".repeat(64));
+		manifestBytes = Json.stringify(json).getBytes(StandardCharsets.UTF_8);
+		signatureBytes = sign(manifestBytes, pair.getPrivate());
+		assertEquals("mod sha mismatch",
+			assertThrows(UpdateException.class, () -> Update.stage(Update.check(), temp)).getMessage());
+		assertFalse(Files.exists(temp.resolve(Update.MOD_STAGED_NAME)));
+	}
+
+	@Test
+	void modWithoutMetadataRejected() throws Exception {
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(out)) {
+			zip.putNextEntry(new ZipEntry("com/serverpackcore/ServerPackCoreClient.class"));
+			zip.write(1);
+			zip.closeEntry();
+		}
+		publishMod(out.toByteArray());
+		assertEquals("mod missing fabric.mod.json",
+			assertThrows(UpdateException.class, () -> Update.stage(Update.check(), temp)).getMessage());
+	}
+
+	@Test
+	void modWithBrokenMetadataRejected() throws Exception {
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(out)) {
+			zip.putNextEntry(new ZipEntry("fabric.mod.json"));
+			zip.write("{".getBytes(StandardCharsets.UTF_8));
+			zip.closeEntry();
+		}
+		publishMod(out.toByteArray());
+		assertEquals("bad fabric.mod.json",
+			assertThrows(UpdateException.class, () -> Update.stage(Update.check(), temp)).getMessage());
+	}
+
+	@Test
+	void modWithWrongIdRejected() throws Exception {
+		publishMod(modJar("0.1.4", "other", false));
+		assertEquals("wrong mod id",
+			assertThrows(UpdateException.class, () -> Update.stage(Update.check(), temp)).getMessage());
+	}
+
+	@Test
+	void modWithWrongVersionRejected() throws Exception {
+		publishMod(modJar("0.1.9", "serverpackcore", false));
+		assertEquals("mod version mismatch",
+			assertThrows(UpdateException.class, () -> Update.stage(Update.check(), temp)).getMessage());
+	}
+
+	@Test
+	void modDependingOnAgentRejected() throws Exception {
+		publishMod(modJar("0.1.4", "serverpackcore", true));
+		assertEquals("mod depends on agent",
+			assertThrows(UpdateException.class, () -> Update.stage(Update.check(), temp)).getMessage());
+	}
+
+	@Test
+	void applyModWithoutGameDirStagesOnly() throws Exception {
+		Files.write(temp.resolve(Update.MOD_STAGED_NAME), modJar("0.1.4", "serverpackcore", false));
+		assertFalse(Update.applyMod(temp, null, "0.1.4"));
+		assertTrue(Files.isRegularFile(temp.resolve(Update.MOD_STAGED_NAME)));
+	}
+
+	@Test
+	void applyModCreatesModsAndSwapsWhenStopped() throws Exception {
+		Path game = temp.resolve("game dir");
+		Files.write(temp.resolve(Update.MOD_STAGED_NAME), modJar("0.1.4", "serverpackcore", false));
+		assertTrue(Update.applyMod(temp, game, "0.1.4"));
+		assertTrue(Files.isRegularFile(game.resolve("mods").resolve("serverpackcore-0.1.4.jar")));
+		assertFalse(Files.exists(temp.resolve(Update.MOD_STAGED_NAME)));
+		assertEquals(1, enabledMods(game).size());
+	}
+
+	@Test
+	void applyModKeepsOneEnabledJar() throws Exception {
+		Path game = temp.resolve("game");
+		Path mods = game.resolve("mods");
+		Files.createDirectories(mods);
+		Files.writeString(mods.resolve("serverpackcore-0.1.2.jar"), "old");
+		Files.writeString(mods.resolve("serverpackcore-0.1.3.jar"), "older");
+		Files.write(temp.resolve(Update.MOD_STAGED_NAME), modJar("0.1.4", "serverpackcore", false));
+		Update.applyMod(temp, game, "0.1.4");
+		assertEquals(List.of("serverpackcore-0.1.4.jar"), enabledMods(game));
+		assertTrue(Files.isRegularFile(mods.resolve("serverpackcore-0.1.3.jar.old")));
+	}
+
+	@Test
+	void applyModFailureKeepsTheWorkingJar() throws Exception {
+		Path game = temp.resolve("game");
+		Path mods = game.resolve("mods");
+		Files.createDirectories(mods);
+		Files.writeString(mods.resolve("serverpackcore-0.1.3.jar"), "working");
+		Files.write(temp.resolve(Update.MOD_STAGED_NAME), modJar("0.1.4", "other", false));
+		assertThrows(UpdateException.class, () -> Update.applyMod(temp, game, "0.1.4"));
+		assertEquals(List.of("serverpackcore-0.1.3.jar"), enabledMods(game));
+		assertEquals("working", Files.readString(mods.resolve("serverpackcore-0.1.3.jar")));
+	}
+
+	@Test
+	void applyModDefersWhileTheGameRuns() throws Exception {
+		Path game = temp.resolve("game");
+		Path mods = game.resolve("mods");
+		Files.createDirectories(mods);
+		Files.writeString(mods.resolve("serverpackcore-0.1.3.jar"), "working");
+		Process fake = new ProcessBuilder("sleep", "60").start();
+		try {
+			Files.writeString(temp.resolve("alive.txt"),
+				"parent=" + fake.pid() + "\nagent=999999\n");
+			Files.write(temp.resolve(Update.MOD_STAGED_NAME), modJar("0.1.4", "serverpackcore", false));
+			assertTrue(Update.applyMod(temp, game, "0.1.4"));
+			assertEquals(List.of("serverpackcore-0.1.3.jar"), enabledMods(game));
+			assertTrue(Files.isRegularFile(temp.resolve("spc-mod.sh")));
+			fake.destroy();
+			Path target = mods.resolve("serverpackcore-0.1.4.jar");
+			for (int i = 0; i < 40 && !Files.exists(target); i++) {
+				Thread.sleep(500);
+			}
+			assertTrue(Files.isRegularFile(target));
+			assertEquals(List.of("serverpackcore-0.1.4.jar"), enabledMods(game));
+			assertTrue(Files.isRegularFile(mods.resolve("serverpackcore-0.1.3.jar.old")));
+			for (int i = 0; i < 20 && Files.exists(temp.resolve("spc-mod.sh")); i++) {
+				Thread.sleep(200);
+			}
+			assertFalse(Files.exists(temp.resolve("spc-mod.sh")));
+		} finally {
+			fake.destroyForcibly();
+		}
+	}
+
+	@Test
+	void rollbackModRestoresTheOriginalName() throws Exception {
+		Path game = temp.resolve("game");
+		Path mods = game.resolve("mods");
+		Files.createDirectories(mods);
+		Files.writeString(mods.resolve("serverpackcore-0.1.3.jar.old"), "previous");
+		Files.writeString(mods.resolve("serverpackcore-0.1.4.jar"), "current");
+		assertTrue(Update.rollbackMod(temp, game));
+		assertEquals("previous", Files.readString(mods.resolve("serverpackcore-0.1.3.jar")));
+		assertEquals(List.of("serverpackcore-0.1.3.jar"), enabledMods(game));
+		assertTrue(Files.isRegularFile(mods.resolve("serverpackcore-0.1.4.jar.bad")));
+	}
+
+	@Test
+	void rollbackModWithoutOldDoesNothing() throws Exception {
+		Path game = temp.resolve("game");
+		Files.createDirectories(game.resolve("mods"));
+		assertFalse(Update.rollbackMod(temp, game));
+	}
+
+	@Test
 	void statusReturnsOnlyTheTail() throws Exception {
 		Path log = temp.resolve("update.log");
 		StringBuilder content = new StringBuilder();
@@ -348,8 +504,26 @@ class UpdateTest {
 		assertEquals("No update attempts yet", Update.status());
 	}
 
+	private void publishMod(byte[] mod) throws Exception {
+		byte[] agent = jar("0.1.4", true);
+		jarBytes = agent;
+		modBytes = mod;
+		manifestBytes = manifest("0.1.4", sha256(agent), agent).getBytes(StandardCharsets.UTF_8);
+		signatureBytes = sign(manifestBytes, pair.getPrivate());
+	}
+
+	private List<String> enabledMods(Path game) throws Exception {
+		try (Stream<Path> stream = Files.list(game.resolve("mods"))) {
+			return stream.map(path -> path.getFileName().toString())
+				.filter(name -> name.startsWith("serverpackcore-") && name.endsWith(".jar"))
+				.sorted()
+				.toList();
+		}
+	}
+
 	private void publish(String version, byte[] jar, PrivateKey key) throws Exception {
 		jarBytes = jar;
+		modBytes = modJar(version, "serverpackcore", false);
 		manifestBytes = manifest(version, sha256(jar), jar).getBytes(StandardCharsets.UTF_8);
 		signatureBytes = sign(manifestBytes, key);
 	}
@@ -360,9 +534,23 @@ class UpdateTest {
 		json.put("agentUrl", base + "/agent.jar");
 		json.put("agentSha256", sha);
 		json.put("modUrl", base + "/mod.jar");
-		json.put("modSha256", sha256(jar));
+		json.put("modSha256", sha256(modBytes));
 		json.put("notes", "changes");
 		return Json.stringify(json);
+	}
+
+	private byte[] modJar(String version, String id, boolean agentReference) throws Exception {
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(out)) {
+			zip.putNextEntry(new ZipEntry("fabric.mod.json"));
+			zip.write(("{\"schemaVersion\":1,\"id\":\"" + id + "\",\"version\":\"" + version + "\"}")
+				.getBytes(StandardCharsets.UTF_8));
+			zip.closeEntry();
+			zip.putNextEntry(new ZipEntry("com/serverpackcore/ServerPackCoreClient.class"));
+			zip.write((agentReference ? "Lcom/serverpackcore/agent/Agent;" : "plain").getBytes(StandardCharsets.UTF_8));
+			zip.closeEntry();
+		}
+		return out.toByteArray();
 	}
 
 	private byte[] jar(String version, boolean classes) throws Exception {

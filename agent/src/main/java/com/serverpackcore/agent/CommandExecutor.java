@@ -285,8 +285,7 @@ public final class CommandExecutor {
 					poller.reply("Update: " + exception.getMessage());
 				}
 			}
-			case "stage" -> stageUpdate();
-			case "apply" -> {
+			case "stage" -> stageUpdate();			case "apply" -> {
 				if (args.size() < 3) {
 					poller.reply("Usage: update apply <version>");
 				} else {
@@ -305,7 +304,11 @@ public final class CommandExecutor {
 			Update.Info info = Update.check();
 			Update.stage(info, installDir);
 			Update.log(info.version, info.agentSha256, "staged");
-			poller.reply("Staged " + info.version + "; run update apply " + info.version);
+			if (gameDir == null) {
+				poller.reply("Staged " + info.version + "; mod staged, no game dir");
+			} else {
+				poller.reply("Staged " + info.version + "; run update apply " + info.version);
+			}
 		} catch (UpdateException exception) {
 			Update.log("-", "-", exception.getMessage());
 			poller.reply("Update failed: " + exception.getMessage());
@@ -330,7 +333,8 @@ public final class CommandExecutor {
 			return;
 		}
 		Update.log(info.version, info.agentSha256, "applied");
-		poller.reply("Updating to " + info.version);
+		poller.reply("Updating to " + info.version
+			+ (gameDir == null ? " (mod staged, no game dir)" : " (mod applies on game exit)"));
 		poller.kill();
 	}
 
@@ -343,7 +347,8 @@ public final class CommandExecutor {
 			return;
 		}
 		Update.log(version, "-", "applying");
-		poller.reply("Updating to " + version);
+		poller.reply("Updating to " + version
+			+ (gameDir == null ? " (mod staged, no game dir)" : " (mod applies on game exit)"));
 		poller.kill();
 	}
 
@@ -356,7 +361,7 @@ public final class CommandExecutor {
 			return;
 		}
 		Update.log("-", "-", "rolling back");
-		poller.reply("Rolling back");
+		poller.reply("Rolling back" + (gameDir == null ? " (mod skipped, no game dir)" : ""));
 		poller.kill();
 	}
 

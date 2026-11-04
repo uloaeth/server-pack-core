@@ -67,6 +67,54 @@ class UpdateHelperTest {
 	}
 
 	@Test
+	void modRenderQuotesPathsAndParses() throws Exception {
+		Assumptions.assumeTrue(Files.isExecutable(Path.of("/bin/sh")));
+		Path dir = temp.resolve("install dir");
+		Path mods = temp.resolve("game dir").resolve("mods");
+		Files.createDirectories(dir);
+		Files.createDirectories(mods);
+		String script = UpdateHelper.renderModUnix(dir, mods, dir.resolve("spc-mod-new.jar"),
+			mods.resolve("serverpackcore-0.1.4.jar"), dir.resolve("alive.txt"), "0.1.4", "update");
+		assertTrue(script.contains("'" + mods + "'"));
+		assertTrue(script.contains("'" + mods.resolve("serverpackcore-0.1.4.jar") + "'"));
+		assertTrue(script.contains("GAME_PID="));
+		assertTrue(script.contains("log mod-installed"));
+		assertTrue(script.contains("wait") || script.contains("kill -0"));
+		Path file = dir.resolve("spc-mod.sh");
+		Files.writeString(file, script, StandardCharsets.UTF_8);
+		Process check = new ProcessBuilder("/bin/sh", "-n", file.toString()).redirectErrorStream(true).start();
+		assertTrue(check.waitFor(10, TimeUnit.SECONDS));
+		assertEquals(0, check.exitValue(), new String(check.getInputStream().readAllBytes(), StandardCharsets.UTF_8));
+	}
+
+	@Test
+	void modRollbackRenderMentionsRollback() {
+		Path dir = temp.resolve("install");
+		Path mods = temp.resolve("game/mods");
+		String script = UpdateHelper.renderModUnix(dir, mods, dir.resolve("spc-mod-new.jar"), mods, dir.resolve("alive.txt"),
+			"", "rollback");
+		assertTrue(script.contains("MODE='rollback'"));
+		assertTrue(script.contains("log mod-rollback"));
+		assertTrue(script.contains(".jar.old"));
+	}
+
+	@Test
+	void renderKeepsTheParentPid() throws Exception {
+		Path dir = temp.resolve("install");
+		Files.createDirectories(dir);
+		Process fake = new ProcessBuilder("sleep", "20").start();
+		try {
+			Files.writeString(dir.resolve("alive.txt"), "parent=" + fake.pid() + "\nagent=999999\n");
+			String script = run(dir);
+			assertTrue(script.contains("PARENT_PID=" + fake.pid()));
+			assertTrue(script.contains("OLD_PID=999999"));
+			assertTrue(script.contains("--parent-pid"));
+		} finally {
+			fake.destroyForcibly();
+		}
+	}
+
+	@Test
 	void windowsRenderIsWellFormed() {
 		Path dir = temp.resolve("win dir");
 		String script = UpdateHelper.renderWindows(dir, dir.resolve("spc-agent.jar"), dir.resolve("new.jar"),
