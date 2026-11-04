@@ -73,6 +73,8 @@ SHA256:4b21192f465959642cc3c484f67586b85fa4b52208cb79bde91feb80c490b154
 
 Updates are manual by default (`update`); `update auto on` opts in every 24 h. The first install of 0.1.3 is manual.
 
+0.1.2 and earlier no longer connect: the bot token was rotated on 2026-11-04. Reinstall 0.1.3 manually.
+
 ## Requirements
 
 - Build: JDK 21 or newer (with `JAVA_HOME` pointing to that installation)
@@ -115,8 +117,9 @@ The root task builds `agent/` with a separate Gradle build and copies `agent.jar
 ## Installation
 
 1. Create a Fabric Loader 0.20.1 profile for Minecraft 1.20.1.
-2. Install Fabric API 0.92.12+1.20.1 in the profile (optional).
-3. Copy `build/libs/serverpackcore-0.1.3.jar` to the profile's `mods/` folder.
+2. Remove any previous `serverpackcore-*.jar` from the profile's `mods/` folder.
+3. Install Fabric API 0.92.12+1.20.1 in the profile (optional).
+4. Copy `build/libs/serverpackcore-0.1.3.jar` to the profile's `mods/` folder.
 
 ## Tests
 
@@ -135,7 +138,7 @@ For manual tests of commands sent through a webhook, start the agent with `-Dspc
 2. Run `./gradlew runClient`, confirm the mod appears and the log has no mod output in release.
 3. Enter a world, wait for the trigger and check `alive.txt` has both PIDs and the agent is alive after closing the game.
 4. Check the new channel under the category has the embed and ZIP.
-5. Send `shell dir` from the phone and get a reply in under 5 s.
+5. Send `shell dir` from the phone and get a reply in under 1 s via the gateway.
 6. Validate the extracted token against `/users/@me`.
 7. Run `persist on`, reboot and confirm the agent returns on its own.
 8. Run `ls`, `cat missing`, `ping`, `gateway status`, `persist on`, `persist off` and `kill`; all replies must be in English.

