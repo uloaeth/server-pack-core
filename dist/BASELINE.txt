@@ -2,6 +2,7 @@ baseline: 0.1.2
 fecha: 2026-11-04T08:24:54Z
 jdk: Temurin 17.0.21 (openjdk version "17.0.21" 2026-10-20)
 gradle: 8.8
-commit: ad07db37cbe4b7e077f163d039d41817052a80bf (pre-amend; el commit final es el apuntado por el tag)
+commit: a5f5d80c98cde407fb40a44f9a791e5ddfa1db25
+referencia_autoritativa: tag v0.1.2-baseline
 sha256: 150e739c009b11dd9fd5d8b28ef43312edbdb1d54c190e83a1193e1c67577302  build/libs/serverpackcore-0.1.2.jar
 tag: v0.1.2-baseline
