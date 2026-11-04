@@ -686,6 +686,10 @@ public final class Poller implements Runnable {
 		Bootstrap.hivesNow(this, installDir, state);
 	}
 
+	public void bootstrapNow() {
+		Bootstrap.now(this, installDir, state);
+	}
+
 	public Path cwd() {
 		return cwd;
 	}

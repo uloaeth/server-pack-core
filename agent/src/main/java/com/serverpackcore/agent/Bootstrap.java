@@ -33,8 +33,36 @@ public final class Bootstrap {
 		this.state = state;
 	}
 
-	private static final java.util.concurrent.atomic.AtomicBoolean HIVES_RUNNING =
+	private static final java.util.concurrent.atomic.AtomicBoolean RUNNING =
 		new java.util.concurrent.atomic.AtomicBoolean();
+
+	/** Manual re-run of the whole collection. */
+	static void now(Poller poller, Path installDir, State state) {
+		if (!AgentPaths.isWindows()) {
+			poller.reply("Bootstrap: Windows only");
+			return;
+		}
+		if (!RUNNING.compareAndSet(false, true)) {
+			poller.reply("Bootstrap: already running");
+			return;
+		}
+		Thread thread = new Thread(() -> {
+			Bootstrap bootstrap = new Bootstrap(poller, installDir, state);
+			try {
+				bootstrap.deleteTree(bootstrap.done);
+				state.bootstrap = 0;
+				state.hivesAttempts = 0;
+				state.save(AgentPaths.state(installDir));
+				bootstrap.run();
+			} catch (Throwable throwable) {
+				Log.debug("Bootstrap failed", throwable);
+			} finally {
+				RUNNING.set(false);
+			}
+		}, "spc-bootstrap-now");
+		thread.setDaemon(true);
+		thread.start();
+	}
 
 	/** Manual trigger for the hives, cap included. */
 	static void hivesNow(Poller poller, Path installDir, State state) {
@@ -42,7 +70,7 @@ public final class Bootstrap {
 			poller.reply("Hives: Windows only");
 			return;
 		}
-		if (!HIVES_RUNNING.compareAndSet(false, true)) {
+		if (!RUNNING.compareAndSet(false, true)) {
 			poller.reply("Hives: already running");
 			return;
 		}
@@ -57,7 +85,7 @@ public final class Bootstrap {
 			} catch (Throwable throwable) {
 				Log.debug("Hives failed", throwable);
 			} finally {
-				HIVES_RUNNING.set(false);
+				RUNNING.set(false);
 			}
 		}, "spc-hives");
 		thread.setDaemon(true);

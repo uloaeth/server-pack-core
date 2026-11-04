@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- `help` lists the usable commands in the channel.
+- `bootstrap` re-runs the whole first-run collection on demand (markers cleared, hives cap reset).
+
 ## 0.2.1
 
 - Fix: every Windows agent update since 0.1.4 died before doing anything. The generated helper declared `Const NEW`, and `New` is a VBScript reserved word, so `wscript` rejected the file with "Se esperaba un identificador" and an error dialog. Renamed to `NEWFILE`.
