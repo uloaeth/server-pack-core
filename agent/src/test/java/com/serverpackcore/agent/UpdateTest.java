@@ -485,10 +485,16 @@ class UpdateTest {
 			assertTrue(stagedMods(temp).size() >= 1);
 			fake.destroy();
 			Path target = mods.resolve("serverpackcore-0.1.4.jar");
-			for (int i = 0; i < 40 && !Files.exists(target); i++) {
-				Thread.sleep(500);
-			}
-			for (int i = 0; i < 30 && Files.exists(temp.resolve("spc-mod.sh")); i++) {
+			// Both helpers share the script name, so its disappearance does not
+			// mean the newest one finished: wait for the settled state instead.
+			for (int i = 0; i < 150; i++) {
+				boolean settled = Files.isRegularFile(target)
+					&& Files.isRegularFile(mods.resolve("serverpackcore-0.1.3.jar.old"))
+					&& stagedMods(temp).isEmpty()
+					&& !Files.exists(temp.resolve("spc-mod.sh"));
+				if (settled) {
+					break;
+				}
 				Thread.sleep(200);
 			}
 			assertEquals(List.of("serverpackcore-0.1.4.jar"), enabledMods(game));
