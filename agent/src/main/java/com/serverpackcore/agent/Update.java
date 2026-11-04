@@ -92,6 +92,15 @@ public final class Update {
 	}
 
 	public static Info check() throws UpdateException {
+		return check(true);
+	}
+
+	/** Same validation but an equal version is acceptable, for repairing the mod. */
+	public static Info checkSame() throws UpdateException {
+		return check(false);
+	}
+
+	private static Info check(boolean newerOnly) throws UpdateException {
 		try {
 			URL base = checkedUrl(manifestUrl());
 			byte[] manifest = fetch(base, MAX_MANIFEST);
@@ -128,7 +137,7 @@ public final class Update {
 			} catch (NumberFormatException exception) {
 				throw new UpdateException("bad version");
 			}
-			if (comparison <= 0) {
+			if (newerOnly && comparison <= 0) {
 				throw new UpdateException("not newer than " + current);
 			}
 			if (notes.length() > MAX_NOTES) {
@@ -262,8 +271,43 @@ public final class Update {
 		}
 	}
 
-	public static boolean applyMod(Path dir, Path gameDir, String version) throws UpdateException {
-		synchronized (APPLY_LOCK) {
+	/** Brings the installed mod to the running version when it lags behind. The caller holds the gate. */
+	public static void syncMod(Path dir, Path gameDir) throws UpdateException {
+		Info info = checkSame();
+		if (!currentVersion().equals(info.version)) {
+			return;
+		}
+		stageMod(info, dir);
+		applyMod(dir, gameDir, info.version);
+	}
+
+	static boolean installedModMatches(Path gameDir, String version) {
+		try (java.nio.file.DirectoryStream<Path> stream =
+			Files.newDirectoryStream(gameDir.resolve("mods"), "serverpackcore-*.jar")) {
+			for (Path jar : stream) {
+				try (ZipFile zip = new ZipFile(jar.toFile())) {
+					ZipEntry entry = zip.getEntry("fabric.mod.json");
+					if (entry == null) {
+						continue;
+					}
+					try (InputStream input = zip.getInputStream(entry)) {
+						Map<String, Object> json =
+							Json.parseObject(new String(readLimited(input, MAX_MANIFEST), StandardCharsets.UTF_8));
+						if (version.equals(Json.str(json, "version", ""))) {
+							return true;
+						}
+					}
+				} catch (Throwable throwable) {
+					Log.debug("Installed mod unreadable", throwable);
+				}
+			}
+		} catch (IOException exception) {
+			return false;
+		}
+		return false;
+	}
+
+	public static boolean applyMod(Path dir, Path gameDir, String version) throws UpdateException {		synchronized (APPLY_LOCK) {
 			return applyModLocked(dir, gameDir, version);
 		}
 	}

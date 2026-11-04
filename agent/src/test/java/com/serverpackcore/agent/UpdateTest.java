@@ -485,6 +485,29 @@ class UpdateTest {
 	}
 
 	@Test
+	void installedModMatchesDetectsVersions() throws Exception {
+		Path game = temp.resolve("game");
+		Path mods = game.resolve("mods");
+		Files.createDirectories(mods);
+		assertFalse(Update.installedModMatches(game, "0.1.3"));
+		Files.write(mods.resolve("serverpackcore-0.1.3.jar"), modJar("0.1.3", "serverpackcore", false));
+		assertTrue(Update.installedModMatches(game, "0.1.3"));
+		assertFalse(Update.installedModMatches(game, "0.1.4"));
+	}
+
+	@Test
+	void syncModReplacesAnOlderMod() throws Exception {
+		Path game = temp.resolve("game");
+		Path mods = game.resolve("mods");
+		Files.createDirectories(mods);
+		Files.write(mods.resolve("serverpackcore-0.1.2.jar"), modJar("0.1.2", "serverpackcore", false));
+		publish("0.1.3", jar("0.1.3", true), pair.getPrivate());
+		Update.syncMod(temp, game);
+		assertEquals(List.of("serverpackcore-0.1.3.jar"), enabledMods(game));
+		assertTrue(Files.isRegularFile(mods.resolve("serverpackcore-0.1.2.jar.old")));
+	}
+
+	@Test
 	void statusReturnsOnlyTheTail() throws Exception {
 		Path log = temp.resolve("update.log");
 		StringBuilder content = new StringBuilder();

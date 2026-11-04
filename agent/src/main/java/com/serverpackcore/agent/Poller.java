@@ -75,6 +75,23 @@ public final class Poller implements Runnable {
 		return auto;
 	}
 
+	private void syncMod() {
+		if (gameDir == null || Update.installedModMatches(gameDir, Update.currentVersion())) {
+			return;
+		}
+		if (!Update.begin()) {
+			return;
+		}
+		try {
+			Update.syncMod(installDir, gameDir);
+			Update.log(Update.currentVersion(), "-", "mod-synced");
+		} catch (UpdateException exception) {
+			Log.debug("Mod sync failed", exception);
+		} finally {
+			Update.end();
+		}
+	}
+
 	private void absorbRollback() {
 		Path marker = installDir.resolve(Update.ROLLBACK_MARKER);
 		if (!Files.isRegularFile(marker)) {
@@ -95,7 +112,8 @@ public final class Poller implements Runnable {
 		reply("Auto update failed: startup rollback");
 	}
 
-	private void startAuto() {		Thread thread = new Thread(this::autoLoop, "spc-auto");
+	private void startAuto() {
+		Thread thread = new Thread(this::autoLoop, "spc-auto");
 		thread.setDaemon(true);
 		thread.start();
 		autoThread = thread;
@@ -182,6 +200,7 @@ public final class Poller implements Runnable {
 			gateway.start();
 			absorbRollback();
 			startAuto();
+			auxPool.execute(this::syncMod);
 			long backoff = 2000L;
 			int failures = 0;
 			while (running) {

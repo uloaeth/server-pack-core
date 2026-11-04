@@ -9,6 +9,7 @@
 - Opt-in automatic updates: first slot after 10 minutes, then every 24 h ±10 % jitter, backoff 1 h → 2 h → 6 h → 24 h, slots persisted across restarts.
 - Rollback marker so a failed startup counts as a failure with backoff.
 - The Windows update helper is still untested on a real host.
+- Updating from a build without mod support repairs the mod and recovers the game PID.
 
 ## 0.1.3
 

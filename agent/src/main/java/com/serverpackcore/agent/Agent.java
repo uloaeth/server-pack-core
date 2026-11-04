@@ -36,6 +36,9 @@ public final class Agent {
 			}
 			long parent = parseParent(args);
 			Path gameDir = parseGameDir(args);
+			if (parent <= 0L) {
+				parent = GamePid.find(gameDir);
+			}
 			lockChannel.truncate(0L);
 			lockChannel.write(java.nio.ByteBuffer.wrap(
 				Long.toString(ProcessHandle.current().pid()).getBytes(StandardCharsets.UTF_8)));
