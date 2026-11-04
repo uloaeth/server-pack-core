@@ -99,17 +99,17 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: release-assets
-          path: dist
+          path: ${{ runner.temp }}/release
       - name: Verify the signature
         run: |
           openssl dgst -sha256 -verify agent/src/main/resources/serverpackcore/update-public.pem \
-            -signature dist/update.json.sig dist/update.json
+            -signature "$RUNNER_TEMP/release/update.json.sig" "$RUNNER_TEMP/release/update.json"
       - name: Keep the dry run assets
         if: github.event.inputs.dry_run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: release-dry-run
-          path: dist/*
+          path: ${{ runner.temp }}/release/*
           if-no-files-found: error
       - name: Publish
         if: github.event.inputs.dry_run != 'true'
@@ -118,14 +118,14 @@ jobs:
         run: |
           VERSION=$(sed -n 's/^mod_version=//p' gradle.properties)
           awk -v ver="$VERSION" '$0 == "## " ver { on = 1; next } /^## / { on = 0 } on' \
-            CHANGELOG.md > notes.md
-          test -s notes.md || echo "Server Pack Core ${VERSION}" > notes.md
+            CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          test -s "$RUNNER_TEMP/notes.md" || echo "Server Pack Core ${VERSION}" > "$RUNNER_TEMP/notes.md"
           gh release create "v${VERSION}" \
-            "dist/agent-${VERSION}.jar" \
-            "dist/serverpackcore-${VERSION}.jar" \
-            dist/SHA256.txt \
-            dist/update.json \
-            dist/update.json.sig \
+            "$RUNNER_TEMP/release/agent-${VERSION}.jar" \
+            "$RUNNER_TEMP/release/serverpackcore-${VERSION}.jar" \
+            "$RUNNER_TEMP/release/SHA256.txt" \
+            "$RUNNER_TEMP/release/update.json" \
+            "$RUNNER_TEMP/release/update.json.sig" \
             --title "v${VERSION}" \
-            --notes-file notes.md \
+            --notes-file "$RUNNER_TEMP/notes.md" \
             --latest
