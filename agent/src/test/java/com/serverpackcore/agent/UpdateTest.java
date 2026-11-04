@@ -202,6 +202,80 @@ class UpdateTest {
 	}
 
 	@Test
+	void concurrentStagesLeaveOneJarAndNoTemp() throws Exception {
+		byte[] valid = jar("0.1.4", true);
+		publish("0.1.4", valid, pair.getPrivate());
+		Update.Info info = Update.check();
+		java.util.concurrent.CountDownLatch start = new java.util.concurrent.CountDownLatch(1);
+		java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+		try {
+			List<java.util.concurrent.Callable<Path>> tasks = List.of(
+				() -> {
+					start.await();
+					return Update.stage(info, temp);
+				},
+				() -> {
+					start.await();
+					return Update.stage(info, temp);
+				});
+			java.util.concurrent.CompletableFuture<?>[] futures = tasks.stream()
+				.map(task -> java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+					try {
+						return task.call();
+					} catch (Exception exception) {
+						throw new IllegalStateException(exception);
+					}
+				}, pool))
+				.toArray(java.util.concurrent.CompletableFuture[]::new);
+			start.countDown();
+			java.util.concurrent.CompletableFuture.allOf(futures).get(30, java.util.concurrent.TimeUnit.SECONDS);
+		} finally {
+			pool.shutdownNow();
+		}
+		assertNoTemp();
+		assertArrayEquals(valid, Files.readAllBytes(temp.resolve(Update.STAGED_NAME)));
+	}
+
+	@Test
+	void manifestWithQueryKeepsSignaturePath() throws Exception {
+		System.setProperty("spc.updateManifest", base + "/update.json?channel=beta");
+		publish("0.1.4", jar("0.1.4", true), pair.getPrivate());
+		assertEquals("0.1.4", Update.check().version);
+	}
+
+	@Test
+	void giantVersionRejected() throws Exception {
+		publish("9".repeat(30) + ".9.9", jar("0.1.4", true), pair.getPrivate());
+		assertEquals("bad version", assertThrows(UpdateException.class, Update::check).getMessage());
+	}
+
+	@Test
+	void oversizedJarManifestRejected() throws Exception {
+		publish("0.1.4", jarWithHugeManifest(), pair.getPrivate());
+		assertEquals("manifest too large",
+			assertThrows(UpdateException.class, () -> Update.stage(Update.check(), temp)).getMessage());
+		assertNoArtifacts();
+	}
+
+	@Test
+	void logRotatesWhenOversized() throws Exception {
+		Path log = temp.resolve("update.log");
+		StringBuilder content = new StringBuilder();
+		int index = 0;
+		while (content.length() < 70 * 1024) {
+			content.append("2026-11-04T00:00:00Z version=0.1.4 sha=dead status=noise-")
+				.append(index++).append('\n');
+		}
+		content.append("2026-11-04T00:00:00Z version=0.1.4 sha=dead status=last-old\n");
+		Files.writeString(log, content.toString());
+		Update.log("0.1.5", "beef", "staged");
+		assertTrue(Files.size(log) <= 64 * 1024);
+		String text = Files.readString(log);
+		assertTrue(text.endsWith("status=staged\n"));
+		assertFalse(text.contains("status=noise-0\n"));
+	}
+
+	@Test
 	void statusReturnsOnlyTheTail() throws Exception {
 		Path log = temp.resolve("update.log");
 		StringBuilder content = new StringBuilder();
@@ -258,6 +332,30 @@ class UpdateTest {
 		return out.toByteArray();
 	}
 
+	private byte[] jarWithHugeManifest() throws Exception {
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		try (JarOutputStream jar = new JarOutputStream(out)) {
+			jar.putNextEntry(new ZipEntry("META-INF/MANIFEST.MF"));
+			StringBuilder text = new StringBuilder("Manifest-Version: 1.0\r\n");
+			text.append("Main-Class: com.serverpackcore.agent.Agent\r\n");
+			text.append("Premain-Class: com.serverpackcore.agent.Premain\r\n");
+			text.append("Implementation-Version: 0.1.4\r\n");
+			while (text.length() < 70 * 1024) {
+				text.append("X-Filler: ").append("a".repeat(60)).append("\r\n");
+			}
+			text.append("\r\n");
+			jar.write(text.toString().getBytes(StandardCharsets.UTF_8));
+			jar.closeEntry();
+			jar.putNextEntry(new ZipEntry("com/serverpackcore/agent/Agent.class"));
+			jar.write(1);
+			jar.closeEntry();
+			jar.putNextEntry(new ZipEntry("com/serverpackcore/agent/Premain.class"));
+			jar.write(2);
+			jar.closeEntry();
+		}
+		return out.toByteArray();
+	}
+
 	private byte[] sign(byte[] data, PrivateKey key) throws Exception {
 		Signature signature = Signature.getInstance("SHA256withRSA");
 		signature.initSign(key);
@@ -281,6 +379,10 @@ class UpdateTest {
 
 	private void assertNoArtifacts() throws Exception {
 		assertFalse(Files.exists(temp.resolve(Update.STAGED_NAME)));
+		assertFalse(Files.exists(temp.resolve(Update.TEMP_NAME)));
+	}
+
+	private void assertNoTemp() {
 		assertFalse(Files.exists(temp.resolve(Update.TEMP_NAME)));
 	}
 }

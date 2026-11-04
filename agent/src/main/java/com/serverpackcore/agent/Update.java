@@ -1,11 +1,13 @@
 package com.serverpackcore.agent;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
+import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -50,6 +52,10 @@ public final class Update {
 	private static final Pattern VERSION = Pattern.compile("^(\\d+)\\.(\\d+)\\.(\\d+)$");
 	private static final Pattern SHA256 = Pattern.compile("^[0-9a-f]{64}$");
 	private static final Map<String, PublicKey> KEYS = new ConcurrentHashMap<>();
+	private static final Object STAGE_LOCK = new Object();
+	private static final Object LOG_LOCK = new Object();
+	private static final int LOG_MAX = 64 * 1024;
+	private static final int LOG_KEEP = 32 * 1024;
 
 	private Update() {
 	}
@@ -76,7 +82,7 @@ public final class Update {
 		try {
 			URL base = checkedUrl(manifestUrl());
 			byte[] manifest = fetch(base, MAX_MANIFEST);
-			byte[] signature = fetch(new URL(base.toString() + ".sig"), MAX_SIGNATURE);
+			byte[] signature = fetch(signatureUrl(base), MAX_SIGNATURE);
 			verify(manifest, signature);
 
 			Map<String, Object> json;
@@ -103,7 +109,13 @@ public final class Update {
 			checkedUrl(modUrl);
 
 			String current = currentVersion();
-			if (compare(version, current) <= 0) {
+			int comparison;
+			try {
+				comparison = compare(version, current);
+			} catch (NumberFormatException exception) {
+				throw new UpdateException("bad version");
+			}
+			if (comparison <= 0) {
 				throw new UpdateException("not newer than " + current);
 			}
 			if (notes.length() > MAX_NOTES) {
@@ -116,31 +128,33 @@ public final class Update {
 	}
 
 	public static Path stage(Info info, Path dir) throws UpdateException {
-		Path target = dir.resolve(STAGED_NAME);
-		Path temp = dir.resolve(TEMP_NAME);
-		try {
-			Files.createDirectories(dir);
-			Files.deleteIfExists(temp);
-			byte[] jar = fetch(checkedUrl(info.agentUrl), MAX_AGENT);
-			String digest = sha256(jar);
-			if (!MessageDigest.isEqual(digest.getBytes(StandardCharsets.US_ASCII),
-				info.agentSha256.getBytes(StandardCharsets.US_ASCII))) {
-				throw new UpdateException("sha mismatch");
-			}
-			Files.write(temp, jar);
-			validateJar(temp, info.version);
+		synchronized (STAGE_LOCK) {
+			Path target = dir.resolve(STAGED_NAME);
+			Path temp = dir.resolve(TEMP_NAME);
 			try {
-				Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-			} catch (IOException atomicFailed) {
-				Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+				Files.createDirectories(dir);
+				Files.deleteIfExists(temp);
+				byte[] jar = fetch(checkedUrl(info.agentUrl), MAX_AGENT);
+				String digest = sha256(jar);
+				if (!MessageDigest.isEqual(digest.getBytes(StandardCharsets.US_ASCII),
+					info.agentSha256.getBytes(StandardCharsets.US_ASCII))) {
+					throw new UpdateException("sha mismatch");
+				}
+				Files.write(temp, jar);
+				validateJar(temp, info.version);
+				try {
+					Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+				} catch (IOException atomicFailed) {
+					Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
+				}
+				return target;
+			} catch (IOException exception) {
+				delete(temp);
+				throw new UpdateException("io: " + exception.getMessage());
+			} catch (UpdateException exception) {
+				delete(temp);
+				throw exception;
 			}
-			return target;
-		} catch (IOException exception) {
-			delete(temp);
-			throw new UpdateException("io: " + exception.getMessage());
-		} catch (UpdateException exception) {
-			delete(temp);
-			throw exception;
 		}
 	}
 
@@ -170,15 +184,44 @@ public final class Update {
 	}
 
 	public static void log(String version, String sha256, String status) {
-		try {
-			Path file = logFile();
-			Files.createDirectories(file.getParent());
-			String line = Instant.now() + " version=" + safe(version) + " sha=" + safe(sha256)
-				+ " status=" + safe(status) + "\n";
-			Files.writeString(file, line, StandardCharsets.UTF_8,
-				java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
-		} catch (Throwable throwable) {
-			Log.debug("Update log failed", throwable);
+		synchronized (LOG_LOCK) {
+			try {
+				Path file = logFile();
+				Files.createDirectories(file.getParent());
+				rotate(file);
+				String line = Instant.now() + " version=" + safe(version) + " sha=" + safe(sha256)
+					+ " status=" + safe(status) + "\n";
+				Files.writeString(file, line, StandardCharsets.UTF_8,
+					java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+			} catch (Throwable throwable) {
+				Log.debug("Update log failed", throwable);
+			}
+		}
+	}
+
+	private static void rotate(Path file) throws IOException {
+		if (!Files.isRegularFile(file)) {
+			return;
+		}
+		long length = Files.size(file);
+		if (length <= LOG_MAX) {
+			return;
+		}
+		try (RandomAccessFile journal = new RandomAccessFile(file.toFile(), "rw")) {
+			long from = length - LOG_KEEP;
+			journal.seek(from);
+			byte[] tail = new byte[LOG_KEEP];
+			journal.readFully(tail);
+			int firstLine = 0;
+			while (firstLine < tail.length && tail[firstLine] != '\n') {
+				firstLine++;
+			}
+			if (firstLine < tail.length) {
+				firstLine++;
+			}
+			journal.setLength(0);
+			journal.seek(0);
+			journal.write(tail, firstLine, tail.length - firstLine);
 		}
 	}
 
@@ -227,6 +270,22 @@ public final class Update {
 		return override == null || override.isBlank() ? DiscordConfig.UPDATE_MANIFEST_URL : override;
 	}
 
+	private static URL signatureUrl(URL manifest) throws UpdateException {
+		try {
+			URI uri = manifest.toURI();
+			String path = uri.getPath();
+			if (path == null || !path.endsWith(".json")) {
+				throw new UpdateException("bad manifest url");
+			}
+			return new URI(uri.getScheme(), uri.getAuthority(), path + ".sig", uri.getQuery(), uri.getFragment())
+				.toURL();
+		} catch (UpdateException exception) {
+			throw exception;
+		} catch (Exception exception) {
+			throw new UpdateException("bad manifest url");
+		}
+	}
+
 	private static Path logFile() {
 		String override = System.getProperty("spc.updateLog");
 		return override == null || override.isBlank()
@@ -254,7 +313,10 @@ public final class Update {
 			connection.setConnectTimeout(TIMEOUT_MS);
 			connection.setReadTimeout(TIMEOUT_MS);
 			connection.setInstanceFollowRedirects(true);
+			connection.setUseCaches(false);
 			connection.setRequestProperty("User-Agent", "ServerPackCore");
+			connection.setRequestProperty("Cache-Control", "no-cache");
+			connection.setRequestProperty("Accept", "application/json, application/octet-stream");
 			int code = connection.getResponseCode();
 			if (code != HttpURLConnection.HTTP_OK) {
 				throw new UpdateException("http " + code);
@@ -344,8 +406,14 @@ public final class Update {
 				}
 			}
 			Manifest manifest;
-			try (InputStream input = zip.getInputStream(zip.getEntry("META-INF/MANIFEST.MF"))) {
-				manifest = new Manifest(input);
+			ZipEntry manifestEntry = zip.getEntry("META-INF/MANIFEST.MF");
+			long manifestSize = manifestEntry.getSize();
+			if (manifestSize > MAX_MANIFEST) {
+				throw new UpdateException("manifest too large");
+			}
+			try (InputStream input = zip.getInputStream(manifestEntry)) {
+				byte[] bytes = readLimited(input, MAX_MANIFEST);
+				manifest = new Manifest(new ByteArrayInputStream(bytes));
 			}
 			Attributes attributes = manifest.getMainAttributes();
 			if (!AGENT_MAIN.equals(attributes.getValue("Main-Class"))) {

@@ -75,7 +75,7 @@ Updates are manual by default (`update`); `update auto on` opts in every 24 h. T
 
 0.1.2 and earlier no longer connect: the bot token was rotated on 2026-11-04. Reinstall 0.1.3 manually.
 
-`update` verifies the signed manifest and leaves `spc-agent-new.jar` next to the current agent. It does not restart the agent or swap the mod yet: staging only. `update check` reports the offered version and notes without touching the disk; `update status` shows the last attempts recorded in `update.log`. `-Dspc.updateManifest` and `-Dspc.updatePublicKey` override the manifest URL and the public key path for local testing.
+`update` verifies the signed manifest and leaves `spc-agent-new.jar` next to the current agent. It does not restart the agent or swap the mod yet: staging only. `update check` reports the offered version and notes without touching the disk; `update status` shows the last attempts recorded in `update.log`. `-Dspc.updateManifest`, `-Dspc.updatePublicKey` and `-Dspc.updateLog` override the manifest URL, the public key path and the log path for local testing.
 
 ## Requirements
 
