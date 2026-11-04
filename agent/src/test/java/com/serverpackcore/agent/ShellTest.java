@@ -15,7 +15,7 @@ class ShellTest {
 	Path temp;
 
 	@Test
-	void timeoutCortaYMataDescendientes() throws Exception {
+	void timeoutKillsDescendants() throws Exception {
 		long start = System.currentTimeMillis();
 		String output = Shell.run(temp, "sleep 30 & echo $!; wait", 500L);
 		long elapsed = System.currentTimeMillis() - start;
@@ -35,15 +35,15 @@ class ShellTest {
 	}
 
 	@Test
-	void salidaMayorDeUnMBSeTrunca() throws Exception {
+	void outputOverOneMBTruncated() throws Exception {
 		String output = Shell.run(temp, "head -c 2000000 /dev/zero | tr '\\0' a", 20000L);
 		assertTrue(output.length() <= 1024 * 1024);
 		assertTrue(output.length() > 900 * 1024);
 	}
 
 	@Test
-	void cwdRespetado() throws Exception {
-		Files.writeString(temp.resolve("marca.txt"), "x");
-		assertTrue(Shell.run(temp, "ls", 5000L).contains("marca.txt"));
+	void cwdRespected() throws Exception {
+		Files.writeString(temp.resolve("marker.txt"), "x");
+		assertTrue(Shell.run(temp, "ls", 5000L).contains("marker.txt"));
 	}
 }

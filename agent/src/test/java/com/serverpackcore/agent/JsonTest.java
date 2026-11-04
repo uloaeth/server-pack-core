@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 
 class JsonTest {
 	@Test
-	void objetos() {
+	void objects() {
 		Map<String, Object> map = Json.parseObject("{\"a\":1,\"b\":true}");
 		assertEquals(1L, map.get("a"));
 		assertEquals(Boolean.TRUE, map.get("b"));
@@ -29,18 +29,18 @@ class JsonTest {
 
 	@Test
 	void unicode() {
-		assertEquals("ñ", Json.parse("\"\\u00f1\""));
+		assertEquals("\u00f1", Json.parse("\"\\u00f1\""));
 	}
 
 	@Test
-	void entradaInvalida() {
+	void invalidInput() {
 		assertThrows(IllegalArgumentException.class, () -> Json.parse("{"));
 		assertThrows(IllegalArgumentException.class, () -> Json.parse("[1,]"));
 		assertThrows(IllegalArgumentException.class, () -> Json.parse("{\"a\":1} extra"));
 	}
 
 	@Test
-	void profundidadRazonable() {
+	void reasonableDepth() {
 		String text = "[".repeat(100) + "]".repeat(100);
 		assertTrue(Json.parse(text) instanceof List);
 	}

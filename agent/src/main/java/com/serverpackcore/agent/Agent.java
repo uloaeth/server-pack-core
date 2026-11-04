@@ -46,7 +46,7 @@ public final class Agent {
 			state.version = version();
 			state.save(AgentPaths.state(dir));
 			if (state.persist) {
-				// Reapunta el arranque al runtime vigente y repara la entrada si algo la borro o deshabilito.
+				// Repoint startup to the current runtime and repair the entry if something deleted or disabled it.
 				Persistence.enable(dir);
 			}
 			poller = new Poller(dir, gameDir, state);

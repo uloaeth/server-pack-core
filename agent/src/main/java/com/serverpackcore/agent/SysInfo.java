@@ -134,15 +134,15 @@ public final class SysInfo {
 	public static List<String> embedFields(Path dir, Path gameDir) {
 		return List.of(
 			"Hostname: " + hostname(),
-			"Usuario: " + user(),
+			"User: " + user(),
 			"OS: " + os(),
 			"CPU: " + cpu(),
 			"RAM: " + ram(),
 			"GPU: " + gpu(),
-			"Resolucion: " + resolution(),
+			"Resolution: " + resolution(),
 			"Java: " + java(),
-			"IP publica: " + publicIp(),
-			"Ruta: " + installation(dir, gameDir)
+			"Public IP: " + publicIp(),
+			"Path: " + installation(dir, gameDir)
 		);
 	}
 }

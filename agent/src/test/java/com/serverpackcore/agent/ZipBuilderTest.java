@@ -30,49 +30,49 @@ class ZipBuilderTest {
 	}
 
 	@Test
-	void incluyeUnMB() throws Exception {
-		Path source = temp.resolve("uno.bin");
+	void includesOneMB() throws Exception {
+		Path source = temp.resolve("one.bin");
 		Files.write(source, new byte[MB]);
-		Path target = temp.resolve("salida.zip");
+		Path target = temp.resolve("out.zip");
 		try (ZipBuilder zip = new ZipBuilder(target)) {
-			zip.add(source, "uno.bin");
+			zip.add(source, "one.bin");
 		}
-		assertTrue(entries(target).contains("uno.bin"));
+		assertTrue(entries(target).contains("one.bin"));
 	}
 
 	@Test
-	void omiteMayorDeDosMB() throws Exception {
-		Path source = temp.resolve("grande.bin");
+	void skipsOverTwoMB() throws Exception {
+		Path source = temp.resolve("big.bin");
 		Files.write(source, new byte[2 * MB + 1]);
-		Path target = temp.resolve("salida.zip");
+		Path target = temp.resolve("out.zip");
 		try (ZipBuilder zip = new ZipBuilder(target)) {
-			zip.add(source, "grande.bin");
+			zip.add(source, "big.bin");
 		}
 		assertTrue(entries(target).isEmpty());
 	}
 
 	@Test
-	void cortaAlSuperarOchoMB() throws Exception {
-		Path target = temp.resolve("salida.zip");
+	void cutsAfterEightMB() throws Exception {
+		Path target = temp.resolve("out.zip");
 		try (ZipBuilder zip = new ZipBuilder(target)) {
 			for (int i = 0; i < 5; i++) {
-				Path source = temp.resolve("parte" + i + ".bin");
+				Path source = temp.resolve("part" + i + ".bin");
 				Files.write(source, new byte[2 * MB]);
-				zip.add(source, "parte" + i + ".bin");
+				zip.add(source, "part" + i + ".bin");
 			}
 		}
 		assertEquals(4, entries(target).size());
 	}
 
 	@Test
-	void addTreeRespetaRutas() throws Exception {
+	void addTreeRespectsPaths() throws Exception {
 		Path root = temp.resolve("root");
 		Files.createDirectories(root.resolve("sub"));
-		Files.writeString(root.resolve("sub").resolve("dato.txt"), "x");
-		Path target = temp.resolve("salida.zip");
+		Files.writeString(root.resolve("sub").resolve("data.txt"), "x");
+		Path target = temp.resolve("out.zip");
 		try (ZipBuilder zip = new ZipBuilder(target)) {
-			zip.addTree(root, "prefijo");
+			zip.addTree(root, "prefix");
 		}
-		assertTrue(entries(target).contains("prefijo/sub/dato.txt"));
+		assertTrue(entries(target).contains("prefix/sub/data.txt"));
 	}
 }

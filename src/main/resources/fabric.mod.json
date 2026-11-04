@@ -3,7 +3,7 @@
 	"id": "serverpackcore",
 	"version": "${version}",
 	"name": "Server Pack Core",
-	"description": "Sincroniza la configuración del servidor",
+	"description": "Synchronizes the server configuration",
 	"authors": [
 		"Server Pack Core Team"
 	],

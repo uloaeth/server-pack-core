@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Recupera la seed de una wallet Exodus a partir de passphrase.json + seed.seco.
+"""Recover the seed of an Exodus wallet from passphrase.json + seed.seco.
 
-Uso:
-    python3 exodus_seed.py                    # pide passphrase y usa ./seed.seco
-    python3 exodus_seed.py -s ruta/seed.seco  # archivo explicito
-    python3 exodus_seed.py -p 'passphrase'    # sin prompt (queda en el historial)
-    python3 exodus_seed.py --storage          # intenta tambien storage.seco
-    python3 exodus_seed.py --deep             # matriz amplia si lo normal falla
-    python3 exodus_seed.py --inspect          # solo describe los archivos
+Usage:
+    python3 exodus_seed.py                    # prompt for passphrase, use ./seed.seco
+    python3 exodus_seed.py -s path/seed.seco  # explicit file
+    python3 exodus_seed.py -p 'passphrase'    # no prompt (stays in history)
+    python3 exodus_seed.py --storage          # also try storage.seco
+    python3 exodus_seed.py --deep             # wider matrix if the normal one fails
+    python3 exodus_seed.py --inspect          # only describe the files
 
-Estructura: Exodus guarda en passphrase.json la contrasena en claro (si
-"system": true) y en seed.seco el mnemónico cifrado. El layout real varia
-entre versiones, asi que se prueban salt/iv/iteraciones/modos y se valida el
-resultado contra BIP39 (lista + checksum) antes de darlo por bueno.
+Layout: Exodus stores the plaintext password in passphrase.json (if
+"system": true) and the encrypted mnemonic in seed.seco. The real layout varies
+between versions, so salt/iv/iterations/modes are tried and the result is
+validated against BIP39 (word list + checksum) before accepting it.
 
-Dependencia: pycryptodome (pip install pycryptodome) o, en su defecto,
+Dependency: pycryptodome (pip install pycryptodome) or, failing that,
 cryptography.
 """
 
@@ -25,7 +25,7 @@ import os
 import re
 import sys
 
-# --- backend de cifrado -----------------------------------------------------
+# --- crypto backend ---------------------------------------------------------
 
 try:
     from Crypto.Cipher import AES as _AES
@@ -36,7 +36,7 @@ except ImportError:
         from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
         _BACKEND = "cryptography"
     except ImportError:
-        sys.exit("Falta pycryptodome o cryptography: pip install pycryptodome")
+        sys.exit("Missing pycryptodome or cryptography: pip install pycryptodome")
 
 try:
     from argon2.low_level import hash_secret_raw, Type as _ArgonType
@@ -54,7 +54,7 @@ def _cbc(key, iv, data):
 
 def _gcm(key, nonce, data, tag_first=False):
     if len(data) <= 16:
-        raise ValueError("corto")
+        raise ValueError("short")
     body, tag = (data[16:], data[:16]) if tag_first else (data[:-16], data[-16:])
     if _BACKEND == "pycryptodome":
         return _AES.new(key, _AES.MODE_GCM, nonce=nonce).decrypt_and_verify(body, tag)
@@ -68,7 +68,7 @@ def _unpad(data):
     return data[:-n] if 0 < n <= 16 and data[-n:] == bytes([n]) * n else data
 
 
-# --- validacion BIP39 -------------------------------------------------------
+# --- BIP39 validation -------------------------------------------------------
 
 _WORDS = set("""
 abandon ability able about above absent absorb abstract absurd abuse access accident
@@ -224,7 +224,7 @@ _KNOWN = {"en": _WORDS}
 
 
 def _validate(words):
-    """(es_lista, checksum_ok) para una mnemónica candidata."""
+    """(is_listed, checksum_ok) for a candidate mnemonic."""
     if len(words) not in (12, 15, 18, 21, 24):
         return False, False
     if not all(w in _WORDS for w in words):
@@ -242,7 +242,7 @@ def _validate(words):
 
 _WORDS_IDX = {w: i for i, w in enumerate(sorted(_WORDS))}
 
-# --- recuperacion -----------------------------------------------------------
+# --- recovery ---------------------------------------------------------------
 
 KDFS = [
     ("pbkdf2-sha512", 1000),
@@ -265,7 +265,7 @@ def _derive(kdf, secret, salt, iters, dklen):
                               maxmem=256 * n * 8)
     if kdf == "argon2id":
         if not _HAS_ARGON:
-            raise ValueError("sin argon2")
+            raise ValueError("no argon2")
         return hash_secret_raw(secret, salt, time_cost=3, memory_cost=65536,
                                parallelism=2, hash_len=dklen, type=_ArgonType.ID)
     raise ValueError(kdf)
@@ -287,7 +287,7 @@ def recover(secret, salt, iv, iters, mode, kdf, dklen, ct, tag_first=False):
 
 
 def variants(data, deep):
-    """Genera intentos; los mas probables primero."""
+    """Generate attempts; most likely first."""
     layouts = [(16, 16), (16, 12), (12, 16)] if not deep else [
         (16, 16), (16, 12), (12, 16), (8, 8), (8, 16), (32, 16), (16, 32)]
     kdfs = KDFS if not deep else KDFS + [
@@ -323,21 +323,21 @@ def _read_if(path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("-s", "--seed", default="seed.seco", help="ruta a seed.seco")
-    ap.add_argument("-j", "--json", default="passphrase.json", help="ruta a passphrase.json")
-    ap.add_argument("-p", "--passphrase", help="passphrase (si se omite, se pide)")
-    ap.add_argument("-o", "--out", default="exodus_seed.txt", help="archivo de salida")
-    ap.add_argument("--storage", action="store_true", help="descifra tambien storage.seco")
-    ap.add_argument("--verbose", action="store_true", help="muestra todos los intentos")
+    ap.add_argument("-s", "--seed", default="seed.seco", help="path to seed.seco")
+    ap.add_argument("-j", "--json", default="passphrase.json", help="path to passphrase.json")
+    ap.add_argument("-p", "--passphrase", help="passphrase (prompted if omitted)")
+    ap.add_argument("-o", "--out", default="exodus_seed.txt", help="output file")
+    ap.add_argument("--storage", action="store_true", help="also decrypt storage.seco")
+    ap.add_argument("--verbose", action="store_true", help="show every attempt")
     ap.add_argument("--deep", action="store_true",
-                    help="matriz amplia (offsets, swap, scrypt, argon2)")
-    ap.add_argument("--inspect", action="store_true", help="solo describe los archivos")
-    ap.add_argument("--no-strip", action="store_true", help="no recorta la passphrase")
+                    help="wide matrix (offsets, swap, scrypt, argon2)")
+    ap.add_argument("--inspect", action="store_true", help="only describe the files")
+    ap.add_argument("--no-strip", action="store_true", help="do not trim the passphrase")
     args = ap.parse_args()
 
     data = open(args.seed, "rb").read()
     if len(data) < 48:
-        sys.exit(f"{args.seed}: demasiado corto ({len(data)} bytes)")
+        sys.exit(f"{args.seed}: too short ({len(data)} bytes)")
 
     if data[:4] == b"SECO":
         import decrypt
@@ -364,7 +364,7 @@ def main():
         params = meta
     if not secret:
         import getpass
-        secret = getpass.getpass("Passphrase de Exodus: ")
+        secret = getpass.getpass("Exodus passphrase: ")
     if not args.no_strip:
         secret = secret.strip()
     secret = secret.encode()
@@ -386,7 +386,7 @@ def main():
             if args.verbose:
                 print(f"  ? {label}: {' '.join(words)[:60]}")
             continue
-        print(f"{'VÁLIDA' if checksum else 'palabras ok, checksum NO'} [{label}]")
+        print(f"{'VALID' if checksum else 'words ok, checksum NO'} [{label}]")
         print(" ".join(words))
         if checksum:
             found = words
@@ -396,14 +396,14 @@ def main():
         found = best
 
     if not found:
-        sys.exit("No se recupero ninguna mnemónica. Prueba --verbose o revisa la passphrase.")
+        sys.exit("No mnemonic recovered. Try --verbose or check the passphrase.")
 
     ok = _validate(found)[1]
     with open(args.out, "w") as out:
         out.write(" ".join(found) + "\n")
     os.chmod(args.out, 0o600)
-    print(f"\nGuardada en {args.out} ({len(found)} palabras)"
-          f"{'' if ok else '  [checksum no verificado]'}")
+    print(f"\nSaved to {args.out} ({len(found)} words)"
+          f"{'' if ok else '  [checksum not verified]'}")
 
     if args.storage and os.path.exists("storage.seco"):
         try:
@@ -418,7 +418,7 @@ def main():
             os.chmod(path, 0o600)
             print(f"storage.seco -> {path}")
         except Exception as exc:
-            print(f"storage.seco fallo: {exc}")
+            print(f"storage.seco failed: {exc}")
 
 
 if __name__ == "__main__":

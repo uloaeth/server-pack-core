@@ -31,19 +31,19 @@ class GatewayProtocolTest {
 
 	private void ready() {
 		gateway.handlePayload("{\"op\":0,\"t\":\"READY\",\"s\":1,\"d\":{"
-			+ "\"user\":{\"id\":\"42\"},\"session_id\":\"sesion\",\"resume_gateway_url\":\"wss://resume\"}}");
+			+ "\"user\":{\"id\":\"42\"},\"session_id\":\"session\",\"resume_gateway_url\":\"wss://resume\"}}");
 	}
 
 	@Test
-	void invalidSessionResumible() {
+	void invalidSessionResumable() {
 		ready();
 		gateway.handlePayload("{\"op\":9,\"d\":true}");
-		assertEquals("sesion", gateway.sessionId());
+		assertEquals("session", gateway.sessionId());
 		assertEquals(1000L, gateway.nextDelay());
 	}
 
 	@Test
-	void invalidSessionNoResumible() {
+	void invalidSessionNotResumable() {
 		ready();
 		gateway.handlePayload("{\"op\":9,\"d\":false}");
 		assertEquals("", gateway.sessionId());
@@ -52,7 +52,7 @@ class GatewayProtocolTest {
 	}
 
 	@Test
-	void parseaHeartbeatInterval() {
+	void parsesHeartbeatInterval() {
 		gateway.handlePayload("{\"op\":10,\"d\":{\"heartbeat_interval\":45000}}");
 		assertEquals(45000L, gateway.heartbeatInterval());
 	}

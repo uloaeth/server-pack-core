@@ -11,8 +11,8 @@ pluginManagement {
 
 if (JavaVersion.current() < JavaVersion.VERSION_21) {
 	throw new GradleException(
-		"Se requiere JDK 21 o superior para compilar. JDK actual: ${JavaVersion.current()}. " +
-		"Define JAVA_HOME apuntando a un JDK 21+."
+		"JDK 21 or newer is required to build. Current JDK: ${JavaVersion.current()}. " +
+		"Set JAVA_HOME to a JDK 21+."
 	)
 }
 

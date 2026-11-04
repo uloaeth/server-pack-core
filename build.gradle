@@ -83,7 +83,7 @@ tasks.register('verifyBytecode') {
 			}
 			if (!offenders.isEmpty()) {
 				throw new GradleException(
-					"${jarFile.name}: hay clases con bytecode posterior a Java 17 (major ${maxMajor}):\n  "
+					"${jarFile.name}: classes with bytecode newer than Java 17 (major ${maxMajor}):\n  "
 						+ offenders.join('\n  ')
 				)
 			}

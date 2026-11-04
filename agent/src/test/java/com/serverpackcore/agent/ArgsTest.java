@@ -8,23 +8,23 @@ import org.junit.jupiter.api.Test;
 
 class ArgsTest {
 	@Test
-	void respetaComillas() {
+	void respectsQuotes() {
 		assertEquals(List.of("a", "b c", "d"), Args.split("a \"b c\" d"));
 	}
 
 	@Test
-	void colapsaEspaciosMultiples() {
+	void collapsesMultipleSpaces() {
 		assertEquals(List.of("a", "b"), Args.split("a    b"));
 	}
 
 	@Test
-	void cadenaVacia() {
+	void emptyString() {
 		assertEquals(List.of(), Args.split(""));
 		assertEquals(List.of(), Args.split("   "));
 	}
 
 	@Test
-	void comillaSinCerrar() {
+	void unclosedQuote() {
 		assertEquals(List.of("a", "b c"), Args.split("a \"b c"));
 	}
 }

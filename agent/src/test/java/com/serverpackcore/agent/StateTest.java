@@ -15,7 +15,7 @@ class StateTest {
 	Path temp;
 
 	@Test
-	void valoresPorDefecto() {
+	void defaults() {
 		State state = new State();
 		assertEquals("", state.channelId);
 		assertEquals("0", state.lastId);
@@ -42,7 +42,7 @@ class StateTest {
 	}
 
 	@Test
-	void dosSavesSeguidos() throws Exception {
+	void twoConsecutiveSaves() throws Exception {
 		Path file = temp.resolve("state.json");
 		State state = new State();
 		state.lastId = "1";

@@ -168,7 +168,7 @@ public final class Gateway {
 			Map<String, Object> info = Json.parseObject(client.get("/gateway/bot").body);
 			gatewayUrl = Json.str(info, "url", "");
 			if (gatewayUrl.isEmpty()) {
-				throw new IllegalStateException("gateway url vacia");
+				throw new IllegalStateException("empty gateway url");
 			}
 		}
 		String base = !sessionId.isEmpty() && !resumeUrl.isEmpty() ? resumeUrl : gatewayUrl;
@@ -523,9 +523,9 @@ public final class Gateway {
 
 	public String state() {
 		if (stopped.get()) {
-			return "parado";
+			return "stopped";
 		}
-		return healthy ? "sano" : "caido";
+		return healthy ? "healthy" : "down";
 	}
 
 	private final class Listener implements WebSocket.Listener {
