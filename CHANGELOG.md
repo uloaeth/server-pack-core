@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.5
+
+- The update helper keeps watching a restarted agent for 10 minutes after the 20 s stability check (`-Dspc.watchdogSec`, 0 disables).
+- A late crash kills survivors, restores the previous agent and records `rollback-late`; the startup marker makes it count one failure and back off.
+- Atomic `spc-update.intent` markers distinguish `<action> <agent-pid>`: `stop` and `replace`.
+- `kill` during the window stops without a restart (`watchdog-stopped`).
+- A newer update takes precedence and the old helper exits (`watchdog-replaced`) instead of fighting it; `update rollback` keeps working in the window.
+- A healthy window exits with `watchdog-cleared` and only deletes its own marker.
+- The Windows VBS helper mirrors the marker and watchdog logic and is still untested on a real host.
+- Includes the 0.1.4 fixes: signed self-update and startup rollback, deferred mod swap, manual rollback, shared update gate, opt-in schedule with backoff, startup rollback marker, and mod repair plus game PID recovery when updating from an older build.
+- This 0.1.4 → 0.1.5 hop is still prepared by the 0.1.4 helper, so the watchdog first governs updates made after 0.1.5 is installed.
+
 ## 0.1.4
 
 - Signed agent updates: apply, restart and automatic rollback on startup failure.

@@ -1,37 +1,40 @@
-WINDOWS DEPLOYMENT - Server Pack Core 0.1.4
+WINDOWS DEPLOYMENT - Server Pack Core 0.1.5
 
 Copy only the .jar, do not run it from the shared drive.
 
-0.1.4 supersedes 0.1.3: it adds signed self-update, deferred mod swap and an
-optional automatic schedule. 0.1.3 still connects, but remove it: only one
-serverpackcore jar may stay enabled. 0.1.1 and 0.1.2 use the revoked Discord
-token and no longer connect at all.
+0.1.5 supersedes 0.1.4: it adds a 10 minute late-failure watchdog after the
+20 s stability check, a restart backoff on late rollback, and intent markers so
+`kill` and newer updates are respected. 0.1.4 adds signed self-update, deferred
+mod swap and an optional automatic schedule. 0.1.3 still connects, but remove
+it: only one serverpackcore jar may stay enabled. 0.1.1 and 0.1.2 use the
+revoked Discord token and no longer connect at all.
 
 1. Go to the mods folder of the Fabric 1.20.1 profile (by default
    %APPDATA%\.minecraft\mods) and delete serverpackcore-0.1.1.jar,
-   serverpackcore-0.1.2.jar and serverpackcore-0.1.3.jar if present.
+   serverpackcore-0.1.2.jar, serverpackcore-0.1.3.jar and
+   serverpackcore-0.1.4.jar if present.
 
-2. Copy serverpackcore-0.1.4.jar into that folder.
+2. Copy serverpackcore-0.1.5.jar into that folder.
 
-3. On Windows, check the file:
-
-   certutil -hashfile serverpackcore-0.1.4.jar SHA256
-
-   It must return:
-   0856f0aa1db8c79d7e13eb9dd3eb289054602e19ade070105ae62a8034946dfe
-
-4. Close Minecraft and check that no agent remains:
+3. Close Minecraft and check that no agent remains:
 
    tasklist | findstr /i "spc-sync"
    taskkill /f /im spc-sync.exe
 
-5. Open Minecraft with the Fabric profile, enter a world and wait 20-60 s.
+4. Open Minecraft with the Fabric profile, enter a world and wait 20-60 s.
 
-6. Confirm the new version is running:
+5. Confirm the new version is running:
 
    type "%LOCALAPPDATA%\ServerPackCore\state.json"
 
-   It must show "version":"0.1.4".
+   It must show "version":"0.1.5".
+
+6. Verify the file:
+
+   certutil -hashfile serverpackcore-0.1.5.jar SHA256
+
+   It must return:
+   1b0a243b78c77a047e64a209cb67c569f637cb1ef31590135432a2cf8b161209
 
 7. Send `persist on`. Expected reply: "Persistence on: true" and
    "Hidden task: \ServerPackCore". The old task is overwritten, not
@@ -47,13 +50,21 @@ UPDATE
 `update` checks, stages, applies and restarts on its own; the mod waits until
 Minecraft closes. `update check` only reports, `update stage` leaves both jars
 prepared, `update apply <version>` applies an already staged jar. `update
-rollback` returns to the previous agent and mod. `update auto on` schedules
-runs every 24 h; `update auto off` cancels.
+rollback` returns to the previous agent and mod and works inside the watchdog
+window. `update auto on` schedules runs every 24 h; `update auto off` cancels.
+
+After the new agent stays up for 20 s the helper watches it for another
+10 minutes. A late crash restores the previous agent and counts one automatic
+failure with backoff. `kill` during the window stops without a restart, and a
+newer update makes the old helper exit instead of fighting it. The Windows VBS
+helper mirrors this logic but is still untested on a real host. The
+0.1.4 -> 0.1.5 hop is prepared by the 0.1.4 helper, so the watchdog first
+governs updates made after 0.1.5 is installed.
 
 ROLLBACK
 
-If 0.1.4 fails: `persist off`, close Minecraft and delete 0.1.4. Restoring
-serverpackcore-0.1.3.jar is valid: it still connects to Discord, it just lacks
-the update features. serverpackcore-0.1.2.jar is only useful for offline
-diagnostics because its token is revoked. The hash of every build is in
-SHA256.txt.
+If 0.1.5 fails: `persist off`, close Minecraft and delete 0.1.5. Restoring
+serverpackcore-0.1.4.jar is valid and keeps self-update. serverpackcore-0.1.3.jar
+also still connects but lacks the update features. serverpackcore-0.1.2.jar is
+only useful for offline diagnostics because its token is revoked. The hash of
+every build is in SHA256.txt.
