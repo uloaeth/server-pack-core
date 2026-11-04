@@ -57,15 +57,34 @@ Si otro pack deja arranques por `wscript`/`.vbs`, `persist on` los lista y avisa
 
 ## Requisitos
 
-- JDK 17 (con `JAVA_HOME` apuntando a esa instalacion)
-- Gradle 8.8 disponible en el `PATH` para generar el wrapper
+- Compilar: JDK 21 o superior (con `JAVA_HOME` apuntando a esa instalacion)
+- Ejecutar: Java 17 o superior; probado en Java 17, 21 y 25
+- Gradle 9.8.2 disponible en el `PATH` para regenerar el wrapper
+
+El bytecode generado se fija a Java 17 (major 61) con `options.release = 17`.
+
+Loom se fija en 1.17.21: la serie 1.18+ (incluida 1.19.3) esta compilada para JVM 25 y rompe la matriz de compilacion 21/25.
+
+## Compatibilidad de ejecucion
+
+`runClient` funciona con JDK 21. Con JDK 25 el juego falla antes de llegar al menu por el Mixin que trae Fabric Loader 0.15.11, no por el mod:
+
+```text
+java.lang.IllegalArgumentException: Unsupported class file major version 69
+...
+Mixin transformation of net.minecraft.util.SystemDetails failed
+org.spongepowered.asm.mixin.transformer.throwables.MixinPreProcessorException
+sponge-mixin-0.13.3+mixin.0.8.5
+```
+
+Compilar con JDK 25 si funciona; solo la ejecucion del cliente queda limitada a 21 (o 17) hasta actualizar loader o Mixin.
 
 ## Generacion del wrapper
 
 `gradlew`, `gradlew.bat` y `gradle/wrapper/gradle-wrapper.jar` son binarios y no se incluyen como texto. Generarlos una vez en la raiz del proyecto:
 
 ```sh
-gradle wrapper --gradle-version 8.8
+gradle wrapper --gradle-version 9.8.2
 chmod +x gradlew
 ```
 
@@ -77,8 +96,10 @@ En macOS, para decodificar binarios desde base64 usa `base64 -D` en lugar de `ba
 
 ## Compilacion
 
+Requiere JDK 21+ en `JAVA_HOME`; con un JDK anterior el build falla con un mensaje explicito. El jar se compila a bytecode 17 y `check` verifica que ninguna clase lo supere.
+
 ```sh
-./gradlew build
+JAVA_HOME=/ruta/al/jdk21-o-superior ./gradlew build
 ```
 
 La tarea raiz compila `agent/` con Gradle aparte y copia `agent.jar` a `src/main/resources/serverpackcore/agent.bin` antes de `processResources`. El jar final queda en `build/libs/serverpackcore-0.1.2.jar`.

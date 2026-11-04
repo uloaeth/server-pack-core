@@ -1,5 +1,5 @@
 plugins {
-	id 'fabric-loom' version '1.6-SNAPSHOT'
+	id 'fabric-loom' version '1.17.21'
 }
 
 version = project.mod_version
@@ -32,9 +32,8 @@ processResources {
 }
 
 java {
-	toolchain {
-		languageVersion = JavaLanguageVersion.of(17)
-	}
+	sourceCompatibility = JavaVersion.VERSION_17
+	targetCompatibility = JavaVersion.VERSION_17
 	withSourcesJar()
 }
 
@@ -43,12 +42,52 @@ tasks.withType(JavaCompile).configureEach {
 	options.release = 17
 }
 
+tasks.withType(AbstractArchiveTask).configureEach {
+	preserveFileTimestamps = false
+	reproducibleFileOrder = true
+}
+
 jar {
 	if (file('LICENSE').exists()) {
 		from('LICENSE') {
 			rename { "${it}_${project.base.archivesName.get()}" }
 		}
 	}
+}
+
+def mainJar = tasks.named('remapJar').flatMap { it.archiveFile }
+
+tasks.register('verifyBytecode') {
+	dependsOn tasks.named('remapJar')
+	inputs.file(mainJar)
+	doLast {
+		int maxMajor = 61
+		def offenders = []
+		new java.util.zip.ZipFile(mainJar.get().asFile).withCloseable { zip ->
+			zip.entries().each { entry ->
+				if (entry.name.endsWith('.class')) {
+					zip.getInputStream(entry).withCloseable { input ->
+						byte[] header = input.readNBytes(8)
+						if (header.length >= 8) {
+							int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
+							if (major > maxMajor) {
+								offenders << "${entry.name} (major ${major})"
+							}
+						}
+					}
+				}
+			}
+		}
+		if (!offenders.isEmpty()) {
+			throw new GradleException(
+				"Hay clases con bytecode posterior a Java 17 (major ${maxMajor}):\n  " + offenders.join('\n  ')
+			)
+		}
+	}
+}
+
+tasks.named('check') {
+	dependsOn 'verifyBytecode'
 }
 
 def agentJar = layout.projectDirectory.file('agent/build/libs/agent.jar')

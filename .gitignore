@@ -34,6 +34,7 @@ src/main/resources/serverpackcore/agent.bin
 
 # Entorno local
 local.properties
+.jdk21/
 *.log
 __pycache__/
 *.pyc
