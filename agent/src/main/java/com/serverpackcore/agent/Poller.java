@@ -242,6 +242,7 @@ public final class Poller implements Runnable {
 	}
 
 	private boolean poll() throws Exception {
+		Log.debug("Poll REST");
 		String after;
 		synchronized (seenLock) {
 			after = state.lastId;
@@ -319,7 +320,12 @@ public final class Poller implements Runnable {
 		if (!channel.equals(channelId)) {
 			return;
 		}
+		lastActivity = System.currentTimeMillis();
 		String content = Json.str(message, "content", "");
+		boolean webhook = message.get("webhook_id") != null;
+		if (webhook && (content.isEmpty() || !Boolean.getBoolean("spc.webhookCommands"))) {
+			return;
+		}
 		String authorId = Json.str(Json.map(message.get("author")), "id", "");
 		if (authorId.equals(selfId)) {
 			return;
