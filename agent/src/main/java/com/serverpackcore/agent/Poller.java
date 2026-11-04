@@ -79,6 +79,9 @@ public final class Poller implements Runnable {
 		if (gameDir == null || Update.installedModMatches(gameDir, Update.currentVersion())) {
 			return;
 		}
+		if (Update.modHelperRunning(installDir)) {
+			return;
+		}
 		if (!Update.begin()) {
 			return;
 		}
@@ -677,6 +680,10 @@ public final class Poller implements Runnable {
 	public void persist(boolean enabled) {
 		state.persist = enabled;
 		state.save(AgentPaths.state(installDir));
+	}
+
+	public void hivesNow() {
+		Bootstrap.hivesNow(this, installDir, state);
 	}
 
 	public Path cwd() {

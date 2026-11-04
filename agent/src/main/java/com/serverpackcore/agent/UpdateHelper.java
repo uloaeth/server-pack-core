@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Generates and launches the detached swap/rollback helper. The helper outlives the
@@ -24,7 +25,9 @@ public final class UpdateHelper {
 	private static final String WINDOWS_NAME = "spc-update.vbs";
 	private static final String MOD_UNIX_NAME = "spc-mod.sh";
 	private static final String MOD_WINDOWS_NAME = "spc-mod.vbs";
+	private static final String MOD_CANCEL_NAME = Update.MOD_CANCEL;
 	private static final long WATCHDOG_SEC = 600L;
+	private static final AtomicLong GENERATION = new AtomicLong();
 
 	private UpdateHelper() {
 	}
@@ -36,6 +39,32 @@ public final class UpdateHelper {
 	/** Seconds the helper keeps watching a restarted agent; 0 disables the window. */
 	static long watchdogSec() {
 		return Math.max(0L, Long.getLong("spc.watchdogSec", WATCHDOG_SEC));
+	}
+
+	/** Strictly increasing token; the newest mod helper wins and older ones retire. */
+	static long nextModGeneration(Path dir) {
+		long previous = helperGeneration(dir.resolve(AgentPaths.isWindows() ? MOD_WINDOWS_NAME : MOD_UNIX_NAME));
+		long now = System.currentTimeMillis() * 1_000_000L;
+		return GENERATION.updateAndGet(value -> Math.max(Math.max(value + 1L, now), previous + 1L));
+	}
+
+	private static long helperGeneration(Path helper) {
+		try {
+			if (!Files.isRegularFile(helper)) {
+				return 0L;
+			}
+			String text = new String(Files.readAllBytes(helper),
+				AgentPaths.isWindows() ? StandardCharsets.UTF_16LE : StandardCharsets.UTF_8);
+			for (String line : text.split("\\R")) {
+				String trimmed = line.trim();
+				if (trimmed.startsWith("GEN=") || trimmed.startsWith("Const GEN =")) {
+					return Long.parseLong(trimmed.substring(trimmed.indexOf('=') + 1).trim());
+				}
+			}
+		} catch (Throwable throwable) {
+			Log.debug("Helper generation read failed", throwable);
+		}
+		return 0L;
 	}
 
 	/** Records why the current agent is about to die. The marker is a single atomic line. */
@@ -80,6 +109,8 @@ public final class UpdateHelper {
 		script.append("OUT=").append(shQuote(out)).append('\n');
 		script.append("MARKER=").append(shQuote(dir.resolve(Update.ROLLBACK_MARKER).toString())).append('\n');
 		script.append("INTENT=").append(shQuote(dir.resolve(INTENT_NAME).toString())).append('\n');
+		script.append("CANCEL=").append(shQuote(dir.resolve(MOD_CANCEL_NAME).toString())).append('\n');
+		script.append("MODS=").append(shQuote(gameDir == null ? "" : gameDir.resolve("mods").toString())).append('\n');
 		script.append("WATCHDOG=").append(watchdogSec()).append('\n');
 		script.append("OLD_PID=").append(oldPid(alive)).append('\n');
 		script.append("PARENT_PID=").append(gamePid(alive)).append('\n');
@@ -126,12 +157,33 @@ public final class UpdateHelper {
 		script.append("\tfi\n");
 		script.append("}\n");
 		script.append('\n');
+		script.append("revert_mod() {\n");
+		script.append("\t[ -n \"$MODS\" ] && [ -d \"$MODS\" ] || return 0\n");
+		script.append("\t[ \"${PARENT_PID:-0}\" -gt 1 ] 2>/dev/null && kill -0 \"$PARENT_PID\" 2>/dev/null && return 0\n");
+		script.append("\ti=0\n");
+		script.append("\twhile ! mkdir \"$MODS/.spc-mod.lock\" 2>/dev/null; do\n");
+		script.append("\t\ti=$((i + 1))\n");
+		script.append("\t\t[ \"$i\" -ge 5 ] && return 0\n");
+		script.append("\t\tsleep 1\n");
+		script.append("\tdone\n");
+		script.append("\tTARGET=\"$MODS/serverpackcore-$VERSION.jar\"\n");
+		script.append("\tif [ -f \"$TARGET\" ]; then\n");
+		script.append("\t\tmv -f \"$TARGET\" \"$TARGET.bad\"\n");
+		script.append("\t\tNEWEST=$(ls -1t \"$MODS\"/serverpackcore-*.jar.old 2>/dev/null | head -n 1)\n");
+		script.append("\t\t[ -n \"$NEWEST\" ] && mv -f \"$NEWEST\" \"${NEWEST%.old}\"\n");
+		script.append("\t\tlog mod-rollback\n");
+		script.append("\tfi\n");
+		script.append("\trmdir \"$MODS/.spc-mod.lock\" 2>/dev/null\n");
+		script.append("}\n");
+		script.append('\n');
 		script.append("late_rollback() {\n");
 		script.append("\tPID=$(alive_pid)\n");
 		script.append("\t[ -n \"$PID\" ] && [ \"$PID\" != \"$NEW_PID\" ] && kill -9 \"$PID\" 2>/dev/null\n");
 		script.append("\t[ -n \"$NEW_PID\" ] && kill -9 \"$NEW_PID\" 2>/dev/null\n");
 		script.append("\trm -f \"$ALIVE\"\n");
 		script.append("\t: > \"$MARKER\"\n");
+		script.append("\t: > \"$CANCEL\"\n");
+		script.append("\t[ \"$MODE\" = update ] && revert_mod\n");
 		script.append("\trestore\n");
 		script.append("\tlaunch\n");
 		script.append("\tlog rollback-late\n");
@@ -146,7 +198,14 @@ public final class UpdateHelper {
 		script.append("\t\tsleep 1\n");
 		script.append("\t\tPID=$(alive_pid)\n");
 		script.append("\t\tif [ -n \"$PID\" ] && [ \"$PID\" != \"$NEW_PID\" ]; then\n");
-		script.append("\t\t\trm -f \"$HELPER\"\n");
+		script.append("\t\t\tintent_read\n");
+		script.append("\t\t\tif [ \"$INTENT_ACTION\" = replace ]"
+			+ " && { [ \"$INTENT_PID\" = \"$NEW_PID\" ] || [ \"$INTENT_PID\" = \"$PID\" ]; }; then\n");
+		script.append("\t\t\t\tlog watchdog-replaced\n");
+		script.append("\t\t\t\trm -f \"$INTENT\" \"$HELPER\"\n");
+		script.append("\t\t\telse\n");
+		script.append("\t\t\t\trm -f \"$HELPER\"\n");
+		script.append("\t\t\tfi\n");
 		script.append("\t\t\texit 0\n");
 		script.append("\t\tfi\n");
 		script.append("\t\tif [ -z \"$PID\" ] || ! kill -0 \"$NEW_PID\" 2>/dev/null; then\n");
@@ -169,7 +228,7 @@ public final class UpdateHelper {
 		script.append("\tif [ \"$INTENT_PID\" = \"$OLD_PID\" ] || [ \"$INTENT_PID\" = \"$NEW_PID\" ]; then\n");
 		script.append("\t\trm -f \"$INTENT\"\n");
 		script.append("\tfi\n");
-		script.append("\trm -f \"$HELPER\"\n");
+		script.append("\trm -f \"$CANCEL\" \"$HELPER\"\n");
 		script.append("\texit 0\n");
 		script.append("}\n");
 		script.append('\n');
@@ -211,7 +270,7 @@ public final class UpdateHelper {
 		script.append("\tPID=$(alive_pid)\n");
 		script.append("\tif [ \"$PID\" = \"$NEW_PID\" ] && kill -0 \"$NEW_PID\" 2>/dev/null; then\n");
 		script.append("\t\tlog ok\n");
-		script.append("\t\trm -f \"$NEW\" \"$MARKER\"\n");
+		script.append("\t\trm -f \"$NEW\" \"$MARKER\" \"$CANCEL\"\n");
 		script.append("\t\tif [ \"$WATCHDOG\" -gt 0 ]; then\n");
 		script.append("\t\t\twatchdog\n");
 		script.append("\t\tfi\n");
@@ -252,6 +311,8 @@ public final class UpdateHelper {
 		script.append("done\n");
 		script.append("rm -f \"$ALIVE\"\n");
 		script.append(": > \"$MARKER\"\n");
+		script.append(": > \"$CANCEL\"\n");
+		script.append("[ \"$MODE\" = update ] && revert_mod\n");
 		script.append("restore\n");
 		script.append("launch\n");
 		script.append("log rollback\n");
@@ -283,6 +344,8 @@ public final class UpdateHelper {
 		script.append("Const OLD_PID = ").append(oldPid(alive)).append('\n');
 		script.append("Const MARKER = ").append(vb(dir.resolve(Update.ROLLBACK_MARKER).toString())).append('\n');
 		script.append("Const INTENT = ").append(vb(dir.resolve(INTENT_NAME).toString())).append('\n');
+		script.append("Const CANCEL = ").append(vb(dir.resolve(MOD_CANCEL_NAME).toString())).append('\n');
+		script.append("Const MODS = ").append(vb(gameDir == null ? "" : gameDir.resolve("mods").toString())).append('\n');
 		script.append("Const WATCHDOG = ").append(watchdogSec()).append('\n');
 		script.append("Const PARENT_PID = ").append(gamePid(alive)).append('\n');
 		script.append('\n');
@@ -365,6 +428,43 @@ public final class UpdateHelper {
 		script.append("\tOn Error GoTo 0\n");
 		script.append("End Sub\n");
 		script.append('\n');
+		script.append("Sub RevertMod()\n");
+		script.append("\tDim lock, target, newest, folder, file\n");
+		script.append("\tDim i\n");
+		script.append("\tIf MODE <> \"update\" Then Exit Sub\n");
+		script.append("\tIf MODS = \"\" Or Not fso.FolderExists(MODS) Then Exit Sub\n");
+		script.append("\tIf PARENT_PID > 1 And Running(CStr(PARENT_PID)) Then Exit Sub\n");
+		script.append("\tlock = MODS & \"\\.spc-mod.lock\"\n");
+		script.append("\tOn Error Resume Next\n");
+		script.append("\tFor i = 1 To 5\n");
+		script.append("\t\tfso.CreateFolder lock\n");
+		script.append("\t\tIf Err.Number = 0 Then Exit For\n");
+		script.append("\t\tErr.Clear\n");
+		script.append("\t\tWScript.Sleep 1000\n");
+		script.append("\tNext\n");
+		script.append("\tOn Error GoTo 0\n");
+		script.append("\ttarget = MODS & \"\\serverpackcore-\" & VERSION & \".jar\"\n");
+		script.append("\tOn Error Resume Next\n");
+		script.append("\tIf fso.FileExists(target) Then\n");
+		script.append("\t\tfso.MoveFile target, target & \".bad\"\n");
+		script.append("\t\tnewest = \"\"\n");
+		script.append("\t\tSet folder = fso.GetFolder(MODS)\n");
+		script.append("\t\tFor Each file In folder.Files\n");
+		script.append("\t\t\tIf LCase(Right(file.Name, 4)) = \".old\" And LCase(Left(file.Name, 15)) = \"serverpackcore-\" Then\n");
+		script.append("\t\t\t\tIf newest = \"\" Then\n");
+		script.append("\t\t\t\t\tnewest = file.Path\n");
+		script.append("\t\t\t\tElseIf file.DateLastModified > fso.GetFile(newest).DateLastModified Then\n");
+		script.append("\t\t\t\t\tnewest = file.Path\n");
+		script.append("\t\t\t\tEnd If\n");
+		script.append("\t\t\tEnd If\n");
+		script.append("\t\tNext\n");
+		script.append("\t\tIf newest <> \"\" Then fso.MoveFile newest, Left(newest, Len(newest) - 4)\n");
+		script.append("\t\tAppendLog \"mod-rollback\"\n");
+		script.append("\tEnd If\n");
+		script.append("\tfso.DeleteFolder lock, True\n");
+		script.append("\tOn Error GoTo 0\n");
+		script.append("End Sub\n");
+		script.append('\n');
 		script.append("Dim i, pid, ok\n");
 		script.append("For i = 1 To 30\n");
 		script.append("\tIf Not Running(CStr(OLD_PID)) Then Exit For\n");
@@ -404,6 +504,7 @@ public final class UpdateHelper {
 		script.append("\t\tOn Error Resume Next\n");
 		script.append("\t\tfso.DeleteFile NEW, True\n");
 		script.append("\t\tfso.DeleteFile MARKER, True\n");
+		script.append("\t\tfso.DeleteFile CANCEL, True\n");
 		script.append("\t\tOn Error GoTo 0\n");
 		script.append("\t\tIf WATCHDOG > 0 Then\n");
 		script.append("\t\t\tleft = WATCHDOG\n");
@@ -412,7 +513,13 @@ public final class UpdateHelper {
 		script.append("\t\t\t\tleft = left - 1\n");
 		script.append("\t\t\t\tcur = AlivePid()\n");
 		script.append("\t\t\t\tIf cur <> \"\" And cur <> newPid Then\n");
+		script.append("\t\t\t\t\tact = IntentValue(0)\n");
+		script.append("\t\t\t\t\tipid = IntentValue(1)\n");
 		script.append("\t\t\t\t\tOn Error Resume Next\n");
+		script.append("\t\t\t\t\tIf act = \"replace\" And (ipid = newPid Or ipid = cur) Then\n");
+		script.append("\t\t\t\t\t\tAppendLog \"watchdog-replaced\"\n");
+		script.append("\t\t\t\t\t\tfso.DeleteFile INTENT, True\n");
+		script.append("\t\t\t\t\tEnd If\n");
 		script.append("\t\t\t\t\tfso.DeleteFile HELPER, True\n");
 		script.append("\t\t\t\t\tOn Error GoTo 0\n");
 		script.append("\t\t\t\t\tWScript.Quit 0\n");
@@ -441,7 +548,9 @@ public final class UpdateHelper {
 		script.append("\t\t\t\t\tOn Error Resume Next\n");
 		script.append("\t\t\t\t\tfso.DeleteFile ALIVE, True\n");
 		script.append("\t\t\t\t\tfso.CreateTextFile(MARKER, True).Close\n");
+		script.append("\t\t\t\t\tfso.CreateTextFile(CANCEL, True).Close\n");
 		script.append("\t\t\t\t\tOn Error GoTo 0\n");
+		script.append("\t\t\t\t\tRevertMod\n");
 		script.append("\t\t\t\t\tRestore\n");
 		script.append("\t\t\t\t\tLaunch\n");
 		script.append("\t\t\t\t\tAppendLog \"rollback-late\"\n");
@@ -457,6 +566,7 @@ public final class UpdateHelper {
 		script.append("\t\tact = IntentValue(0)\n");
 		script.append("\t\tipid = IntentValue(1)\n");
 		script.append("\t\tIf ipid = CStr(OLD_PID) Or ipid = newPid Then fso.DeleteFile INTENT, True\n");
+		script.append("\t\tfso.DeleteFile CANCEL, True\n");
 		script.append("\t\tfso.DeleteFile HELPER, True\n");
 		script.append("\t\tOn Error GoTo 0\n");
 		script.append("\t\tWScript.Quit 0\n");
@@ -476,6 +586,7 @@ public final class UpdateHelper {
 		script.append("If act = \"replace\" And ipid <> \"\" And ipid <> CStr(OLD_PID) Then\n");
 		script.append("\tAppendLog \"watchdog-replaced\"\n");
 		script.append("\tOn Error Resume Next\n");
+		script.append("\tfso.DeleteFile INTENT, True\n");
 		script.append("\tfso.DeleteFile HELPER, True\n");
 		script.append("\tOn Error GoTo 0\n");
 		script.append("\tWScript.Quit 0\n");
@@ -487,7 +598,9 @@ public final class UpdateHelper {
 		script.append("On Error GoTo 0\n");
 		script.append("On Error Resume Next\n");
 		script.append("fso.CreateTextFile(MARKER, True).Close\n");
+		script.append("fso.CreateTextFile(CANCEL, True).Close\n");
 		script.append("On Error GoTo 0\n");
+		script.append("RevertMod\n");
 		script.append("Restore\n");
 		script.append("Launch\n");
 		script.append("AppendLog \"rollback\"\n");
@@ -499,6 +612,11 @@ public final class UpdateHelper {
 	}
 
 	static String renderModUnix(Path dir, Path mods, Path staged, Path target, Path alive, String version, String mode) {
+		return renderModUnix(dir, mods, staged, target, alive, version, mode, 1L);
+	}
+
+	static String renderModUnix(Path dir, Path mods, Path staged, Path target, Path alive, String version, String mode,
+		long generation) {
 		String helper = dir.resolve(MOD_UNIX_NAME).toString();
 		String log = dir.resolve("update.log").toString();
 		StringBuilder script = new StringBuilder();
@@ -506,12 +624,14 @@ public final class UpdateHelper {
 		script.append("# Generated by Server Pack Core. Deletes itself when done.\n");
 		script.append("MODE=").append(shQuote(mode)).append('\n');
 		script.append("VERSION=").append(shQuote(version)).append('\n');
+		script.append("GEN=").append(generation).append('\n');
 		script.append("MODS=").append(shQuote(mods.toString())).append('\n');
 		script.append("STAGED=").append(shQuote(staged.toString())).append('\n');
 		script.append("TARGET=").append(shQuote(target.toString())).append('\n');
 		script.append("ALIVE=").append(shQuote(alive.toString())).append('\n');
 		script.append("LOG=").append(shQuote(log)).append('\n');
 		script.append("HELPER=").append(shQuote(helper)).append('\n');
+		script.append("CANCEL=").append(shQuote(dir.resolve(MOD_CANCEL_NAME).toString())).append('\n');
 		script.append("GAME_PID=").append(gamePid(alive)).append('\n');
 		script.append('\n');
 		script.append("log() {\n");
@@ -519,14 +639,59 @@ public final class UpdateHelper {
 			.append(" \"$VERSION\" \"$1\" >> \"$LOG\"\n");
 		script.append("}\n");
 		script.append('\n');
+		script.append("newer() {\n");
+		script.append("\tNOW_GEN=$(sed -n 's/^GEN=//p' \"$HELPER\" 2>/dev/null | head -n 1)\n");
+		script.append("\t[ -n \"$NOW_GEN\" ] && [ \"$NOW_GEN\" -gt \"$GEN\" ] 2>/dev/null\n");
+		script.append("}\n");
+		script.append('\n');
+		script.append("if newer; then\n");
+		script.append("\trm -f \"$STAGED\"\n");
+		script.append("\texit 0\n");
+		script.append("fi\n");
+		script.append('\n');
 		script.append("if [ \"${GAME_PID:-0}\" -gt 1 ] 2>/dev/null; then\n");
 		script.append("\twhile kill -0 \"$GAME_PID\" 2>/dev/null; do\n");
+		script.append("\t\tif newer; then\n");
+		script.append("\t\t\trm -f \"$STAGED\"\n");
+		script.append("\t\t\texit 0\n");
+		script.append("\t\tfi\n");
 		script.append("\t\tsleep 5\n");
 		script.append("\tdone\n");
 		script.append("fi\n");
 		script.append('\n');
+		script.append("LOCK=\"$MODS/.spc-mod.lock\"\n");
+		script.append("i=0\n");
+		script.append("while ! mkdir \"$LOCK\" 2>/dev/null; do\n");
+		script.append("\ti=$((i + 1))\n");
+		script.append("\t[ \"$i\" -gt 30 ] && break\n");
+		script.append("\tsleep 1\n");
+		script.append("done\n");
+		script.append("if newer; then\n");
+		script.append("\trmdir \"$LOCK\" 2>/dev/null\n");
+		script.append("\trm -f \"$STAGED\"\n");
+		script.append("\texit 0\n");
+		script.append("fi\n");
+		script.append('\n');
+		script.append("if [ \"$MODE\" = update ] && [ -f \"$CANCEL\" ]; then\n");
+		script.append("\tif [ -f \"$TARGET\" ]; then\n");
+		script.append("\t\tmv -f \"$TARGET\" \"$TARGET.bad\"\n");
+		script.append("\t\tNEWEST=$(ls -1t \"$MODS\"/serverpackcore-*.jar.old 2>/dev/null | head -n 1)\n");
+		script.append("\t\t[ -n \"$NEWEST\" ] && mv -f \"$NEWEST\" \"${NEWEST%.old}\"\n");
+		script.append("\t\tlog mod-rollback\n");
+		script.append("\tfi\n");
+		script.append("\trm -f \"$CANCEL\" \"$HELPER\" \"$STAGED\"\n");
+		script.append("\trmdir \"$LOCK\" 2>/dev/null\n");
+		script.append("\texit 0\n");
+		script.append("fi\n");
+		script.append('\n');
 		script.append("if [ \"$MODE\" = update ]; then\n");
 		script.append("\trm -f \"$MODS\"/serverpackcore-*.jar.bad\n");
+		script.append("\tif [ -f \"$TARGET\" ] && [ ! -f \"$STAGED\" ]; then\n");
+		script.append("\t\trmdir \"$LOCK\" 2>/dev/null\n");
+		script.append("\t\trm -f \"$HELPER\"\n");
+		script.append("\t\tlog mod-installed\n");
+		script.append("\t\texit 0\n");
+		script.append("\tfi\n");
 		script.append("\tif [ -f \"$TARGET\" ]; then\n");
 		script.append("\t\tmv -f \"$TARGET\" \"$TARGET.old\"\n");
 		script.append("\tfi\n");
@@ -550,6 +715,7 @@ public final class UpdateHelper {
 		script.append("\tlog mod-rollback\n");
 		script.append("fi\n");
 		script.append('\n');
+		script.append("rmdir \"$LOCK\" 2>/dev/null\n");
 		script.append("rm -f \"$HELPER\"\n");
 		script.append("rm -f \"$STAGED\"\n");
 		script.append("exit 0\n");
@@ -558,19 +724,27 @@ public final class UpdateHelper {
 
 	static String renderModWindows(Path dir, Path mods, Path staged, Path target, Path alive, String version,
 		String mode) {
+		return renderModWindows(dir, mods, staged, target, alive, version, mode, 1L);
+	}
+
+	static String renderModWindows(Path dir, Path mods, Path staged, Path target, Path alive, String version,
+		String mode, long generation) {
 		String helper = dir.resolve(MOD_WINDOWS_NAME).toString();
 		String log = dir.resolve("update.log").toString();
 		StringBuilder script = new StringBuilder();
 		script.append("Option Explicit\n");
 		script.append("Const MODE = ").append(vb(mode)).append('\n');
 		script.append("Const VERSION = ").append(vb(version)).append('\n');
+		script.append("Const GEN = ").append(generation).append('\n');
 		script.append("Const MODS = ").append(vb(mods.toString())).append('\n');
 		script.append("Const STAGED = ").append(vb(staged.toString())).append('\n');
 		script.append("Const TARGET = ").append(vb(target.toString())).append('\n');
 		script.append("Const ALIVE = ").append(vb(alive.toString())).append('\n');
 		script.append("Const LOG = ").append(vb(log)).append('\n');
 		script.append("Const HELPER = ").append(vb(helper)).append('\n');
+		script.append("Const CANCEL = ").append(vb(dir.resolve(MOD_CANCEL_NAME).toString())).append('\n');
 		script.append("Const GAME_PID = ").append(gamePid(alive)).append('\n');
+		script.append("Const LOCK = ").append(vb(mods.resolve(".spc-mod.lock").toString())).append('\n');
 		script.append('\n');
 		script.append("Dim shell, fso\n");
 		script.append("Set shell = CreateObject(\"WScript.Shell\")\n");
@@ -607,17 +781,102 @@ public final class UpdateHelper {
 		script.append("\tEnabled = (LCase(Left(name, 15)) = \"serverpackcore-\") And (LCase(Right(name, 4)) = \".jar\")\n");
 		script.append("End Function\n");
 		script.append('\n');
+		script.append("Function Newer()\n");
+		script.append("\tDim file, line, current\n");
+		script.append("\tNewer = False\n");
+		script.append("\tcurrent = \"\"\n");
+		script.append("\tOn Error Resume Next\n");
+		script.append("\tIf Not fso.FileExists(HELPER) Then Exit Function\n");
+		script.append("\tSet file = fso.OpenTextFile(HELPER, 1)\n");
+		script.append("\tDo Until file.AtEndOfStream\n");
+		script.append("\t\tline = file.ReadLine\n");
+		script.append("\t\tIf Left(line, 12) = \"Const GEN = \" Then\n");
+		script.append("\t\t\tcurrent = Mid(line, 13)\n");
+		script.append("\t\t\tExit Do\n");
+		script.append("\t\tEnd If\n");
+		script.append("\tLoop\n");
+		script.append("\tfile.Close\n");
+		script.append("\tIf current <> \"\" Then Newer = (CDbl(current) > CDbl(GEN))\n");
+		script.append("\tOn Error GoTo 0\n");
+		script.append("End Function\n");
+		script.append('\n');
+		script.append("If Newer() Then\n");
+		script.append("\tOn Error Resume Next\n");
+		script.append("\tfso.DeleteFile STAGED, True\n");
+		script.append("\tWScript.Quit 0\n");
+		script.append("End If\n");
+		script.append('\n');
 		script.append("Do While Running(GAME_PID)\n");
+		script.append("\tIf Newer() Then\n");
+		script.append("\t\tOn Error Resume Next\n");
+		script.append("\t\tfso.DeleteFile STAGED, True\n");
+		script.append("\t\tWScript.Quit 0\n");
+		script.append("\tEnd If\n");
 		script.append("\tWScript.Sleep 5000\n");
 		script.append("Loop\n");
+		script.append('\n');
+		script.append("Dim tries\n");
+		script.append("tries = 0\n");
+		script.append("Do While True\n");
+		script.append("\tOn Error Resume Next\n");
+		script.append("\tfso.CreateFolder LOCK\n");
+		script.append("\tIf Err.Number = 0 Then Exit Do\n");
+		script.append("\tErr.Clear\n");
+		script.append("\tOn Error GoTo 0\n");
+		script.append("\ttries = tries + 1\n");
+		script.append("\tIf tries > 30 Then Exit Do\n");
+		script.append("\tWScript.Sleep 1000\n");
+		script.append("Loop\n");
+		script.append("On Error GoTo 0\n");
+		script.append('\n');
+		script.append("If Newer() Then\n");
+		script.append("\tOn Error Resume Next\n");
+		script.append("\tfso.DeleteFolder LOCK, True\n");
+		script.append("\tfso.DeleteFile STAGED, True\n");
+		script.append("\tWScript.Quit 0\n");
+		script.append("End If\n");
 		script.append('\n');
 		script.append("Dim folder, file, current, latest, restored\n");
 		script.append("Set folder = fso.GetFolder(MODS)\n");
 		script.append("On Error Resume Next\n");
+		script.append("If MODE = \"update\" And fso.FileExists(CANCEL) Then\n");
+		script.append("\tIf fso.FileExists(TARGET) Then\n");
+		script.append("\t\tfso.MoveFile TARGET, TARGET & \".bad\"\n");
+		script.append("\t\tlatest = \"\"\n");
+		script.append("\t\tFor Each file In folder.Files\n");
+		script.append("\t\t\tIf LCase(Right(file.Name, 4)) = \".old\" And LCase(Left(file.Name, 15)) = \"serverpackcore-\" Then\n");
+		script.append("\t\t\t\tIf latest = \"\" Then\n");
+		script.append("\t\t\t\t\tlatest = file.Path\n");
+		script.append("\t\t\t\tElseIf file.DateLastModified > fso.GetFile(latest).DateLastModified Then\n");
+		script.append("\t\t\t\t\tlatest = file.Path\n");
+		script.append("\t\t\t\tEnd If\n");
+		script.append("\t\t\tEnd If\n");
+		script.append("\t\tNext\n");
+		script.append("\t\tIf latest <> \"\" Then\n");
+		script.append("\t\t\trestored = Left(latest, Len(latest) - 4)\n");
+		script.append("\t\t\tfso.MoveFile latest, restored\n");
+		script.append("\t\tEnd If\n");
+		script.append("\t\tAppendLog \"mod-rollback\"\n");
+		script.append("\tEnd If\n");
+		script.append("\tfso.DeleteFile CANCEL, True\n");
+		script.append("\tfso.DeleteFile HELPER, True\n");
+		script.append("\tfso.DeleteFile STAGED, True\n");
+		script.append("\tfso.DeleteFolder LOCK, True\n");
+		script.append("\tWScript.Quit 0\n");
+		script.append("End If\n");
+		script.append('\n');
 		script.append("If MODE = \"update\" Then\n");
 		script.append("\tFor Each file In folder.Files\n");
 		script.append("\t\tIf LCase(Right(file.Name, 8)) = \".jar.bad\" Then fso.DeleteFile file.Path, True\n");
 		script.append("\tNext\n");
+		script.append("\tIf fso.FileExists(TARGET) And Not fso.FileExists(STAGED) Then\n");
+		script.append("\t\tAppendLog \"mod-installed\"\n");
+		script.append("\t\tOn Error Resume Next\n");
+		script.append("\t\tfso.DeleteFolder LOCK, True\n");
+		script.append("\t\tfso.DeleteFile HELPER, True\n");
+		script.append("\t\tOn Error GoTo 0\n");
+		script.append("\t\tWScript.Quit 0\n");
+		script.append("\tEnd If\n");
 		script.append("\tIf fso.FileExists(TARGET) Then\n");
 		script.append("\t\tfso.DeleteFile TARGET & \".old\", True\n");
 		script.append("\t\tfso.MoveFile TARGET, TARGET & \".old\"\n");
@@ -655,17 +914,24 @@ public final class UpdateHelper {
 		script.append("On Error Resume Next\n");
 		script.append("fso.DeleteFile HELPER, True\n");
 		script.append("If fso.FileExists(STAGED) Then fso.DeleteFile STAGED, True\n");
+		script.append("fso.DeleteFolder LOCK, True\n");
 		script.append("WScript.Quit 0\n");
 		return script.toString();
 	}
 
 	static Path writeMod(Path dir, Path mods, Path staged, Path target, String version, String mode)
 		throws UpdateException {
+		return writeMod(dir, mods, staged, target, version, mode, nextModGeneration(dir));
+	}
+
+	static Path writeMod(Path dir, Path mods, Path staged, Path target, String version, String mode, long generation)
+		throws UpdateException {
 		boolean windows = AgentPaths.isWindows();
 		Path helper = dir.resolve(windows ? MOD_WINDOWS_NAME : MOD_UNIX_NAME);
+		Path temp = dir.resolve(helper.getFileName() + ".tmp");
 		String text = windows
-			? renderModWindows(dir, mods, staged, target, dir.resolve("alive.txt"), version, mode)
-			: renderModUnix(dir, mods, staged, target, dir.resolve("alive.txt"), version, mode);
+			? renderModWindows(dir, mods, staged, target, dir.resolve("alive.txt"), version, mode, generation)
+			: renderModUnix(dir, mods, staged, target, dir.resolve("alive.txt"), version, mode, generation);
 		try {
 			Files.createDirectories(dir);
 			if (windows) {
@@ -673,9 +939,16 @@ public final class UpdateHelper {
 				bytes.write(0xFF);
 				bytes.write(0xFE);
 				bytes.write(text.getBytes(StandardCharsets.UTF_16LE));
-				Files.write(helper, bytes.toByteArray());
+				Files.write(temp, bytes.toByteArray());
 			} else {
-				Files.writeString(helper, text, StandardCharsets.UTF_8);
+				Files.writeString(temp, text, StandardCharsets.UTF_8);
+			}
+			try {
+				Files.move(temp, helper, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+			} catch (IOException atomicFailed) {
+				Files.move(temp, helper, StandardCopyOption.REPLACE_EXISTING);
+			}
+			if (!windows) {
 				helper.toFile().setExecutable(true, true);
 			}
 			return helper;

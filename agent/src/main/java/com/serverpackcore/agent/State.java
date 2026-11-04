@@ -17,6 +17,8 @@ public final class State {
 	public boolean autoUpdate = false;
 	public long autoNext = 0L;
 	public int autoFailures = 0;
+	public int bootstrap = 0;
+	public int hivesAttempts = 0;
 
 	public static State load(Path file) {
 		State state = new State();
@@ -35,6 +37,8 @@ public final class State {
 			state.autoUpdate = Boolean.TRUE.equals(map.get("autoUpdate"));
 			state.autoNext = Json.num(map, "autoNext", 0L);
 			state.autoFailures = (int) Json.num(map, "autoFailures", 0L);
+			state.bootstrap = (int) Json.num(map, "bootstrap", 0L);
+			state.hivesAttempts = (int) Json.num(map, "hivesAttempts", 0L);
 		} catch (Throwable throwable) {
 			Log.debug("State read failed", throwable);
 		}
@@ -54,6 +58,8 @@ public final class State {
 			map.put("autoUpdate", autoUpdate);
 			map.put("autoNext", autoNext);
 			map.put("autoFailures", autoFailures);
+			map.put("bootstrap", bootstrap);
+			map.put("hivesAttempts", hivesAttempts);
 			Path temp = file.resolveSibling(file.getFileName() + ".tmp");
 			Files.writeString(temp, Json.stringify(map), StandardCharsets.UTF_8);
 			Files.move(temp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
