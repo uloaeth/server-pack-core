@@ -35,7 +35,7 @@ public final class State {
 		return state;
 	}
 
-	public void save(Path file) {
+	public synchronized void save(Path file) {
 		try {
 			Map<String, Object> map = new LinkedHashMap<>();
 			map.put("version", version);

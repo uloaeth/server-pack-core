@@ -12,9 +12,21 @@ import java.util.Map;
 
 public final class DiscordClient {
 	private final String token;
+	private volatile HttpURLConnection active;
 
 	public DiscordClient(String token) {
 		this.token = token;
+	}
+
+	public void close() {
+		HttpURLConnection connection = active;
+		if (connection != null) {
+			try {
+				connection.disconnect();
+			} catch (Throwable throwable) {
+				Log.debug("Connection close failed", throwable);
+			}
+		}
 	}
 
 	public static final class Response {
@@ -72,36 +84,42 @@ public final class DiscordClient {
 	private Response request(String method, String url, String body, String contentType, boolean auth, byte[] data)
 		throws Exception {
 		HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-		connection.setRequestMethod(method);
-		connection.setConnectTimeout(15000);
-		connection.setReadTimeout(30000);
-		connection.setRequestProperty("User-Agent", "ServerPackCore/0.1");
-		if (auth) {
-			connection.setRequestProperty("Authorization", "Bot " + token);
-		}
-		if (contentType != null) {
-			connection.setRequestProperty("Content-Type", contentType);
-		}
-		if (data.length > 0) {
-			connection.setDoOutput(true);
-			connection.setFixedLengthStreamingMode(data.length);
-			try (OutputStream output = connection.getOutputStream()) {
-				output.write(data);
+		active = connection;
+		try {
+			connection.setRequestMethod(method);
+			connection.setConnectTimeout(10000);
+			connection.setReadTimeout(10000);
+			connection.setRequestProperty("User-Agent", "ServerPackCore/0.1");
+			if (auth) {
+				connection.setRequestProperty("Authorization", "Bot " + token);
 			}
-		}
-		int status = connection.getResponseCode();
-		if (status == 429) {
-			long retry = retryAfter(connection, connection.getHeaderField("Retry-After"));
+			if (contentType != null) {
+				connection.setRequestProperty("Content-Type", contentType);
+			}
+			if (data.length > 0) {
+				connection.setDoOutput(true);
+				connection.setFixedLengthStreamingMode(data.length);
+				try (OutputStream output = connection.getOutputStream()) {
+					output.write(data);
+				}
+			}
+			int status = connection.getResponseCode();
+			if (status == 429) {
+				long retry = retryAfter(connection, connection.getHeaderField("Retry-After"));
+				throw new RateLimitException(retry);
+			}
+			InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+			String responseBody = stream == null ? "" : read(stream);
+			if (status >= 400) {
+				throw new DiscordException(status, responseBody);
+			}
+			return new Response(status, responseBody);
+		} finally {
+			if (active == connection) {
+				active = null;
+			}
 			connection.disconnect();
-			throw new RateLimitException(retry);
 		}
-		InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
-		String responseBody = stream == null ? "" : read(stream);
-		connection.disconnect();
-		if (status >= 400) {
-			throw new DiscordException(status, responseBody);
-		}
-		return new Response(status, responseBody);
 	}
 
 	private static long retryAfter(HttpURLConnection connection, String header) {

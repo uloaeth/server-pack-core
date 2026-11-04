@@ -9,6 +9,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 public final class Poller implements Runnable {
 	private final Path installDir;
@@ -16,8 +20,10 @@ public final class Poller implements Runnable {
 	private final State state;
 	private final Random random = new Random();
 	private final CommandExecutor executor;
+	private final ThreadPoolExecutor commandPool;
 	private volatile Path cwd;
 	private volatile boolean running = true;
+	private volatile Thread pollerThread;
 	private DiscordClient client;
 	private String selfId = "";
 	private String channelId = "";
@@ -31,6 +37,12 @@ public final class Poller implements Runnable {
 		this.state = state;
 		this.cwd = Path.of(System.getProperty("user.home", "."));
 		this.executor = new CommandExecutor(this, installDir, gameDir);
+		this.commandPool = new ThreadPoolExecutor(3, 3, 0L, TimeUnit.MILLISECONDS,
+			new ArrayBlockingQueue<>(64), runnable -> {
+				Thread thread = new Thread(runnable, "spc-command");
+				thread.setDaemon(true);
+				return thread;
+			}, new ThreadPoolExecutor.AbortPolicy());
 	}
 
 	public void start() {
@@ -41,6 +53,7 @@ public final class Poller implements Runnable {
 
 	@Override
 	public void run() {
+		pollerThread = Thread.currentThread();
 		try {
 			lastActivity = System.currentTimeMillis();
 			client = new DiscordClient(DiscordConfig.BOT_TOKEN);
@@ -54,14 +67,24 @@ public final class Poller implements Runnable {
 					long idle = System.currentTimeMillis() - lastActivity > DiscordConfig.IDLE_AFTER_MS
 						? DiscordConfig.IDLE_POLL_MS
 						: DiscordConfig.POLL_MS;
-					long wait = Math.max(1000L, idle - 1500L + random.nextInt(1000));
+					long wait = Math.max(500L, idle + random.nextInt(1001) - 500L);
+					Log.debug("Poll wait " + wait + " ms (idle=" + idle + ")");
 					Thread.sleep(wait);
+					if (!running) {
+						break;
+					}
 					poll();
 					failures = 0;
 					backoff = 2000L;
 				} catch (RateLimitException rateLimit) {
+					if (!running) {
+						break;
+					}
 					Thread.sleep(rateLimit.retryMs());
 				} catch (Throwable throwable) {
+					if (!running) {
+						break;
+					}
 					failures++;
 					Log.debug("Poll failed (" + failures + ")", throwable);
 					Thread.sleep(backoff);
@@ -99,8 +122,14 @@ public final class Poller implements Runnable {
 				}
 				return true;
 			} catch (RateLimitException rateLimit) {
+				if (!running) {
+					return false;
+				}
 				Thread.sleep(rateLimit.retryMs());
 			} catch (Throwable throwable) {
+				if (!running) {
+					return false;
+				}
 				Log.debug("Ensure failed", throwable);
 				Thread.sleep(10000L);
 			}
@@ -178,6 +207,7 @@ public final class Poller implements Runnable {
 			saveHeartbeat();
 			return false;
 		}
+		java.util.Collections.reverse(messages);
 		boolean activity = false;
 		for (Object item : messages) {
 			Map<String, Object> message = Json.map(item);
@@ -189,6 +219,9 @@ public final class Poller implements Runnable {
 			if (!authorId.equals(selfId) && !Json.str(message, "content", "").isEmpty()) {
 				activity = true;
 				executor.handle(message);
+				if (!running) {
+					break;
+				}
 			}
 		}
 		if (activity) {
@@ -215,6 +248,14 @@ public final class Poller implements Runnable {
 			return right.compareTo(left) > 0 ? candidate : current;
 		} catch (Throwable throwable) {
 			return candidate;
+		}
+	}
+
+	public void submit(Runnable task) {
+		try {
+			commandPool.execute(task);
+		} catch (RejectedExecutionException rejected) {
+			reply("Cola de comandos llena");
 		}
 	}
 
@@ -279,6 +320,15 @@ public final class Poller implements Runnable {
 
 	public void kill() {
 		running = false;
+		Thread thread = pollerThread;
+		if (thread != null) {
+			thread.interrupt();
+		}
+		DiscordClient current = client;
+		if (current != null) {
+			current.close();
+		}
+		commandPool.shutdownNow();
 		state.save(AgentPaths.state(installDir));
 	}
 

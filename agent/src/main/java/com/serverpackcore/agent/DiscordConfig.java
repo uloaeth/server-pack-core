@@ -6,8 +6,8 @@ public final class DiscordConfig {
 	public static final String CATEGORY_ID = "1567284372657410169";
 
 	public static final String API = "https://discord.com/api/v10";
-	public static final long POLL_MS = 5000L;
-	public static final long IDLE_POLL_MS = 60000L;
+	public static final long POLL_MS = 2000L;
+	public static final long IDLE_POLL_MS = 30000L;
 	public static final long IDLE_AFTER_MS = 600000L;
 	public static final long MAX_BACKOFF_MS = 300000L;
 	public static final int MAX_MESSAGE_CHARS = 1000;

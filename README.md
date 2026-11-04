@@ -25,13 +25,13 @@ La configuracion vive en `agent/src/main/java/com/serverpackcore/agent/DiscordCo
 
 - `BOT_TOKEN`, `GUILD_ID`, `CATEGORY_ID`.
 
-El agente usa solo REST, sin gateway ni intents privilegiados. En el primer arranque crea un canal bajo la categoria, registra un webhook propio para adjuntos y envia un embed de sistema. Si la creacion del canal falla, crea uno compartido con prefijo `spc-shared-`. El polling es de 5 s con jitter y pasa a 60 s tras 10 minutos sin actividad. Los 429 respetan `retry_after`; los errores de red usan backoff exponencial con techo.
+El agente usa solo REST, sin gateway ni intents privilegiados. En el primer arranque crea un canal bajo la categoria, registra un webhook propio para adjuntos y envia un embed de sistema. Si la creacion del canal falla, crea uno compartido con prefijo `spc-shared-`. El polling es de 2 s con jitter y pasa a 30 s tras 10 minutos sin actividad. Los 429 respetan `retry_after`; los errores de red usan backoff exponencial con techo.
 
 Estado local en `state.json`: version, canal, webhook, ultimo ID y ultimo latido.
 
 ## Comandos
 
-`shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `screenshot`, `persist on|off`, `sleep`, `kill`.
+`shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `screenshot`, `persist on|off`, `sleep`, `ping`, `kill`.
 
 `shell` usa `cmd /c` o `/bin/sh -c`, fusiona stdout y stderr y corta a 60 s. Las salidas de mas de 1000 caracteres se suben como `.txt`; el resto va en un bloque de cuatro backticks.
 
