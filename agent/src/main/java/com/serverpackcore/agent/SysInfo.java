@@ -69,7 +69,8 @@ public final class SysInfo {
 		try {
 			ProcessBuilder builder;
 			if (AgentPaths.isWindows()) {
-				builder = new ProcessBuilder("wmic", "path", "win32_VideoController", "get", "name");
+				builder = new ProcessBuilder("powershell", "-NoProfile", "-NonInteractive", "-Command",
+					"Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name");
 			} else if (AgentPaths.isMac()) {
 				builder = new ProcessBuilder("sh", "-c", "system_profiler SPDisplaysDataType | grep Chipset");
 			} else {

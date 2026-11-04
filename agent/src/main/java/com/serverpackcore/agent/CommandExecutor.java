@@ -181,10 +181,37 @@ public final class CommandExecutor {
 			if (parent != null) {
 				Files.createDirectories(parent);
 			}
+			long maximo = 32L * 1024L * 1024L;
 			java.net.HttpURLConnection connection = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+			connection.setConnectTimeout(10000);
+			connection.setReadTimeout(30000);
 			connection.setRequestProperty("User-Agent", "ServerPackCore/0.1");
-			try (java.io.InputStream input = connection.getInputStream()) {
-				Files.copy(input, dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+			if (connection.getContentLengthLong() > maximo) {
+				connection.disconnect();
+				poller.reply("Archivo demasiado grande (maximo 32 MB)");
+				return;
+			}
+			boolean exceeded = false;
+			try (java.io.InputStream input = connection.getInputStream();
+				java.io.OutputStream output = Files.newOutputStream(dest)) {
+				byte[] buffer = new byte[8192];
+				long total = 0L;
+				int read;
+				while ((read = input.read(buffer)) != -1) {
+					total += read;
+					if (total > maximo) {
+						exceeded = true;
+						break;
+					}
+					output.write(buffer, 0, read);
+				}
+			} finally {
+				connection.disconnect();
+			}
+			if (exceeded) {
+				Files.deleteIfExists(dest);
+				poller.reply("Archivo demasiado grande (maximo 32 MB)");
+				return;
 			}
 			poller.reply("Guardado: " + dest + " (" + Files.size(dest) + " bytes)");
 		} catch (Throwable throwable) {

@@ -150,6 +150,17 @@ public final class Poller implements Runnable {
 					state.channelId = channelId;
 					state.save(AgentPaths.state(installDir));
 				}
+				if ("0".equals(state.lastId)) {
+					List<Object> latest = Json.list(Json.parse(
+						client.get("/channels/" + channelId + "/messages?limit=1").body));
+					if (!latest.isEmpty()) {
+						String id = Json.str(Json.map(latest.get(0)), "id", "");
+						if (!id.isEmpty()) {
+							state.lastId = id;
+							state.save(AgentPaths.state(installDir));
+						}
+					}
+				}
 				webhookUrl = state.webhookUrl;
 				if (webhookUrl.isEmpty()) {
 					webhookUrl = createWebhook();
@@ -457,11 +468,18 @@ public final class Poller implements Runnable {
 
 	public void reply(String text) {
 		try {
-			for (int start = 0; start < text.length(); start += 1900) {
-				String chunk = text.substring(start, Math.min(text.length(), start + 1900));
+			int start = 0;
+			while (start < text.length()) {
+				int end = Math.min(text.length(), start + 1900);
+				if (end < text.length() && Character.isHighSurrogate(text.charAt(end - 1))
+					&& Character.isLowSurrogate(text.charAt(end))) {
+					end--;
+				}
+				String chunk = text.substring(start, end);
 				Map<String, Object> payload = new LinkedHashMap<>();
 				payload.put("content", chunk);
 				client.post("/channels/" + channelId + "/messages", Json.stringify(payload));
+				start = end;
 			}
 		} catch (Throwable throwable) {
 			Log.debug("Reply failed", throwable);

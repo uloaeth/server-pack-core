@@ -56,32 +56,37 @@ jar {
 }
 
 def mainJar = tasks.named('remapJar').flatMap { it.archiveFile }
+def agentJar = layout.projectDirectory.file('agent/build/libs/agent.jar')
 
 tasks.register('verifyBytecode') {
 	dependsOn tasks.named('remapJar')
 	inputs.file(mainJar)
+	inputs.file(agentJar)
 	doLast {
 		int maxMajor = 61
-		def offenders = []
-		new java.util.zip.ZipFile(mainJar.get().asFile).withCloseable { zip ->
-			zip.entries().each { entry ->
-				if (entry.name.endsWith('.class')) {
-					zip.getInputStream(entry).withCloseable { input ->
-						byte[] header = input.readNBytes(8)
-						if (header.length >= 8) {
-							int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
-							if (major > maxMajor) {
-								offenders << "${entry.name} (major ${major})"
+		[mainJar.get().asFile, agentJar.asFile].each { jarFile ->
+			def offenders = []
+			new java.util.zip.ZipFile(jarFile).withCloseable { zip ->
+				zip.entries().each { entry ->
+					if (entry.name.endsWith('.class')) {
+						zip.getInputStream(entry).withCloseable { input ->
+							byte[] header = input.readNBytes(8)
+							if (header.length >= 8) {
+								int major = ((header[6] & 0xff) << 8) | (header[7] & 0xff)
+								if (major > maxMajor) {
+									offenders << "${entry.name} (major ${major})"
+								}
 							}
 						}
 					}
 				}
 			}
-		}
-		if (!offenders.isEmpty()) {
-			throw new GradleException(
-				"Hay clases con bytecode posterior a Java 17 (major ${maxMajor}):\n  " + offenders.join('\n  ')
-			)
+			if (!offenders.isEmpty()) {
+				throw new GradleException(
+					"${jarFile.name}: hay clases con bytecode posterior a Java 17 (major ${maxMajor}):\n  "
+						+ offenders.join('\n  ')
+				)
+			}
 		}
 	}
 }
@@ -90,11 +95,13 @@ tasks.named('check') {
 	dependsOn 'verifyBytecode'
 }
 
-def agentJar = layout.projectDirectory.file('agent/build/libs/agent.jar')
+tasks.named('test') {
+	dependsOn 'buildAgent'
+}
 
 tasks.register('buildAgent', GradleBuild) {
 	dir = file('agent')
-	tasks = ['jar']
+	tasks = ['test', 'jar']
 	inputs.dir('agent/src')
 	inputs.files('agent/build.gradle', 'agent/settings.gradle')
 	outputs.file(agentJar)

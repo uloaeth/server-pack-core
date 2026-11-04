@@ -104,6 +104,17 @@ La tarea raiz compila `agent/` con Gradle aparte y copia `agent.jar` a `src/main
 2. Instalar Fabric API 0.92.12+1.20.1 en el perfil (opcional).
 3. Copiar `build/libs/serverpackcore-0.1.2.jar` a la carpeta `mods/` del perfil.
 
+## Tests
+
+```sh
+./gradlew test   # tests del agente
+./gradlew check  # tests + verifyBytecode
+```
+
+Los tests usan directorios temporales y procesos locales; no necesitan red ni Discord.
+
+Para pruebas manuales de comandos enviados por webhook, arranca el agente con `-Dspc.webhookCommands=true`. Por defecto los mensajes de webhook se ignoran para que los uploads del propio agente no provoquen polls REST.
+
 ## Prueba de aceptacion
 
 1. Ejecutar `./gradlew build` y confirmar que termina sin errores ni warnings.

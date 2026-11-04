@@ -2,6 +2,10 @@ plugins {
 	id 'java'
 }
 
+repositories {
+	mavenCentral()
+}
+
 group = 'com.serverpackcore'
 version = '0.1.2'
 
@@ -12,6 +16,16 @@ base {
 java {
 	sourceCompatibility = JavaVersion.VERSION_17
 	targetCompatibility = JavaVersion.VERSION_17
+}
+
+dependencies {
+	testImplementation platform('org.junit:junit-bom:5.11.4')
+	testImplementation 'org.junit.jupiter:junit-jupiter'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
 }
 
 tasks.withType(JavaCompile).configureEach {

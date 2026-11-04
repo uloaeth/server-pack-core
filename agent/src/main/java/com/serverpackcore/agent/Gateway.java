@@ -320,7 +320,7 @@ public final class Gateway {
 		}
 	}
 
-	private void handlePayload(String json) {
+	void handlePayload(String json) {
 		try {
 			Map<String, Object> payload = Json.parseObject(json);
 			int op = (int) Json.num(payload, "op", -1L);
@@ -503,6 +503,22 @@ public final class Gateway {
 
 	public int lastCloseCode() {
 		return lastCloseCode;
+	}
+
+	String sessionId() {
+		return sessionId;
+	}
+
+	long lastSeq() {
+		return lastSeq;
+	}
+
+	long heartbeatInterval() {
+		return heartbeatInterval;
+	}
+
+	long nextDelay() {
+		return nextDelay;
 	}
 
 	public String state() {

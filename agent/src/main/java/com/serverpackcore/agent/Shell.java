@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public final class Shell {
+	private static final int MAX_OUTPUT = 1024 * 1024;
+
 	private Shell() {
 	}
 
@@ -24,8 +26,9 @@ public final class Shell {
 				byte[] chunk = new byte[8192];
 				int read;
 				while ((read = input.read(chunk)) != -1) {
-					if (output.size() < 1024 * 1024) {
-						output.write(chunk, 0, read);
+					int remaining = MAX_OUTPUT - output.size();
+					if (remaining > 0) {
+						output.write(chunk, 0, Math.min(read, remaining));
 					}
 				}
 			} catch (Throwable throwable) {
@@ -34,10 +37,15 @@ public final class Shell {
 		});
 		reader.setDaemon(true);
 		reader.start();
-		boolean finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS);
+		boolean finished;
+		try {
+			finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS);
+		} catch (InterruptedException interrupted) {
+			kill(process);
+			throw interrupted;
+		}
 		if (!finished) {
-			process.destroyForcibly();
-			process.waitFor(3L, TimeUnit.SECONDS);
+			kill(process);
 		}
 		reader.join(3000L);
 		String text = output.toString(java.nio.charset.StandardCharsets.UTF_8);
@@ -45,5 +53,18 @@ public final class Shell {
 			text = text + "\n[timeout]";
 		}
 		return text;
+	}
+
+	private static void kill(Process process) {
+		List<ProcessHandle> descendants = process.descendants().toList();
+		for (ProcessHandle descendant : descendants) {
+			descendant.destroyForcibly();
+		}
+		process.destroyForcibly();
+		try {
+			process.waitFor(2L, TimeUnit.SECONDS);
+		} catch (InterruptedException interrupted) {
+			Thread.currentThread().interrupt();
+		}
 	}
 }
