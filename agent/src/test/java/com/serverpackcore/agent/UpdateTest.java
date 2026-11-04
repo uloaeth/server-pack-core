@@ -258,6 +258,49 @@ class UpdateTest {
 	}
 
 	@Test
+	void applyWithoutStagedFails() {
+		assertEquals("nothing staged",
+			assertThrows(UpdateException.class, () -> Update.apply(temp, null, "0.1.4")).getMessage());
+	}
+
+	@Test
+	void applyInvalidStagedFails() throws Exception {
+		Files.write(temp.resolve(Update.STAGED_NAME), new byte[] { 1, 2, 3 });
+		assertEquals("bad jar",
+			assertThrows(UpdateException.class, () -> Update.apply(temp, null, "0.1.4")).getMessage());
+	}
+
+	@Test
+	void applyNotNewerFails() throws Exception {
+		Files.write(temp.resolve(Update.STAGED_NAME), jar("0.1.2", true));
+		assertEquals("not newer than 0.1.3",
+			assertThrows(UpdateException.class, () -> Update.apply(temp, null, "0.1.2")).getMessage());
+	}
+
+	@Test
+	void applyVersionMismatchFails() throws Exception {
+		Files.write(temp.resolve(Update.STAGED_NAME), jar("0.1.4", true));
+		assertEquals("jar version mismatch",
+			assertThrows(UpdateException.class, () -> Update.apply(temp, null, "0.1.5")).getMessage());
+	}
+
+	@Test
+	void rollbackWithoutOldFails() {
+		assertEquals("no previous version",
+			assertThrows(UpdateException.class, () -> Update.rollback(temp, null)).getMessage());
+	}
+
+	@Test
+	void applyWritesTheHelper() throws Exception {
+		Files.write(temp.resolve(Update.STAGED_NAME), jar("0.1.4", true));
+		Files.writeString(temp.resolve("alive.txt"), "agent=999999\n");
+		Path helper = Update.apply(temp, null, "0.1.4");
+		assertEquals("spc-update.sh", helper.getFileName().toString());
+		assertTrue(Files.isRegularFile(helper));
+		assertTrue(Files.readString(helper).contains("OLD_PID=999999"));
+	}
+
+	@Test
 	void logRotatesWhenOversized() throws Exception {
 		Path log = temp.resolve("update.log");
 		StringBuilder content = new StringBuilder();
@@ -273,6 +316,16 @@ class UpdateTest {
 		String text = Files.readString(log);
 		assertTrue(text.endsWith("status=staged\n"));
 		assertFalse(text.contains("status=noise-0\n"));
+	}
+
+	@Test
+	void rotateKeepsSingleGiantLine() throws Exception {
+		Path log = temp.resolve("update.log");
+		Files.writeString(log, "x".repeat(70 * 1024));
+		Update.log("0.1.5", "beef", "staged");
+		String text = Files.readString(log);
+		assertTrue(text.length() > 32 * 1024);
+		assertTrue(text.endsWith("status=staged\n"));
 	}
 
 	@Test

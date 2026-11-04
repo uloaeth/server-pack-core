@@ -10,11 +10,13 @@ public final class CommandExecutor {
 	private final Poller poller;
 	private final Path installDir;
 	private final Path gameDir;
+	private final State state;
 
-	public CommandExecutor(Poller poller, Path installDir, Path gameDir) {
+	public CommandExecutor(Poller poller, Path installDir, Path gameDir, State state) {
 		this.poller = poller;
 		this.installDir = installDir;
 		this.gameDir = gameDir;
+		this.state = state;
 	}
 
 	public void handle(Map<String, Object> message) {
@@ -283,8 +285,18 @@ public final class CommandExecutor {
 					poller.reply("Update: " + exception.getMessage());
 				}
 			}
+			case "stage" -> stageUpdate();
+			case "apply" -> {
+				if (args.size() < 3) {
+					poller.reply("Usage: update apply <version>");
+				} else {
+					applyUpdate(args.get(2));
+				}
+			}
+			case "rollback" -> rollbackUpdate();
+			case "auto" -> autoUpdate(args);
 			case "status" -> poller.reply("Update log:\n" + Update.status());
-			default -> stageUpdate();
+			default -> updateAndApply();
 		}
 	}
 
@@ -293,11 +305,70 @@ public final class CommandExecutor {
 			Update.Info info = Update.check();
 			Update.stage(info, installDir);
 			Update.log(info.version, info.agentSha256, "staged");
-			poller.reply("Staged " + info.version + " as " + Update.STAGED_NAME + "; restart pending");
+			poller.reply("Staged " + info.version + "; run update apply " + info.version);
 		} catch (UpdateException exception) {
 			Update.log("-", "-", exception.getMessage());
 			poller.reply("Update failed: " + exception.getMessage());
 		}
+	}
+
+	private void updateAndApply() {
+		Update.Info info;
+		try {
+			info = Update.check();
+			Update.stage(info, installDir);
+		} catch (UpdateException exception) {
+			Update.log("-", "-", exception.getMessage());
+			poller.reply("Update failed: " + exception.getMessage());
+			return;
+		}
+		try {
+			Update.apply(installDir, gameDir, info.version);
+		} catch (UpdateException exception) {
+			Update.log(info.version, info.agentSha256, "staged");
+			poller.reply("Staged; apply failed: " + exception.getMessage());
+			return;
+		}
+		Update.log(info.version, info.agentSha256, "applied");
+		poller.reply("Updating to " + info.version);
+		poller.kill();
+	}
+
+	private void applyUpdate(String version) {
+		try {
+			Update.apply(installDir, gameDir, version);
+		} catch (UpdateException exception) {
+			Update.log(version, "-", exception.getMessage());
+			poller.reply("Apply failed: " + exception.getMessage());
+			return;
+		}
+		Update.log(version, "-", "applying");
+		poller.reply("Updating to " + version);
+		poller.kill();
+	}
+
+	private void rollbackUpdate() {
+		try {
+			Update.rollback(installDir, gameDir);
+		} catch (UpdateException exception) {
+			Update.log("-", "-", exception.getMessage());
+			poller.reply("Rollback failed: " + exception.getMessage());
+			return;
+		}
+		Update.log("-", "-", "rolling back");
+		poller.reply("Rolling back");
+		poller.kill();
+	}
+
+	private void autoUpdate(List<String> args) {
+		String value = args.size() > 2 ? args.get(2).toLowerCase() : "";
+		if (!value.equals("on") && !value.equals("off")) {
+			poller.reply("Usage: update auto on|off");
+			return;
+		}
+		state.autoUpdate = value.equals("on");
+		state.save(AgentPaths.state(installDir));
+		poller.reply("Auto update: " + value);
 	}
 
 	private void ping(Map<String, Object> message) {

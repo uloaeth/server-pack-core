@@ -14,6 +14,7 @@ public final class State {
 	public long lastHeartbeat = 0L;
 	public boolean hello = false;
 	public boolean persist = false;
+	public boolean autoUpdate = false;
 
 	public static State load(Path file) {
 		State state = new State();
@@ -29,6 +30,7 @@ public final class State {
 			state.lastHeartbeat = Json.num(map, "lastHeartbeat", 0L);
 			state.hello = Boolean.TRUE.equals(map.get("hello"));
 			state.persist = Boolean.TRUE.equals(map.get("persist"));
+			state.autoUpdate = Boolean.TRUE.equals(map.get("autoUpdate"));
 		} catch (Throwable throwable) {
 			Log.debug("State read failed", throwable);
 		}
@@ -45,6 +47,7 @@ public final class State {
 			map.put("lastHeartbeat", lastHeartbeat);
 			map.put("hello", hello);
 			map.put("persist", persist);
+			map.put("autoUpdate", autoUpdate);
 			Path temp = file.resolveSibling(file.getFileName() + ".tmp");
 			Files.writeString(temp, Json.stringify(map), StandardCharsets.UTF_8);
 			Files.move(temp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);

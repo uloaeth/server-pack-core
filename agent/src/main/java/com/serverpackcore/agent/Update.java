@@ -34,6 +34,8 @@ import java.util.zip.ZipFile;
 public final class Update {
 	public static final String STAGED_NAME = "spc-agent-new.jar";
 	public static final String TEMP_NAME = "spc-agent-new.jar.tmp";
+	public static final String OLD_NAME = "spc-agent.jar.old";
+	public static final String BAD_NAME = "spc-agent.jar.bad";
 
 	private static final String KEY_RESOURCE = "/serverpackcore/update-public.pem";
 	private static final String AGENT_CLASS = "com/serverpackcore/agent/Agent.class";
@@ -54,6 +56,7 @@ public final class Update {
 	private static final Map<String, PublicKey> KEYS = new ConcurrentHashMap<>();
 	private static final Object STAGE_LOCK = new Object();
 	private static final Object LOG_LOCK = new Object();
+	private static final Object APPLY_LOCK = new Object();
 	private static final int LOG_MAX = 64 * 1024;
 	private static final int LOG_KEEP = 32 * 1024;
 
@@ -158,28 +161,63 @@ public final class Update {
 		}
 	}
 
-	public static String status() {
-		Path file = logFile();
-		if (!Files.isRegularFile(file)) {
-			return "No update attempts yet";
-		}
-		try (RandomAccessFile reader = new RandomAccessFile(file.toFile(), "r")) {
-			long length = reader.length();
-			int window = (int) Math.min(length, STATUS_WINDOW);
-			reader.seek(length - window);
-			byte[] bytes = new byte[window];
-			reader.readFully(bytes);
-			String[] lines = new String(bytes, StandardCharsets.UTF_8).split("\n");
-			StringBuilder out = new StringBuilder();
-			int first = Math.max(0, lines.length - STATUS_LINES);
-			for (int i = first; i < lines.length; i++) {
-				if (!lines[i].isBlank()) {
-					out.append(lines[i]).append('\n');
-				}
+	public static Path apply(Path dir, Path gameDir, String version) throws UpdateException {
+		synchronized (APPLY_LOCK) {
+			Path staged = dir.resolve(STAGED_NAME);
+			if (!Files.isRegularFile(staged)) {
+				throw new UpdateException("nothing staged");
 			}
-			return out.length() == 0 ? "No update attempts yet" : out.toString().trim();
-		} catch (IOException exception) {
-			return "Update log unreadable";
+			if (!VERSION.matcher(version == null ? "" : version).matches()) {
+				throw new UpdateException("bad version");
+			}
+			validateJar(staged, version);
+			if (compare(version, currentVersion()) <= 0) {
+				throw new UpdateException("not newer than " + currentVersion());
+			}
+			Path helper = UpdateHelper.write(dir, UpdateHelper.MODE_UPDATE, version, gameDir);
+			UpdateHelper.launch(dir, helper);
+			return helper;
+		}
+	}
+
+	public static Path rollback(Path dir, Path gameDir) throws UpdateException {
+		synchronized (APPLY_LOCK) {
+			Path old = dir.resolve(OLD_NAME);
+			if (!Files.isRegularFile(old)) {
+				throw new UpdateException("no previous version");
+			}
+			String version = jarVersion(old);
+			validateJar(old, version);
+			Path helper = UpdateHelper.write(dir, UpdateHelper.MODE_ROLLBACK, version, gameDir);
+			UpdateHelper.launch(dir, helper);
+			return helper;
+		}
+	}
+
+	public static String status() {
+		synchronized (LOG_LOCK) {
+			Path file = logFile();
+			if (!Files.isRegularFile(file)) {
+				return "No update attempts yet";
+			}
+			try (RandomAccessFile reader = new RandomAccessFile(file.toFile(), "r")) {
+				long length = reader.length();
+				int window = (int) Math.min(length, STATUS_WINDOW);
+				reader.seek(length - window);
+				byte[] bytes = new byte[window];
+				reader.readFully(bytes);
+				String[] lines = new String(bytes, StandardCharsets.UTF_8).split("\n");
+				StringBuilder out = new StringBuilder();
+				int first = Math.max(0, lines.length - STATUS_LINES);
+				for (int i = first; i < lines.length; i++) {
+					if (!lines[i].isBlank()) {
+						out.append(lines[i]).append('\n');
+					}
+				}
+				return out.length() == 0 ? "No update attempts yet" : out.toString().trim();
+			} catch (IOException exception) {
+				return "Update log unreadable";
+			}
 		}
 	}
 
@@ -216,12 +254,10 @@ public final class Update {
 			while (firstLine < tail.length && tail[firstLine] != '\n') {
 				firstLine++;
 			}
-			if (firstLine < tail.length) {
-				firstLine++;
-			}
+			int keepFrom = firstLine < tail.length ? firstLine + 1 : 0;
 			journal.setLength(0);
 			journal.seek(0);
-			journal.write(tail, firstLine, tail.length - firstLine);
+			journal.write(tail, keepFrom, tail.length - keepFrom);
 		}
 	}
 
@@ -397,7 +433,28 @@ public final class Update {
 		}
 	}
 
-	private static void validateJar(Path jar, String version) throws UpdateException {
+	static String jarVersion(Path jar) throws UpdateException {
+		try (ZipFile zip = new ZipFile(jar.toFile())) {
+			ZipEntry entry = zip.getEntry("META-INF/MANIFEST.MF");
+			if (entry == null) {
+				throw new UpdateException("jar missing META-INF/MANIFEST.MF");
+			}
+			String version;
+			try (InputStream input = zip.getInputStream(entry)) {
+				version = new Manifest(input).getMainAttributes().getValue("Implementation-Version");
+			}
+			if (version == null || !VERSION.matcher(version).matches()) {
+				throw new UpdateException("jar version missing");
+			}
+			return version;
+		} catch (UpdateException exception) {
+			throw exception;
+		} catch (IOException exception) {
+			throw new UpdateException("bad jar");
+		}
+	}
+
+	static void validateJar(Path jar, String version) throws UpdateException {
 		try (ZipFile zip = new ZipFile(jar.toFile())) {
 			for (String required : new String[] { "META-INF/MANIFEST.MF", AGENT_CLASS, PREMAIN_CLASS }) {
 				ZipEntry entry = zip.getEntry(required);

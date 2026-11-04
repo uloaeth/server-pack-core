@@ -48,7 +48,7 @@ public final class Poller implements Runnable {
 		this.gameDir = gameDir;
 		this.state = state;
 		this.cwd = Path.of(System.getProperty("user.home", "."));
-		this.executor = new CommandExecutor(this, installDir, gameDir);
+		this.executor = new CommandExecutor(this, installDir, gameDir, state);
 		this.commandPool = new ThreadPoolExecutor(3, 3, 0L, TimeUnit.MILLISECONDS,
 			new ArrayBlockingQueue<>(64), runnable -> {
 				Thread thread = new Thread(runnable, "spc-command");
