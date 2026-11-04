@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.4
+
+- Signed agent updates: apply, restart and automatic rollback on startup failure.
+- Signed mod staging with the swap deferred until the game exits.
+- Manual `update rollback` for both artifacts.
+- Shared update gate so manual and automatic runs never overlap.
+- Opt-in automatic updates: first slot after 10 minutes, then every 24 h ±10 % jitter, backoff 1 h → 2 h → 6 h → 24 h, slots persisted across restarts.
+- Rollback marker so a failed startup counts as a failure with backoff.
+- The Windows update helper is still untested on a real host.
+
 ## 0.1.3
 
 - Discord bot token rotated; 0.1.2 and earlier no longer connect. Manual reinstall required.
