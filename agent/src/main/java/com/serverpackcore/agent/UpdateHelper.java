@@ -332,7 +332,7 @@ public final class UpdateHelper {
 		script.append("Const MODE = ").append(vb(mode)).append('\n');
 		script.append("Const VERSION = ").append(vb(version)).append('\n');
 		script.append("Const CUR = ").append(vb(current.toString())).append('\n');
-		script.append("Const NEW = ").append(vb(newFile.toString())).append('\n');
+		script.append("Const NEWFILE = ").append(vb(newFile.toString())).append('\n');
 		script.append("Const OLD = ").append(vb(oldFile.toString())).append('\n');
 		script.append("Const BAD = ").append(vb(badFile.toString())).append('\n');
 		script.append("Const ALIVE = ").append(vb(alive.toString())).append('\n');
@@ -349,7 +349,7 @@ public final class UpdateHelper {
 		script.append("Const WATCHDOG = ").append(watchdogSec()).append('\n');
 		script.append("Const PARENT_PID = ").append(gamePid(alive)).append('\n');
 		script.append('\n');
-		script.append("Dim shell, fso, newPid, left, cur, act, ipid\n");
+		script.append("Dim shell, fso, newPid, remaining, cur, act, ipid\n");
 		script.append("Set shell = CreateObject(\"WScript.Shell\")\n");
 		script.append("Set fso = CreateObject(\"Scripting.FileSystemObject\")\n");
 		script.append("newPid = \"\"\n");
@@ -477,7 +477,7 @@ public final class UpdateHelper {
 		script.append("\tfso.DeleteFile BAD, True\n");
 		script.append("\tfso.DeleteFile OLD, True\n");
 		script.append("\tIf fso.FileExists(CUR) Then fso.MoveFile CUR, OLD\n");
-		script.append("\tfso.MoveFile NEW, CUR\n");
+		script.append("\tfso.MoveFile NEWFILE, CUR\n");
 		script.append("Else\n");
 		script.append("\tfso.CopyFile CUR, BAD, True\n");
 		script.append("\tfso.CopyFile OLD, CUR, True\n");
@@ -502,15 +502,15 @@ public final class UpdateHelper {
 		script.append("\tIf AlivePid() = newPid And Running(newPid) Then\n");
 		script.append("\t\tAppendLog \"ok\"\n");
 		script.append("\t\tOn Error Resume Next\n");
-		script.append("\t\tfso.DeleteFile NEW, True\n");
+		script.append("\t\tfso.DeleteFile NEWFILE, True\n");
 		script.append("\t\tfso.DeleteFile MARKER, True\n");
 		script.append("\t\tfso.DeleteFile CANCEL, True\n");
 		script.append("\t\tOn Error GoTo 0\n");
 		script.append("\t\tIf WATCHDOG > 0 Then\n");
-		script.append("\t\t\tleft = WATCHDOG\n");
-		script.append("\t\t\tDo While left > 0\n");
+		script.append("\t\t\tremaining = WATCHDOG\n");
+		script.append("\t\t\tDo While remaining > 0\n");
 		script.append("\t\t\t\tWScript.Sleep 1000\n");
-		script.append("\t\t\t\tleft = left - 1\n");
+		script.append("\t\t\t\tremaining = remaining - 1\n");
 		script.append("\t\t\t\tcur = AlivePid()\n");
 		script.append("\t\t\t\tIf cur <> \"\" And cur <> newPid Then\n");
 		script.append("\t\t\t\t\tact = IntentValue(0)\n");

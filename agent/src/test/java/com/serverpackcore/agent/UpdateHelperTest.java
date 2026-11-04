@@ -343,6 +343,10 @@ class UpdateHelperTest {
 		assertTrue(script.contains("AppendLog \"rollback-late\""));
 		assertTrue(script.contains("AppendLog \"watchdog-cleared\""));
 		assertTrue(script.contains("WScript.Sleep 1000"));
+		assertTrue(script.contains("Const NEWFILE = "));
+		assertFalse(script.contains("Const NEW = "));
+		assertTrue(script.contains("remaining = WATCHDOG"));
+		assertFalse(script.contains(", left,"));
 		assertTrue(script.contains("Const CANCEL = "));
 		assertTrue(script.contains("Sub RevertMod()"));
 		assertTrue(script.contains("RevertMod"));
