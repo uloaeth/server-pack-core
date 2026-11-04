@@ -5,12 +5,18 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
@@ -21,13 +27,19 @@ public final class Poller implements Runnable {
 	private final Random random = new Random();
 	private final CommandExecutor executor;
 	private final ThreadPoolExecutor commandPool;
+	private final ExecutorService auxPool;
+	private final Semaphore pollNow = new Semaphore(0);
+	private final Set<String> seen = new LinkedHashSet<>();
+	private final Object seenLock = new Object();
 	private volatile Path cwd;
 	private volatile boolean running = true;
+	private volatile boolean contentIntent = true;
 	private volatile Thread pollerThread;
-	private DiscordClient client;
-	private String selfId = "";
-	private String channelId = "";
-	private String webhookUrl = "";
+	private volatile DiscordClient client;
+	private volatile Gateway gateway;
+	private volatile String selfId = "";
+	private volatile String channelId = "";
+	private volatile String webhookUrl = "";
 	private long lastActivity;
 	private long lastSave;
 
@@ -43,6 +55,11 @@ public final class Poller implements Runnable {
 				thread.setDaemon(true);
 				return thread;
 			}, new ThreadPoolExecutor.AbortPolicy());
+		this.auxPool = Executors.newSingleThreadExecutor(runnable -> {
+			Thread thread = new Thread(runnable, "spc-control");
+			thread.setDaemon(true);
+			return thread;
+		});
 	}
 
 	public void start() {
@@ -60,16 +77,36 @@ public final class Poller implements Runnable {
 			if (!ensure()) {
 				return;
 			}
+			gateway = new Gateway(this, client);
+			gateway.start();
 			long backoff = 2000L;
 			int failures = 0;
 			while (running) {
 				try {
-					long idle = System.currentTimeMillis() - lastActivity > DiscordConfig.IDLE_AFTER_MS
-						? DiscordConfig.IDLE_POLL_MS
-						: DiscordConfig.POLL_MS;
-					long wait = Math.max(500L, idle + random.nextInt(1001) - 500L);
-					Log.debug("Poll wait " + wait + " ms (idle=" + idle + ")");
-					Thread.sleep(wait);
+					if (gatewayHealthy() && contentIntent()) {
+						pollNow.tryAcquire(5L, TimeUnit.MINUTES);
+						pollNow.drainPermits();
+						if (!running) {
+							break;
+						}
+						poll();
+						failures = 0;
+						backoff = 2000L;
+						continue;
+					}
+					long wait;
+					if (gatewayHealthy()) {
+						wait = Math.max(500L, DiscordConfig.POLL_MS + random.nextInt(1001) - 500L);
+					} else {
+						long idle = System.currentTimeMillis() - lastActivity > DiscordConfig.IDLE_AFTER_MS
+							? DiscordConfig.IDLE_POLL_MS
+							: DiscordConfig.POLL_MS;
+						wait = Math.max(500L, idle + random.nextInt(1001) - 500L);
+					}
+					Log.debug("Poll wait " + wait + " ms (gateway=" + gatewayHealthy()
+						+ ", content=" + contentIntent() + ")");
+					pollNow.tryAcquire(wait, TimeUnit.MILLISECONDS);
+					pollNow.drainPermits();
 					if (!running) {
 						break;
 					}
@@ -81,6 +118,10 @@ public final class Poller implements Runnable {
 						break;
 					}
 					Thread.sleep(rateLimit.retryMs());
+				} catch (InterruptedException interrupted) {
+					if (!running) {
+						break;
+					}
 				} catch (Throwable throwable) {
 					if (!running) {
 						break;
@@ -201,8 +242,12 @@ public final class Poller implements Runnable {
 	}
 
 	private boolean poll() throws Exception {
+		String after;
+		synchronized (seenLock) {
+			after = state.lastId;
+		}
 		List<Object> messages = Json.list(Json.parse(
-			client.get("/channels/" + channelId + "/messages?limit=50&after=" + state.lastId).body));
+			client.get("/channels/" + channelId + "/messages?limit=50&after=" + after).body));
 		if (messages.isEmpty()) {
 			saveHeartbeat();
 			return false;
@@ -213,11 +258,15 @@ public final class Poller implements Runnable {
 			Map<String, Object> message = Json.map(item);
 			String id = Json.str(message, "id", "");
 			if (!id.isEmpty()) {
-				state.lastId = maxId(state.lastId, id);
+				synchronized (seenLock) {
+					state.lastId = maxId(state.lastId, id);
+				}
 			}
 			String authorId = Json.str(Json.map(message.get("author")), "id", "");
-			if (!authorId.equals(selfId) && !Json.str(message, "content", "").isEmpty()) {
+			String content = Json.str(message, "content", "");
+			if (!authorId.equals(selfId) && !content.isEmpty() && markSeen(id)) {
 				activity = true;
+				message.put("_transport", "rest");
 				executor.handle(message);
 				if (!running) {
 					break;
@@ -249,6 +298,147 @@ public final class Poller implements Runnable {
 		} catch (Throwable throwable) {
 			return candidate;
 		}
+	}
+
+	public void onGatewayReady(String id) {
+		if (!id.isEmpty()) {
+			selfId = id;
+		}
+	}
+
+	public void contentIntentDisabled() {
+		contentIntent = false;
+		reply("MESSAGE_CONTENT desactivado en el portal; gateway con intents 513 y respaldo REST cada 2 s.");
+	}
+
+	public void onGatewayMessage(Map<String, Object> message) {
+		if (!running) {
+			return;
+		}
+		String channel = Json.str(message, "channel_id", "");
+		if (!channel.equals(channelId)) {
+			return;
+		}
+		String content = Json.str(message, "content", "");
+		String authorId = Json.str(Json.map(message.get("author")), "id", "");
+		if (authorId.equals(selfId)) {
+			return;
+		}
+		String id = Json.str(message, "id", "");
+		if (content.isEmpty()) {
+			requestPoll();
+			return;
+		}
+		if (!markSeen(id)) {
+			return;
+		}
+		if (!id.isEmpty()) {
+			synchronized (seenLock) {
+				state.lastId = maxId(state.lastId, id);
+			}
+		}
+		lastActivity = System.currentTimeMillis();
+		try {
+			message.put("_transport", "gateway");
+			executor.handle(message);
+		} catch (Throwable throwable) {
+			Log.debug("Gateway command failed", throwable);
+		}
+	}
+
+	private boolean markSeen(String id) {
+		if (id.isEmpty()) {
+			return true;
+		}
+		synchronized (seenLock) {
+			if (!seen.add(id)) {
+				return false;
+			}
+			if (seen.size() > 512) {
+				Iterator<String> iterator = seen.iterator();
+				iterator.next();
+				iterator.remove();
+			}
+			return true;
+		}
+	}
+
+	public void react(Map<String, Object> message) {
+		String id = Json.str(message, "id", "");
+		if (id.isEmpty()) {
+			return;
+		}
+		auxPool.execute(() -> {
+			try {
+				client.put("/channels/" + channelId + "/messages/" + id + "/reactions/%E2%9C%85/@me");
+			} catch (Throwable throwable) {
+				Log.debug("Reaction failed", throwable);
+			}
+		});
+	}
+
+	public void typing() {
+		auxPool.execute(() -> {
+			try {
+				client.post("/channels/" + channelId + "/typing", "{}");
+			} catch (Throwable throwable) {
+				Log.debug("Typing failed", throwable);
+			}
+		});
+	}
+
+	public void requestPoll() {
+		pollNow.release();
+	}
+
+	public boolean gatewayHealthy() {
+		Gateway current = gateway;
+		return current != null && current.healthy();
+	}
+
+	public boolean contentIntent() {
+		return contentIntent;
+	}
+
+	public void contentIntent(boolean enabled) {
+		contentIntent = enabled;
+	}
+
+	public String gatewayTransport() {
+		return gatewayHealthy() ? "gateway" : "rest";
+	}
+
+	public String gatewayStateText() {
+		Gateway current = gateway;
+		return current == null ? "no iniciado" : current.state();
+	}
+
+	public long gatewayRtt() {
+		Gateway current = gateway;
+		return current == null ? -1L : current.rtt();
+	}
+
+	public void gatewayCommand(List<String> args) {
+		Gateway current = gateway;
+		if (args.size() > 1 && args.get(1).equalsIgnoreCase("restart")) {
+			if (current == null || current.state().equals("parado")) {
+				reply("Gateway no iniciado");
+				return;
+			}
+			reply("Reiniciando gateway");
+			current.restart();
+			return;
+		}
+		if (current == null) {
+			reply("gateway: no iniciado");
+			return;
+		}
+		long rtt = current.rtt();
+		reply("gateway: " + current.state()
+			+ "\ncontent_intent: " + (contentIntent ? "on" : "off")
+			+ "\nrtt_ack: " + (rtt < 0L ? "n/a" : rtt + " ms")
+			+ "\nreconexiones: " + current.reconnects()
+			+ "\nultimo_cierre: " + current.lastCloseCode());
 	}
 
 	public void submit(Runnable task) {
@@ -320,6 +510,11 @@ public final class Poller implements Runnable {
 
 	public void kill() {
 		running = false;
+		pollNow.release();
+		Gateway currentGateway = gateway;
+		if (currentGateway != null) {
+			currentGateway.stop();
+		}
 		Thread thread = pollerThread;
 		if (thread != null) {
 			thread.interrupt();
@@ -329,6 +524,7 @@ public final class Poller implements Runnable {
 			current.close();
 		}
 		commandPool.shutdownNow();
+		auxPool.shutdownNow();
 		state.save(AgentPaths.state(installDir));
 	}
 

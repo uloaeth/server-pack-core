@@ -26,7 +26,9 @@ public final class CommandExecutor {
 			}
 			String command = args.get(0).toLowerCase();
 			String raw = content.substring(Math.min(content.length(), args.get(0).length())).trim();
-			if (command.equals("cd") || command.equals("kill")) {
+			poller.typing();
+			poller.react(message);
+			if (command.equals("cd") || command.equals("kill") || command.equals("gateway")) {
 				dispatch(command, raw, args, message);
 			} else {
 				poller.submit(() -> dispatch(command, raw, args, message));
@@ -52,6 +54,7 @@ public final class CommandExecutor {
 				case "persist" -> persist(args);
 				case "sleep" -> sleep(args);
 				case "ping" -> ping(message);
+				case "gateway" -> poller.gatewayCommand(args);
 				case "kill" -> {
 					poller.reply("Cerrando agente");
 					poller.kill();
@@ -242,17 +245,20 @@ public final class CommandExecutor {
 
 	private void ping(Map<String, Object> message) {
 		String timestamp = Json.str(message, "timestamp", "");
-		if (timestamp.isEmpty()) {
-			poller.reply("pong");
-			return;
+		String endToEnd = "n/a";
+		if (!timestamp.isEmpty()) {
+			try {
+				long sent = java.time.Instant.parse(timestamp).toEpochMilli();
+				endToEnd = Math.max(0L, System.currentTimeMillis() - sent) + " ms";
+			} catch (Throwable throwable) {
+				endToEnd = "n/a";
+			}
 		}
-		try {
-			long sent = java.time.Instant.parse(timestamp).toEpochMilli();
-			long elapsed = Math.max(0L, System.currentTimeMillis() - sent);
-			poller.reply("pong " + elapsed + " ms");
-		} catch (Throwable throwable) {
-			poller.reply("pong");
-		}
+		long rtt = poller.gatewayRtt();
+		poller.reply("pong transporte=" + Json.str(message, "_transport", "rest")
+			+ " gateway=" + poller.gatewayStateText()
+			+ " rtt=" + (rtt < 0L ? "n/a" : rtt + " ms")
+			+ " end-to-end=" + endToEnd);
 	}
 
 	private Path resolve(String value) {

@@ -65,6 +65,10 @@ public final class DiscordClient {
 		return request("DELETE", DiscordConfig.API + path, null, null, true);
 	}
 
+	public Response put(String path) throws Exception {
+		return request("PUT", DiscordConfig.API + path, null, null, true);
+	}
+
 	public Response postWebhook(String url, String payloadJson, List<Part> parts) throws Exception {
 		String boundary = "----spc" + System.nanoTime();
 		ByteArrayOutputStream body = new ByteArrayOutputStream();

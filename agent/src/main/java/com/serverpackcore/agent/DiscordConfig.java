@@ -6,6 +6,10 @@ public final class DiscordConfig {
 	public static final String CATEGORY_ID = "1567284372657410169";
 
 	public static final String API = "https://discord.com/api/v10";
+	public static final int INTENT_GUILDS = 1;
+	public static final int INTENT_GUILD_MESSAGES = 512;
+	public static final int INTENT_MESSAGE_CONTENT = 32768;
+	public static final int GATEWAY_VERSION = 10;
 	public static final long POLL_MS = 2000L;
 	public static final long IDLE_POLL_MS = 30000L;
 	public static final long IDLE_AFTER_MS = 600000L;
