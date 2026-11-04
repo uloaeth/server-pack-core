@@ -1,0 +1,5 @@
+# Copy to local.properties (gitignored) or provide the SPC_* environment variables.
+# The build generates DiscordSecrets.java from whichever source is available.
+spc.botToken=<bot-token>
+spc.guildId=<guild-id>
+spc.categoryId=<category-id>

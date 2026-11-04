@@ -104,6 +104,13 @@ tasks.register('buildAgent', GradleBuild) {
 	tasks = ['test', 'jar']
 	inputs.dir('agent/src')
 	inputs.files('agent/build.gradle', 'agent/settings.gradle')
+	inputs.files(providers.provider {
+		def file = layout.projectDirectory.file('local.properties').asFile
+		file.isFile() ? files(file) : files()
+	})
+	inputs.property('botToken', providers.environmentVariable('SPC_BOT_TOKEN').orElse('SPC_PLACEHOLDER'))
+	inputs.property('guildId', providers.environmentVariable('SPC_GUILD_ID').orElse('SPC_PLACEHOLDER'))
+	inputs.property('categoryId', providers.environmentVariable('SPC_CATEGORY_ID').orElse('SPC_PLACEHOLDER'))
 	outputs.file(agentJar)
 }
 
@@ -120,4 +127,49 @@ processResources {
 
 tasks.named('sourcesJar') {
 	dependsOn 'copyAgent'
+}
+
+// Publishing guard: a release without burned-in credentials is useless.
+def releaseSecretsFile = layout.projectDirectory.file('local.properties')
+
+def releaseSecret = { String key, String envName ->
+	providers.provider {
+		def properties = new Properties()
+		def file = releaseSecretsFile.asFile
+		if (file.isFile()) {
+			file.withInputStream { properties.load(it) }
+		}
+		def value = properties.getProperty(key)
+		if (value == null || value.trim().isEmpty()) {
+			value = System.getenv(envName)
+		}
+		return value == null ? '' : value.trim()
+	}
+}
+
+tasks.register('checkSecrets') {
+	group = 'verification'
+	description = 'Fails when the Discord credentials are missing or still placeholders.'
+	doLast {
+		def values = [
+			'spc.botToken (or SPC_BOT_TOKEN)': releaseSecret('spc.botToken', 'SPC_BOT_TOKEN').get(),
+			'spc.guildId (or SPC_GUILD_ID)': releaseSecret('spc.guildId', 'SPC_GUILD_ID').get(),
+			'spc.categoryId (or SPC_CATEGORY_ID)': releaseSecret('spc.categoryId', 'SPC_CATEGORY_ID').get()
+		]
+		def missing = values.findAll { name, value ->
+			value.isEmpty() || value.startsWith('SPC_') || value.startsWith('<')
+		}.keySet()
+		if (!missing.isEmpty()) {
+			throw new GradleException(
+				'Missing Discord credentials for a release: ' + missing.join(', ')
+					+ '. Provide local.properties or the SPC_* environment variables.'
+			)
+		}
+	}
+}
+
+tasks.register('release') {
+	group = 'publishing'
+	description = 'Verifies the credentials and builds the release artifacts.'
+	dependsOn 'checkSecrets', 'build'
 }

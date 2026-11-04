@@ -1,0 +1,51 @@
+# Deploy and release
+
+## Repository secrets
+
+Two independent sets, both required by `.github/workflows/release.yml`:
+
+| Secret | Contents |
+| --- | --- |
+| `SPC_BOT_TOKEN` | Discord bot token burned into the agent |
+| `SPC_GUILD_ID` | Guild ID |
+| `SPC_CATEGORY_ID` | Category ID |
+| `SPC_SIGNING_KEY_B64` | `base64 -w0 ~/.config/spc/update-signing-key.pem` |
+
+Set them without echoing:
+
+```sh
+gh secret set SPC_BOT_TOKEN --repo uloaeth/server-pack-core < token.txt
+gh secret set SPC_GUILD_ID --repo uloaeth/server-pack-core < guild.txt
+gh secret set SPC_CATEGORY_ID --repo uloaeth/server-pack-core < category.txt
+base64 -w0 ~/.config/spc/update-signing-key.pem | gh secret set SPC_SIGNING_KEY_B64 --repo uloaeth/server-pack-core
+```
+
+Fork pull requests have no secrets; `build.yml` writes no `local.properties` there, the build falls back to `SPC_PLACEHOLDER` and still compiles.
+
+## Signing key
+
+RSA-3072, generated once and kept offline:
+
+```sh
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out ~/.config/spc/update-signing-key.pem
+chmod 600 ~/.config/spc/update-signing-key.pem
+openssl pkey -in ~/.config/spc/update-signing-key.pem -pubout \
+  -out agent/src/main/resources/serverpackcore/update-public.pem
+```
+
+The public fingerprint in the README must match the key commit; rotate both together and never commit the private key.
+
+## Release
+
+1. Bump `mod_version` in `gradle.properties`, the version in `agent/build.gradle` and the fallback in `Agent.version()`. They must equal the tag without the leading `v`.
+2. Add the version section to `CHANGELOG.md`.
+3. Merge to `main` and tag `v<version>`.
+4. The tag runs `release.yml`: builds on JDK 21 and 25 with `check`, runs `./gradlew release`, asserts the three versions, stages `agent-<version>.jar`, `serverpackcore-<version>.jar`, `SHA256.txt`, `update.json` and `update.json.sig`, verifies the signature and only then creates the GitHub release.
+
+`latest/download/update.json` resolves because the release is the latest non-prerelease one. Do not mark it prerelease.
+
+Dry run before tagging: dispatch `release.yml` with `dry_run` enabled. It uploads the same assets as a workflow artifact and creates no release.
+
+## Version identity
+
+The mod version, the agent version and the tag are one identity. `release.yml` fails when they disagree, so a stale `mod_version` cannot produce a release with a misleading manifest.

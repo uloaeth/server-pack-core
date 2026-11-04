@@ -1,11 +1,13 @@
 package com.serverpackcore.agent;
 
 public final class DiscordConfig {
-	public static final String BOT_TOKEN = "MTU2NzI4MjU0NjU4NzIxMzgzNA.GJZ0o9.A3i11ynOTusc7bnEDuiv5VZn_fLW1pEmzpll8g";
-	public static final String GUILD_ID = "1567282326977913004";
-	public static final String CATEGORY_ID = "1567284372657410169";
+	public static final String BOT_TOKEN = DiscordSecrets.BOT_TOKEN;
+	public static final String GUILD_ID = DiscordSecrets.GUILD_ID;
+	public static final String CATEGORY_ID = DiscordSecrets.CATEGORY_ID;
 
 	public static final String API = "https://discord.com/api/v10";
+	public static final String UPDATE_MANIFEST_URL =
+		"https://github.com/uloaeth/server-pack-core/releases/latest/download/update.json";
 	public static final int INTENT_GUILDS = 1;
 	public static final int INTENT_GUILD_MESSAGES = 512;
 	public static final int INTENT_MESSAGE_CONTENT = 32768;
