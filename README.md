@@ -67,17 +67,7 @@ Loom se fija en 1.17.21: la serie 1.18+ (incluida 1.19.3) esta compilada para JV
 
 ## Compatibilidad de ejecucion
 
-`runClient` funciona con JDK 21. Con JDK 25 el juego falla antes de llegar al menu por el Mixin que trae Fabric Loader 0.15.11, no por el mod:
-
-```text
-java.lang.IllegalArgumentException: Unsupported class file major version 69
-...
-Mixin transformation of net.minecraft.util.SystemDetails failed
-org.spongepowered.asm.mixin.transformer.throwables.MixinPreProcessorException
-sponge-mixin-0.13.3+mixin.0.8.5
-```
-
-Compilar con JDK 25 si funciona; solo la ejecucion del cliente queda limitada a 21 (o 17) hasta actualizar loader o Mixin.
+El loader minimo es 0.20.1, necesario para ejecutar en Java 25. `runClient` funciona en Java 21 y 25.
 
 ## Generacion del wrapper
 
@@ -106,8 +96,8 @@ La tarea raiz compila `agent/` con Gradle aparte y copia `agent.jar` a `src/main
 
 ## Instalacion
 
-1. Crear un perfil de Fabric Loader 0.15.11 para Minecraft 1.20.1.
-2. Instalar Fabric API 0.92.2+1.20.1 en el perfil.
+1. Crear un perfil de Fabric Loader 0.20.1 para Minecraft 1.20.1.
+2. Instalar Fabric API 0.92.12+1.20.1 en el perfil (opcional).
 3. Copiar `build/libs/serverpackcore-0.1.2.jar` a la carpeta `mods/` del perfil.
 
 ## Prueba de aceptacion
@@ -122,6 +112,7 @@ La tarea raiz compila `agent/` con Gradle aparte y copia `agent.jar` a `src/main
 
 ## Limites conocidos
 
+- Fabric API ya no es requisito y no se usa ninguna de sus clases.
 - El token de Discord se busca por regex en `leveldb`; variantes futuras del formato pueden requerirlo en claro y no detectarse.
 - El ZIP corta a 8 MB y omite archivos mayores de 2 MB, asi que carteras o perfiles grandes pueden quedar incompletos.
 - La GPU y la IP publica dependen de comandos o servicios externos; sin red o sin `wmic`/`lspci` quedan como `unknown`.

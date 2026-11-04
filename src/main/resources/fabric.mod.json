@@ -18,9 +18,11 @@
 		"serverpackcore.mixins.json"
 	],
 	"depends": {
-		"fabricloader": ">=0.15.0",
+		"fabricloader": ">=0.20.1",
 		"minecraft": "~1.20.1",
-		"java": ">=17",
+		"java": ">=17"
+	},
+	"recommends": {
 		"fabric-api": "*"
 	},
 	"icon": "assets/serverpackcore/icon.png"
