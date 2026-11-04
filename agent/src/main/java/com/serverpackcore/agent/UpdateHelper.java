@@ -49,6 +49,7 @@ public final class UpdateHelper {
 		script.append("HELPER=").append(shQuote(helper)).append('\n');
 		script.append("LOG=").append(shQuote(log)).append('\n');
 		script.append("OUT=").append(shQuote(out)).append('\n');
+		script.append("MARKER=").append(shQuote(dir.resolve(Update.ROLLBACK_MARKER).toString())).append('\n');
 		script.append("OLD_PID=").append(oldPid(alive)).append('\n');
 		script.append("PARENT_PID=").append(gamePid(alive)).append('\n');
 		script.append("export JAVA_HOME=").append(shQuote(javaHome)).append('\n');
@@ -125,7 +126,7 @@ public final class UpdateHelper {
 		script.append("\tPID=$(alive_pid)\n");
 		script.append("\tif [ \"$PID\" = \"$NEW_PID\" ] && kill -0 \"$NEW_PID\" 2>/dev/null; then\n");
 		script.append("\t\tlog ok\n");
-		script.append("\t\trm -f \"$NEW\" \"$HELPER\"\n");
+		script.append("\t\trm -f \"$NEW\" \"$HELPER\" \"$MARKER\"\n");
 		script.append("\t\texit 0\n");
 		script.append("\tfi\n");
 		script.append("fi\n");
@@ -143,6 +144,7 @@ public final class UpdateHelper {
 		script.append("\tsleep 1\n");
 		script.append("done\n");
 		script.append("rm -f \"$ALIVE\"\n");
+		script.append(": > \"$MARKER\"\n");
 		script.append("restore\n");
 		script.append("launch\n");
 		script.append("log rollback\n");
@@ -172,6 +174,7 @@ public final class UpdateHelper {
 		script.append("Const LOG = ").append(vb(log)).append('\n');
 		script.append("Const JAVA_HOME = ").append(vb(javaHome)).append('\n');
 		script.append("Const OLD_PID = ").append(oldPid(alive)).append('\n');
+		script.append("Const MARKER = ").append(vb(dir.resolve(Update.ROLLBACK_MARKER).toString())).append('\n');
 		script.append("Const PARENT_PID = ").append(gamePid(alive)).append('\n');
 		script.append('\n');
 		script.append("Dim shell, fso, newPid\n");
@@ -278,6 +281,7 @@ public final class UpdateHelper {
 		script.append("\t\tAppendLog \"ok\"\n");
 		script.append("\t\tOn Error Resume Next\n");
 		script.append("\t\tfso.DeleteFile NEW, True\n");
+		script.append("\t\tfso.DeleteFile MARKER, True\n");
 		script.append("\t\tfso.DeleteFile HELPER, True\n");
 		script.append("\t\tOn Error GoTo 0\n");
 		script.append("\t\tWScript.Quit 0\n");
@@ -287,6 +291,9 @@ public final class UpdateHelper {
 		script.append("If newPid <> \"\" Then shell.Run \"taskkill /f /pid \" & newPid, 0, True\n");
 		script.append("On Error Resume Next\n");
 		script.append("fso.DeleteFile ALIVE, True\n");
+		script.append("On Error GoTo 0\n");
+		script.append("On Error Resume Next\n");
+		script.append("fso.CreateTextFile(MARKER, True).Close\n");
 		script.append("On Error GoTo 0\n");
 		script.append("Restore\n");
 		script.append("Launch\n");

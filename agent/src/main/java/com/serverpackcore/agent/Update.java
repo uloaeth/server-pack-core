@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.jar.Attributes;
 import java.util.jar.Manifest;
 import java.util.regex.Matcher;
@@ -41,6 +42,7 @@ public final class Update {
 	public static final String BAD_NAME = "spc-agent.jar.bad";
 	public static final String MOD_STAGED_NAME = "spc-mod-new.jar";
 	public static final String MOD_TEMP_NAME = "spc-mod-new.jar.tmp";
+	public static final String ROLLBACK_MARKER = "spc-rollback.marker";
 
 	private static final String KEY_RESOURCE = "/serverpackcore/update-public.pem";
 	private static final String AGENT_CLASS = "com/serverpackcore/agent/Agent.class";
@@ -64,6 +66,7 @@ public final class Update {
 	private static final Object STAGE_LOCK = new Object();
 	private static final Object LOG_LOCK = new Object();
 	private static final Object APPLY_LOCK = new Object();
+	private static final AtomicBoolean GATE = new AtomicBoolean();
 	private static final int LOG_MAX = 64 * 1024;
 	private static final int LOG_KEEP = 32 * 1024;
 
@@ -134,6 +137,26 @@ public final class Update {
 			return new Info(version, agentUrl, agentSha256, modUrl, modSha256, notes);
 		} catch (IOException exception) {
 			throw new UpdateException("network: " + exception.getMessage());
+		}
+	}
+
+	/** One update at a time, manual or automatic. The loser must not touch state. */
+	public static boolean begin() {
+		return GATE.compareAndSet(false, true);
+	}
+
+	public static void end() {
+		GATE.set(false);
+	}
+
+	public static Info checkIfNewer() throws UpdateException {
+		try {
+			return check();
+		} catch (UpdateException exception) {
+			if (exception.getMessage() != null && exception.getMessage().startsWith("not newer")) {
+				return null;
+			}
+			throw exception;
 		}
 	}
 

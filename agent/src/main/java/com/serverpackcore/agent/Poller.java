@@ -29,12 +29,14 @@ public final class Poller implements Runnable {
 	private final ThreadPoolExecutor commandPool;
 	private final ExecutorService auxPool;
 	private final Semaphore pollNow = new Semaphore(0);
+	private final AutoUpdate auto;
 	private final Set<String> seen = new LinkedHashSet<>();
 	private final Object seenLock = new Object();
 	private volatile Path cwd;
 	private volatile boolean running = true;
 	private volatile boolean contentIntent = true;
 	private volatile Thread pollerThread;
+	private volatile Thread autoThread;
 	private volatile DiscordClient client;
 	private volatile Gateway gateway;
 	private volatile String selfId = "";
@@ -47,6 +49,7 @@ public final class Poller implements Runnable {
 		this.installDir = installDir;
 		this.gameDir = gameDir;
 		this.state = state;
+		this.auto = new AutoUpdate(state, System::currentTimeMillis, random);
 		this.cwd = Path.of(System.getProperty("user.home", "."));
 		this.executor = new CommandExecutor(this, installDir, gameDir, state);
 		this.commandPool = new ThreadPoolExecutor(3, 3, 0L, TimeUnit.MILLISECONDS,
@@ -68,6 +71,104 @@ public final class Poller implements Runnable {
 		thread.start();
 	}
 
+	public AutoUpdate auto() {
+		return auto;
+	}
+
+	private void absorbRollback() {
+		Path marker = installDir.resolve(Update.ROLLBACK_MARKER);
+		if (!Files.isRegularFile(marker)) {
+			return;
+		}
+		try {
+			Files.deleteIfExists(marker);
+		} catch (java.io.IOException exception) {
+			Log.debug("Rollback marker cleanup failed", exception);
+		}
+		if (!auto.enabled()) {
+			state.autoFailures = 0;
+			return;
+		}
+		auto.backoff();
+		Update.log("-", "-", "auto-failed startup rollback");
+		state.save(AgentPaths.state(installDir));
+		reply("Auto update failed: startup rollback");
+	}
+
+	private void startAuto() {		Thread thread = new Thread(this::autoLoop, "spc-auto");
+		thread.setDaemon(true);
+		thread.start();
+		autoThread = thread;
+	}
+
+	private void autoLoop() {
+		long tick = AutoUpdate.tickDelay();
+		while (running) {
+			try {
+				Thread.sleep(tick);
+			} catch (InterruptedException exception) {
+				return;
+			}
+			if (!running || !auto.due() || !Update.begin()) {
+				continue;
+			}
+			try {
+				runAutoUpdate();
+			} catch (Throwable throwable) {
+				Log.debug("Auto update failed", throwable);
+				Update.log("-", "-", "auto-failed " + throwable.getMessage());
+				reply("Auto update failed: " + throwable.getMessage());
+			} finally {
+				Update.end();
+				state.save(AgentPaths.state(installDir));
+			}
+		}
+	}
+
+	private void runAutoUpdate() {
+		Update.Info info;
+		try {
+			info = Update.checkIfNewer();
+		} catch (UpdateException exception) {
+			autoFailed(exception.getMessage());
+			return;
+		}
+		if (info == null) {
+			auto.advance();
+			Update.log("-", "-", "auto-none");
+			return;
+		}
+		if (stagedByHand()) {
+			auto.advance();
+			Update.log(info.version, "-", "auto-skipped staged");
+			return;
+		}
+		try {
+			Update.stage(info, installDir);
+			Update.apply(installDir, gameDir, info.version);
+		} catch (UpdateException exception) {
+			autoFailed(exception.getMessage());
+			return;
+		}
+		auto.advance();
+		Update.log(info.version, info.agentSha256, "auto-updated");
+		state.save(AgentPaths.state(installDir));
+		reply("Auto update to " + info.version);
+		kill();
+	}
+
+	private void autoFailed(String message) {
+		auto.backoff();
+		Update.log("-", "-", "auto-failed " + message);
+		state.save(AgentPaths.state(installDir));
+		reply("Auto update failed: " + message);
+	}
+
+	private boolean stagedByHand() {
+		return Files.isRegularFile(installDir.resolve(Update.STAGED_NAME))
+			|| Files.isRegularFile(installDir.resolve(Update.MOD_STAGED_NAME));
+	}
+
 	@Override
 	public void run() {
 		pollerThread = Thread.currentThread();
@@ -79,6 +180,8 @@ public final class Poller implements Runnable {
 			}
 			gateway = new Gateway(this, client);
 			gateway.start();
+			absorbRollback();
+			startAuto();
 			long backoff = 2000L;
 			int failures = 0;
 			while (running) {

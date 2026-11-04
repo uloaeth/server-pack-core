@@ -285,17 +285,18 @@ public final class CommandExecutor {
 					poller.reply("Update: " + exception.getMessage());
 				}
 			}
-			case "stage" -> stageUpdate();			case "apply" -> {
+			case "stage" -> gated(this::stageUpdate);
+			case "apply" -> {
 				if (args.size() < 3) {
 					poller.reply("Usage: update apply <version>");
 				} else {
-					applyUpdate(args.get(2));
+					gated(() -> applyUpdate(args.get(2)));
 				}
 			}
-			case "rollback" -> rollbackUpdate();
+			case "rollback" -> gated(this::rollbackUpdate);
 			case "auto" -> autoUpdate(args);
 			case "status" -> poller.reply("Update log:\n" + Update.status());
-			default -> updateAndApply();
+			default -> gated(this::updateAndApply);
 		}
 	}
 
@@ -333,6 +334,7 @@ public final class CommandExecutor {
 			return;
 		}
 		Update.log(info.version, info.agentSha256, "applied");
+		manualSuccess();
 		poller.reply("Updating to " + info.version
 			+ (gameDir == null ? " (mod staged, no game dir)" : " (mod applies on game exit)"));
 		poller.kill();
@@ -347,6 +349,7 @@ public final class CommandExecutor {
 			return;
 		}
 		Update.log(version, "-", "applying");
+		manualSuccess();
 		poller.reply("Updating to " + version
 			+ (gameDir == null ? " (mod staged, no game dir)" : " (mod applies on game exit)"));
 		poller.kill();
@@ -361,19 +364,51 @@ public final class CommandExecutor {
 			return;
 		}
 		Update.log("-", "-", "rolling back");
+		manualSuccess();
 		poller.reply("Rolling back" + (gameDir == null ? " (mod skipped, no game dir)" : ""));
 		poller.kill();
 	}
 
-	private void autoUpdate(List<String> args) {
-		String value = args.size() > 2 ? args.get(2).toLowerCase() : "";
-		if (!value.equals("on") && !value.equals("off")) {
-			poller.reply("Usage: update auto on|off");
+	private void gated(Runnable action) {
+		if (!Update.begin()) {
+			poller.reply("Update already running");
 			return;
 		}
-		state.autoUpdate = value.equals("on");
-		state.save(AgentPaths.state(installDir));
-		poller.reply("Auto update: " + value);
+		try {
+			action.run();
+		} finally {
+			Update.end();
+		}
+	}
+
+	private void autoUpdate(List<String> args) {
+		String value = args.size() > 2 ? args.get(2).toLowerCase() : "";
+		if (value.isEmpty()) {
+			poller.reply(poller.auto().describe());
+			return;
+		}
+		if (value.equals("on")) {
+			long next = poller.auto().on();
+			state.save(AgentPaths.state(installDir));
+			poller.reply("Auto update on; next run: " + java.time.Instant.ofEpochMilli(next));
+			return;
+		}
+		if (value.equals("off")) {
+			poller.auto().off();
+			state.save(AgentPaths.state(installDir));
+			poller.reply("Auto update off");
+			return;
+		}
+		poller.reply("Usage: update auto [on|off]");
+	}
+
+	private void manualSuccess() {
+		if (state.autoUpdate) {
+			poller.auto().advance();
+			state.save(AgentPaths.state(installDir));
+		} else {
+			state.autoFailures = 0;
+		}
 	}
 
 	private void ping(Map<String, Object> message) {

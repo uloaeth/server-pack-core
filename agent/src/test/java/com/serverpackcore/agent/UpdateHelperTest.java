@@ -37,7 +37,8 @@ class UpdateHelperTest {
 		assertTrue(script.contains("--game-dir"));
 		assertTrue(script.contains("'" + dir.resolve("game dir") + "'"));
 		assertTrue(script.contains("export JAVA_HOME='"));
-		assertTrue(script.contains("ALIVE_NEW"));
+		assertTrue(script.contains("MARKER="));
+		assertTrue(script.contains(": > \"$MARKER\""));
 		assertTrue(script.contains("[ -f \"$BAD\" ]"));
 		assertTrue(script.startsWith("#!/bin/sh\n"));
 	}
