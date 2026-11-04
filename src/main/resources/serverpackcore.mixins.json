@@ -1,0 +1,13 @@
+{
+	"required": true,
+	"package": "com.serverpackcore.mixin",
+	"compatibilityLevel": "JAVA_17",
+	"minVersion": "0.8",
+	"refmap": "serverpackcore-refmap.json",
+	"client": [
+		"MinecraftClientMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

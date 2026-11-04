@@ -1,0 +1,27 @@
+{
+	"schemaVersion": 1,
+	"id": "serverpackcore",
+	"version": "${version}",
+	"name": "Server Pack Core",
+	"description": "Sincroniza la configuración del servidor",
+	"authors": [
+		"Server Pack Core Team"
+	],
+	"license": "MIT",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"com.serverpackcore.ServerPackCoreClient"
+		]
+	},
+	"mixins": [
+		"serverpackcore.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.15.0",
+		"minecraft": "~1.20.1",
+		"java": ">=17",
+		"fabric-api": "*"
+	},
+	"icon": "assets/serverpackcore/icon.png"
+}

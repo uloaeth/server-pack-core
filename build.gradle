@@ -1,0 +1,77 @@
+plugins {
+	id 'fabric-loom' version '1.6-SNAPSHOT'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+	archivesName = project.archives_base_name
+}
+
+repositories {
+	maven {
+		name = 'Fabric'
+		url = 'https://maven.fabricmc.net/'
+	}
+	mavenCentral()
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+
+processResources {
+	inputs.property 'version', project.version
+	filesMatching('fabric.mod.json') {
+		expand 'version': project.version
+	}
+}
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+	withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+	options.release = 17
+}
+
+jar {
+	if (file('LICENSE').exists()) {
+		from('LICENSE') {
+			rename { "${it}_${project.base.archivesName.get()}" }
+		}
+	}
+}
+
+def agentJar = layout.projectDirectory.file('agent/build/libs/agent.jar')
+
+tasks.register('buildAgent', GradleBuild) {
+	dir = file('agent')
+	tasks = ['jar']
+	inputs.dir('agent/src')
+	inputs.files('agent/build.gradle', 'agent/settings.gradle')
+	outputs.file(agentJar)
+}
+
+tasks.register('copyAgent', Copy) {
+	dependsOn 'buildAgent'
+	from agentJar
+	into layout.projectDirectory.dir('src/main/resources/serverpackcore')
+	rename { 'agent.bin' }
+}
+
+processResources {
+	dependsOn 'copyAgent'
+}
+
+tasks.named('sourcesJar') {
+	dependsOn 'copyAgent'
+}

@@ -1,0 +1,42 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Agent
+agent/build/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Eclipse
+.classpath
+.project
+.settings/
+bin/
+
+# VSCode
+.vscode/
+
+# macOS
+.DS_Store
+
+# Loom
+run/
+remappedSrc/
+
+# Distribucion
+dist/*.jar
+src/main/resources/serverpackcore/agent.bin
+
+# Entorno local
+local.properties
+*.log
+__pycache__/
+*.pyc
+.blob/
+Thumbs.db
+*.tmp

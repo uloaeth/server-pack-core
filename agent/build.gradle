@@ -1,0 +1,33 @@
+plugins {
+	id 'java'
+}
+
+group = 'com.serverpackcore'
+version = '0.1.2'
+
+base {
+	archivesName = 'spc-agent'
+}
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(17)
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+	options.release = 17
+}
+
+jar {
+	archiveFileName = 'agent.jar'
+	manifest {
+		attributes(
+			'Premain-Class': 'com.serverpackcore.agent.Premain',
+			'Main-Class': 'com.serverpackcore.agent.Agent',
+			'Implementation-Version': project.version,
+			'Can-Redefine-Classes': 'false'
+		)
+	}
+}

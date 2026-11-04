@@ -1,0 +1,5 @@
+a7cae78179a6f44876f5d7ca1099722a9e33b66abd7b8c12623de623e6d356ab  dist/serverpackcore-0.1.1.jar
+150e739c009b11dd9fd5d8b28ef43312edbdb1d54c190e83a1193e1c67577302  dist/serverpackcore-0.1.2.jar
+
+# baseline 0.1.2
+150e739c009b11dd9fd5d8b28ef43312edbdb1d54c190e83a1193e1c67577302  build/libs/serverpackcore-0.1.2.jar
