@@ -42,6 +42,7 @@ public final class Update {
 	public static final String BAD_NAME = "spc-agent.jar.bad";
 	public static final String MOD_STAGED_NAME = "spc-mod-new.jar";
 	public static final String MOD_TEMP_NAME = "spc-mod-new.jar.tmp";
+	public static final String MOD_CANCEL = "spc-mod-cancel";
 	public static final String ROLLBACK_MARKER = "spc-rollback.marker";
 
 	private static final String KEY_RESOURCE = "/serverpackcore/update-public.pem";
@@ -345,23 +346,33 @@ public final class Update {
 			throw new UpdateException("bad version");
 		}
 		validateMod(staged, version);
+		long generation = UpdateHelper.nextModGeneration(dir);
+		Path unique = dir.resolve("spc-mod-new-" + version + "-" + generation + ".jar");
 		try {
 			Path mods = gameDir.resolve("mods");
 			if (!Files.isDirectory(mods)) {
 				Files.createDirectories(mods);
 			}
 			Path target = mods.resolve("serverpackcore-" + version + ".jar");
+			Files.copy(staged, unique, StandardCopyOption.REPLACE_EXISTING);
+			validateMod(unique, version);
+			delete(dir.resolve(MOD_CANCEL));
 			if (gameRunning(dir)) {
 				UpdateHelper.launch(dir,
-					UpdateHelper.writeMod(dir, mods, staged, target, version, UpdateHelper.MODE_UPDATE));
+					UpdateHelper.writeMod(dir, mods, unique, target, version, UpdateHelper.MODE_UPDATE, generation));
+				delete(staged);
 				return true;
 			}
-			swapMod(mods, staged, target);
+			swapMod(mods, unique, target);
 			log(version, "-", "mod-installed");
 			delete(staged);
 			return true;
 		} catch (IOException exception) {
+			delete(unique);
 			throw new UpdateException("io: " + exception.getMessage());
+		} catch (UpdateException exception) {
+			delete(unique);
+			throw exception;
 		}
 	}
 
@@ -381,11 +392,13 @@ public final class Update {
 		}
 		try {
 			if (gameRunning(dir)) {
-				UpdateHelper.launch(dir,
-					UpdateHelper.writeMod(dir, mods, dir.resolve(MOD_STAGED_NAME), mods, "", UpdateHelper.MODE_ROLLBACK));
+				UpdateHelper.launch(dir, UpdateHelper.writeMod(dir, mods, dir.resolve(MOD_STAGED_NAME), mods, "",
+					UpdateHelper.MODE_ROLLBACK, UpdateHelper.nextModGeneration(dir)));
+				delete(dir.resolve(MOD_CANCEL));
 				return true;
 			}
 			restoreMod(mods);
+			delete(dir.resolve(MOD_CANCEL));
 			log("-", "-", "mod-rollback");
 			return true;
 		} catch (IOException exception) {
@@ -452,6 +465,15 @@ public final class Update {
 		} catch (IOException exception) {
 			return false;
 		}
+	}
+
+	/** True while an update's mod helper is already waiting for the game to exit. */
+	static boolean modHelperRunning(Path dir) {
+		String needle = dir.resolve(AgentPaths.isWindows() ? "spc-mod.vbs" : "spc-mod.sh").toString();
+		return ProcessHandle.allProcesses()
+			.anyMatch(process -> process.info().commandLine()
+				.map(command -> command.contains(needle))
+				.orElse(false));
 	}
 
 	static boolean gameRunning(Path dir) {

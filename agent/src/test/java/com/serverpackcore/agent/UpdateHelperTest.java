@@ -149,6 +149,13 @@ class UpdateHelperTest {
 		assertTrue(script.contains("GAME_PID="));
 		assertTrue(script.contains("log mod-installed"));
 		assertTrue(script.contains("wait") || script.contains("kill -0"));
+		assertTrue(script.contains("LOCK=\"$MODS/.spc-mod.lock\""));
+		assertTrue(script.contains("mkdir \"$LOCK\""));
+		assertTrue(script.contains("[ ! -f \"$STAGED\" ]"));
+		assertTrue(script.contains("rmdir \"$LOCK\""));
+		assertTrue(script.contains("GEN="));
+		assertTrue(script.contains("newer()"));
+		assertTrue(script.contains("CANCEL="));
 		Path file = dir.resolve("spc-mod.sh");
 		Files.writeString(file, script, StandardCharsets.UTF_8);
 		Process check = new ProcessBuilder("/bin/sh", "-n", file.toString()).redirectErrorStream(true).start();
@@ -165,6 +172,139 @@ class UpdateHelperTest {
 		assertTrue(script.contains("MODE='rollback'"));
 		assertTrue(script.contains("log mod-rollback"));
 		assertTrue(script.contains(".jar.old"));
+	}
+
+	@Test
+	void modWindowsHasTheSameLockAndGeneration() {
+		Path dir = temp.resolve("install");
+		Path mods = temp.resolve("game/mods");
+		String script = UpdateHelper.renderModWindows(dir, mods, dir.resolve("spc-mod-new.jar"),
+			mods.resolve("serverpackcore-0.1.5.jar"), dir.resolve("alive.txt"), "0.1.5", "update", 42L);
+		assertTrue(script.contains("Const GEN = 42"));
+		assertTrue(script.contains("Const LOCK = \"" + mods.resolve(".spc-mod.lock") + "\""));
+		assertTrue(script.contains("Const CANCEL = "));
+		assertTrue(script.contains("fso.CreateFolder LOCK"));
+		assertTrue(script.contains("Not fso.FileExists(STAGED)"));
+		assertTrue(script.contains("fso.DeleteFolder LOCK, True"));
+		assertTrue(script.contains("Function Newer()"));
+		assertTrue(script.contains("fso.DeleteFile CANCEL, True"));
+	}
+
+	@Test
+	void olderGenerationExitsBeforeWaiting() throws Exception {
+		Path dir = temp.resolve("install");
+		Path mods = temp.resolve("game/mods");
+		Files.createDirectories(dir);
+		Files.createDirectories(mods);
+		Path helper = dir.resolve("spc-mod.sh");
+		Path stagedOld = dir.resolve("spc-mod-new-1.0.2-10.jar");
+		Path stagedNew = dir.resolve("spc-mod-new-1.0.2-20.jar");
+		Files.writeString(stagedOld, "old");
+		Files.writeString(stagedNew, "new");
+		String older = UpdateHelper.renderModUnix(dir, mods, stagedOld, mods.resolve("serverpackcore-1.0.2.jar"),
+			dir.resolve("alive.txt"), "1.0.2", "update", 10L);
+		Files.writeString(helper, older);
+		Path copy = dir.resolve("older.sh");
+		Files.copy(helper, copy);
+		Files.writeString(helper, UpdateHelper.renderModUnix(dir, mods, stagedNew,
+			mods.resolve("serverpackcore-1.0.2.jar"), dir.resolve("alive.txt"), "1.0.2", "update", 20L));
+		assertEquals(0, exec(copy));
+		assertFalse(Files.exists(stagedOld));
+		assertTrue(Files.exists(stagedNew));
+		assertTrue(Files.readString(helper).contains("GEN=20"));
+	}
+
+	@Test
+	void newestGenerationInstallsTheMod() throws Exception {
+		Path dir = temp.resolve("install");
+		Path mods = temp.resolve("game/mods");
+		Files.createDirectories(dir);
+		Files.createDirectories(mods);
+		Path target = mods.resolve("serverpackcore-1.0.2.jar");
+		Files.writeString(target, "previous");
+		Path staged = dir.resolve("spc-mod-new-1.0.2-20.jar");
+		Files.writeString(staged, "new");
+		Path helper = dir.resolve("spc-mod.sh");
+		Files.writeString(helper, UpdateHelper.renderModUnix(dir, mods, staged, target,
+			dir.resolve("alive.txt"), "1.0.2", "update", 20L));
+		assertEquals(0, exec(helper));
+		assertEquals("new", Files.readString(target));
+		assertEquals("previous", Files.readString(mods.resolve("serverpackcore-1.0.2.jar.old")));
+		assertFalse(Files.exists(staged));
+		assertFalse(Files.exists(helper));
+		assertFalse(Files.exists(mods.resolve(".spc-mod.lock")));
+	}
+
+	@Test
+	void cancelMakesTheModHelperRollBack() throws Exception {
+		Path dir = temp.resolve("install");
+		Path mods = temp.resolve("game/mods");
+		Files.createDirectories(dir);
+		Files.createDirectories(mods);
+		Path target = mods.resolve("serverpackcore-1.0.2.jar");
+		Files.writeString(target, "failed");
+		Files.writeString(mods.resolve("serverpackcore-1.0.1.jar.old"), "previous");
+		Path staged = dir.resolve("spc-mod-new-1.0.2-20.jar");
+		Files.writeString(staged, "failed");
+		Files.writeString(dir.resolve(Update.MOD_CANCEL), "");
+		Path helper = dir.resolve("spc-mod.sh");
+		Files.writeString(helper, UpdateHelper.renderModUnix(dir, mods, staged, target,
+			dir.resolve("alive.txt"), "1.0.2", "update", 20L));
+		assertEquals(0, exec(helper));
+		assertEquals("previous", Files.readString(mods.resolve("serverpackcore-1.0.1.jar")));
+		assertEquals("failed", Files.readString(mods.resolve("serverpackcore-1.0.2.jar.bad")));
+		assertFalse(Files.exists(dir.resolve(Update.MOD_CANCEL)));
+		assertTrue(Files.readString(dir.resolve("update.log")).contains("status=mod-rollback"));
+	}
+
+	@Test
+	void lateRollbackWritesCancelAndRevertsTheMod() {
+		String script = run(temp.resolve("install"));
+		int late = script.indexOf("late_rollback()");
+		int cancel = script.indexOf(": > \"$CANCEL\"", late);
+		int revert = script.indexOf("revert_mod\n", cancel);
+		int restore = script.indexOf("\trestore\n", revert);
+		assertTrue(cancel > late);
+		assertTrue(revert > cancel);
+		assertTrue(restore > revert);
+		assertTrue(script.substring(late, cancel).contains("kill -9"));
+	}
+
+	@Test
+	void silentExitConsumesOnlyTheMatchingIntent() {
+		String script = run(temp.resolve("install"));
+		int silent = script.indexOf("if [ -n \"$PID\" ] && [ \"$PID\" != \"$NEW_PID\" ]");
+		int replaced = script.indexOf("log watchdog-replaced", silent);
+		assertTrue(silent >= 0);
+		assertTrue(replaced > silent);
+		String block = script.substring(silent, script.indexOf("\t\tfi\n", replaced));
+		assertTrue(block.contains("intent_read"));
+		assertTrue(block.contains("[ \"$INTENT_PID\" = \"$NEW_PID\" ]"));
+		assertTrue(block.contains("rm -f \"$INTENT\" \"$HELPER\""));
+	}
+
+	private int exec(Path script) throws Exception {
+		Process process = new ProcessBuilder("/bin/sh", script.toString())
+			.redirectErrorStream(true).start();
+		assertTrue(process.waitFor(15, TimeUnit.SECONDS));
+		return process.exitValue();
+	}
+
+	@Test
+	void runningModHelperIsDetected() throws Exception {
+		Path dir = temp.resolve("install");
+		Files.createDirectories(dir);
+		Path helper = dir.resolve("spc-mod.sh");
+		Files.writeString(helper, "sleep 30\n");
+		Process fake = new ProcessBuilder("/bin/sh", helper.toString()).start();
+		try {
+			for (int i = 0; i < 20 && !Update.modHelperRunning(dir); i++) {
+				Thread.sleep(100L);
+			}
+			assertTrue(Update.modHelperRunning(dir));
+		} finally {
+			fake.destroyForcibly();
+		}
 	}
 
 	@Test
@@ -203,6 +343,11 @@ class UpdateHelperTest {
 		assertTrue(script.contains("AppendLog \"rollback-late\""));
 		assertTrue(script.contains("AppendLog \"watchdog-cleared\""));
 		assertTrue(script.contains("WScript.Sleep 1000"));
+		assertTrue(script.contains("Const CANCEL = "));
+		assertTrue(script.contains("Sub RevertMod()"));
+		assertTrue(script.contains("RevertMod"));
+		assertTrue(script.contains("AppendLog \"mod-rollback\""));
+		assertTrue(script.contains("fso.DeleteFile CANCEL, True"));
 	}
 
 	private String render(Path dir, long watchdog) {

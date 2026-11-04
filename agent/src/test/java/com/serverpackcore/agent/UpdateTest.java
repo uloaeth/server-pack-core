@@ -465,6 +465,41 @@ class UpdateTest {
 	}
 
 	@Test
+	void overlappingModAppliesKeepDistinctStagesAndNewestWins() throws Exception {
+		Path game = temp.resolve("game");
+		Path mods = game.resolve("mods");
+		Files.createDirectories(mods);
+		Files.writeString(mods.resolve("serverpackcore-0.1.3.jar"), "working");
+		Process fake = new ProcessBuilder("sleep", "60").start();
+		try {
+			Files.writeString(temp.resolve("alive.txt"), "parent=" + fake.pid() + "\nagent=999999\n");
+			Files.write(temp.resolve(Update.MOD_STAGED_NAME), modJar("0.1.4", "serverpackcore", false));
+			assertTrue(Update.applyMod(temp, game, "0.1.4"));
+			long first = helperGeneration(temp);
+			assertEquals(1, stagedMods(temp).size());
+			Files.write(temp.resolve(Update.MOD_STAGED_NAME), modJar("0.1.4", "serverpackcore", false));
+			assertTrue(Update.applyMod(temp, game, "0.1.4"));
+			long second = helperGeneration(temp);
+			assertTrue(second > first);
+			assertTrue(Files.isRegularFile(temp.resolve("spc-mod-new-0.1.4-" + second + ".jar")));
+			assertTrue(stagedMods(temp).size() >= 1);
+			fake.destroy();
+			Path target = mods.resolve("serverpackcore-0.1.4.jar");
+			for (int i = 0; i < 40 && !Files.exists(target); i++) {
+				Thread.sleep(500);
+			}
+			for (int i = 0; i < 30 && Files.exists(temp.resolve("spc-mod.sh")); i++) {
+				Thread.sleep(200);
+			}
+			assertEquals(List.of("serverpackcore-0.1.4.jar"), enabledMods(game));
+			assertTrue(Files.isRegularFile(mods.resolve("serverpackcore-0.1.3.jar.old")));
+			assertEquals(0, stagedMods(temp).size());
+		} finally {
+			fake.destroyForcibly();
+		}
+	}
+
+	@Test
 	void rollbackModRestoresTheOriginalName() throws Exception {
 		Path game = temp.resolve("game");
 		Path mods = game.resolve("mods");
@@ -540,6 +575,22 @@ class UpdateTest {
 			return stream.map(path -> path.getFileName().toString())
 				.filter(name -> name.startsWith("serverpackcore-") && name.endsWith(".jar"))
 				.sorted()
+				.toList();
+		}
+	}
+
+	private long helperGeneration(Path dir) throws Exception {
+		for (String line : Files.readAllLines(dir.resolve("spc-mod.sh"))) {
+			if (line.startsWith("GEN=")) {
+				return Long.parseLong(line.substring(4));
+			}
+		}
+		return 0L;
+	}
+
+	private List<Path> stagedMods(Path dir) throws Exception {
+		try (Stream<Path> stream = Files.list(dir)) {
+			return stream.filter(path -> path.getFileName().toString().startsWith("spc-mod-new-0.1.4-"))
 				.toList();
 		}
 	}

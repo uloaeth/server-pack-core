@@ -79,6 +79,9 @@ public final class Poller implements Runnable {
 		if (gameDir == null || Update.installedModMatches(gameDir, Update.currentVersion())) {
 			return;
 		}
+		if (Update.modHelperRunning(installDir)) {
+			return;
+		}
 		if (!Update.begin()) {
 			return;
 		}
