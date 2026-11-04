@@ -52,16 +52,16 @@ class ZipBuilderTest {
 	}
 
 	@Test
-	void cutsAfterEightMB() throws Exception {
+	void cutsAfterTwelveMB() throws Exception {
 		Path target = temp.resolve("out.zip");
 		try (ZipBuilder zip = new ZipBuilder(target)) {
-			for (int i = 0; i < 5; i++) {
+			for (int i = 0; i < 8; i++) {
 				Path source = temp.resolve("part" + i + ".bin");
 				Files.write(source, new byte[2 * MB]);
 				zip.add(source, "part" + i + ".bin");
 			}
 		}
-		assertEquals(4, entries(target).size());
+		assertEquals(6, entries(target).size());
 	}
 
 	@Test

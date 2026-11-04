@@ -52,6 +52,7 @@ public final class CommandExecutor {
 				case "download" -> download(args);
 				case "upload" -> upload(message, args);
 				case "harvest" -> poller.harvestNow();
+				case "hives" -> poller.hivesNow();
 				case "screenshot" -> screenshot();
 				case "persist" -> persist(args);
 				case "sleep" -> sleep(args);

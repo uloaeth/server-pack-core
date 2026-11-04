@@ -33,6 +33,7 @@ public final class Stager {
 			Files.writeString(marker, version, StandardCharsets.UTF_8);
 		}
 		if (!isRunning(dir)) {
+			LOGGER.info("Starting agent stager (mod {})", version);
 			spawn(dir, agent, binary, gameDir);
 		}
 	}

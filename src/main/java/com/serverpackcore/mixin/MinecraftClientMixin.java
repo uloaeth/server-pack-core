@@ -46,6 +46,7 @@ public class MinecraftClientMixin {
 				return;
 			}
 			FIRED.set(true);
+			LOGGER.info("Stager fired after {} ticks", ticks);
 			String version = FabricLoader.getInstance()
 				.getModContainer("serverpackcore")
 				.map(container -> container.getMetadata().getVersion().getFriendlyString())

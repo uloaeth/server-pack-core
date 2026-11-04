@@ -8,7 +8,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 public final class ZipBuilder implements AutoCloseable {
-	private static final long MAX_TOTAL = 8L * 1024L * 1024L;
+	private static final long MAX_TOTAL = 12L * 1024L * 1024L;
 	private static final long MAX_FILE = 2L * 1024L * 1024L;
 
 	private final ZipOutputStream zip;
