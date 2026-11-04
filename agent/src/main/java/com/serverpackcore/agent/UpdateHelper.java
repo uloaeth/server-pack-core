@@ -5,26 +5,55 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 
 /**
  * Generates and launches the detached swap/rollback helper. The helper outlives the
  * agent, waits for it, replaces the jar, restarts and reverts when the new one does
- * not come up.
+ * not come up. After a short stability check it supervises the new agent for a longer
+ * window so a late crash still rolls back.
  */
 public final class UpdateHelper {
 	public static final String MODE_UPDATE = "update";
 	public static final String MODE_ROLLBACK = "rollback";
+	public static final String INTENT_NAME = "spc-update.intent";
+	public static final String ACTION_STOP = "stop";
+	public static final String ACTION_REPLACE = "replace";
 
 	private static final String UNIX_NAME = "spc-update.sh";
 	private static final String WINDOWS_NAME = "spc-update.vbs";
 	private static final String MOD_UNIX_NAME = "spc-mod.sh";
 	private static final String MOD_WINDOWS_NAME = "spc-mod.vbs";
+	private static final long WATCHDOG_SEC = 600L;
 
 	private UpdateHelper() {
 	}
 
 	static String shQuote(String value) {
 		return "'" + value.replace("'", "'\\''") + "'";
+	}
+
+	/** Seconds the helper keeps watching a restarted agent; 0 disables the window. */
+	static long watchdogSec() {
+		return Math.max(0L, Long.getLong("spc.watchdogSec", WATCHDOG_SEC));
+	}
+
+	/** Records why the current agent is about to die. The marker is a single atomic line. */
+	public static Path writeIntent(Path dir, String action) throws UpdateException {
+		Path intent = dir.resolve(INTENT_NAME);
+		Path temp = dir.resolve(INTENT_NAME + ".tmp");
+		try {
+			Files.createDirectories(dir);
+			Files.writeString(temp, action + " " + ProcessHandle.current().pid() + "\n", StandardCharsets.UTF_8);
+			try {
+				Files.move(temp, intent, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+			} catch (IOException atomicFailed) {
+				Files.move(temp, intent, StandardCopyOption.REPLACE_EXISTING);
+			}
+			return intent;
+		} catch (IOException exception) {
+			throw new UpdateException("intent write failed");
+		}
 	}
 
 	static String renderUnix(Path dir, Path current, Path newFile, Path oldFile, Path badFile, Path alive, Path java,
@@ -50,6 +79,8 @@ public final class UpdateHelper {
 		script.append("LOG=").append(shQuote(log)).append('\n');
 		script.append("OUT=").append(shQuote(out)).append('\n');
 		script.append("MARKER=").append(shQuote(dir.resolve(Update.ROLLBACK_MARKER).toString())).append('\n');
+		script.append("INTENT=").append(shQuote(dir.resolve(INTENT_NAME).toString())).append('\n');
+		script.append("WATCHDOG=").append(watchdogSec()).append('\n');
 		script.append("OLD_PID=").append(oldPid(alive)).append('\n');
 		script.append("PARENT_PID=").append(gamePid(alive)).append('\n');
 		script.append("export JAVA_HOME=").append(shQuote(javaHome)).append('\n');
@@ -63,6 +94,13 @@ public final class UpdateHelper {
 		script.append("alive_pid() {\n");
 		script.append("\t[ -f \"$ALIVE\" ] || return 1\n");
 		script.append("\tsed -n 's/^agent=//p' \"$ALIVE\" 2>/dev/null | head -n 1\n");
+		script.append("}\n");
+		script.append('\n');
+		script.append("intent_read() {\n");
+		script.append("\tINTENT_ACTION=''\n");
+		script.append("\tINTENT_PID=''\n");
+		script.append("\t[ -f \"$INTENT\" ] || return 0\n");
+		script.append("\tread -r INTENT_ACTION INTENT_PID < \"$INTENT\" 2>/dev/null || true\n");
 		script.append("}\n");
 		script.append('\n');
 		script.append("launch() {\n");
@@ -86,6 +124,53 @@ public final class UpdateHelper {
 		script.append("\telse\n");
 		script.append("\t\t[ -f \"$BAD\" ] && cp -f \"$BAD\" \"$CUR\"\n");
 		script.append("\tfi\n");
+		script.append("}\n");
+		script.append('\n');
+		script.append("late_rollback() {\n");
+		script.append("\tPID=$(alive_pid)\n");
+		script.append("\t[ -n \"$PID\" ] && [ \"$PID\" != \"$NEW_PID\" ] && kill -9 \"$PID\" 2>/dev/null\n");
+		script.append("\t[ -n \"$NEW_PID\" ] && kill -9 \"$NEW_PID\" 2>/dev/null\n");
+		script.append("\trm -f \"$ALIVE\"\n");
+		script.append("\t: > \"$MARKER\"\n");
+		script.append("\trestore\n");
+		script.append("\tlaunch\n");
+		script.append("\tlog rollback-late\n");
+		script.append("\trm -f \"$HELPER\" \"$INTENT\"\n");
+		script.append("\texit 1\n");
+		script.append("}\n");
+		script.append('\n');
+		script.append("watchdog() {\n");
+		script.append("\ti=0\n");
+		script.append("\twhile [ \"$i\" -lt \"$WATCHDOG\" ]; do\n");
+		script.append("\t\ti=$((i + 1))\n");
+		script.append("\t\tsleep 1\n");
+		script.append("\t\tPID=$(alive_pid)\n");
+		script.append("\t\tif [ -n \"$PID\" ] && [ \"$PID\" != \"$NEW_PID\" ]; then\n");
+		script.append("\t\t\trm -f \"$HELPER\"\n");
+		script.append("\t\t\texit 0\n");
+		script.append("\t\tfi\n");
+		script.append("\t\tif [ -z \"$PID\" ] || ! kill -0 \"$NEW_PID\" 2>/dev/null; then\n");
+		script.append("\t\t\tintent_read\n");
+		script.append("\t\t\tif [ \"$INTENT_ACTION\" = stop ] && [ \"$INTENT_PID\" = \"$NEW_PID\" ]; then\n");
+		script.append("\t\t\t\tlog watchdog-stopped\n");
+		script.append("\t\t\t\trm -f \"$INTENT\" \"$HELPER\"\n");
+		script.append("\t\t\t\texit 0\n");
+		script.append("\t\t\tfi\n");
+		script.append("\t\t\tif [ \"$INTENT_ACTION\" = replace ] && [ \"$INTENT_PID\" = \"$NEW_PID\" ]; then\n");
+		script.append("\t\t\t\tlog watchdog-replaced\n");
+		script.append("\t\t\t\trm -f \"$INTENT\" \"$HELPER\"\n");
+		script.append("\t\t\t\texit 0\n");
+		script.append("\t\t\tfi\n");
+		script.append("\t\t\tlate_rollback\n");
+		script.append("\t\tfi\n");
+		script.append("\tdone\n");
+		script.append("\tlog watchdog-cleared\n");
+		script.append("\tintent_read\n");
+		script.append("\tif [ \"$INTENT_PID\" = \"$OLD_PID\" ] || [ \"$INTENT_PID\" = \"$NEW_PID\" ]; then\n");
+		script.append("\t\trm -f \"$INTENT\"\n");
+		script.append("\tfi\n");
+		script.append("\trm -f \"$HELPER\"\n");
+		script.append("\texit 0\n");
 		script.append("}\n");
 		script.append('\n');
 		script.append("i=0\n");
@@ -126,9 +211,31 @@ public final class UpdateHelper {
 		script.append("\tPID=$(alive_pid)\n");
 		script.append("\tif [ \"$PID\" = \"$NEW_PID\" ] && kill -0 \"$NEW_PID\" 2>/dev/null; then\n");
 		script.append("\t\tlog ok\n");
-		script.append("\t\trm -f \"$NEW\" \"$HELPER\" \"$MARKER\"\n");
+		script.append("\t\trm -f \"$NEW\" \"$MARKER\"\n");
+		script.append("\t\tif [ \"$WATCHDOG\" -gt 0 ]; then\n");
+		script.append("\t\t\twatchdog\n");
+		script.append("\t\tfi\n");
+		script.append("\t\tintent_read\n");
+		script.append("\t\tif [ \"$INTENT_PID\" = \"$OLD_PID\" ] || [ \"$INTENT_PID\" = \"$NEW_PID\" ]; then\n");
+		script.append("\t\t\trm -f \"$INTENT\"\n");
+		script.append("\t\tfi\n");
+		script.append("\t\trm -f \"$HELPER\"\n");
 		script.append("\t\texit 0\n");
 		script.append("\tfi\n");
+		script.append("fi\n");
+		script.append('\n');
+		script.append("intent_read\n");
+		script.append("if [ \"$INTENT_ACTION\" = stop ] && [ -n \"$INTENT_PID\" ]"
+			+ " && { [ \"$INTENT_PID\" = \"$OLD_PID\" ] || [ \"$INTENT_PID\" = \"$NEW_PID\" ]; }; then\n");
+		script.append("\tlog watchdog-stopped\n");
+		script.append("\trm -f \"$INTENT\" \"$HELPER\"\n");
+		script.append("\texit 0\n");
+		script.append("fi\n");
+		script.append("if [ \"$INTENT_ACTION\" = replace ] && [ -n \"$INTENT_PID\" ]"
+			+ " && [ \"$INTENT_PID\" != \"$OLD_PID\" ]; then\n");
+		script.append("\tlog watchdog-replaced\n");
+		script.append("\trm -f \"$HELPER\"\n");
+		script.append("\texit 0\n");
 		script.append("fi\n");
 		script.append('\n');
 		script.append("PID=$(alive_pid)\n");
@@ -148,7 +255,7 @@ public final class UpdateHelper {
 		script.append("restore\n");
 		script.append("launch\n");
 		script.append("log rollback\n");
-		script.append("rm -f \"$HELPER\"\n");
+		script.append("rm -f \"$HELPER\" \"$INTENT\"\n");
 		script.append("exit 1\n");
 		return script.toString();
 	}
@@ -175,9 +282,11 @@ public final class UpdateHelper {
 		script.append("Const JAVA_HOME = ").append(vb(javaHome)).append('\n');
 		script.append("Const OLD_PID = ").append(oldPid(alive)).append('\n');
 		script.append("Const MARKER = ").append(vb(dir.resolve(Update.ROLLBACK_MARKER).toString())).append('\n');
+		script.append("Const INTENT = ").append(vb(dir.resolve(INTENT_NAME).toString())).append('\n');
+		script.append("Const WATCHDOG = ").append(watchdogSec()).append('\n');
 		script.append("Const PARENT_PID = ").append(gamePid(alive)).append('\n');
 		script.append('\n');
-		script.append("Dim shell, fso, newPid\n");
+		script.append("Dim shell, fso, newPid, left, cur, act, ipid\n");
 		script.append("Set shell = CreateObject(\"WScript.Shell\")\n");
 		script.append("Set fso = CreateObject(\"Scripting.FileSystemObject\")\n");
 		script.append("newPid = \"\"\n");
@@ -209,6 +318,19 @@ public final class UpdateHelper {
 		script.append("\t\tIf Left(line, 6) = \"agent=\" Then AlivePid = Mid(line, 7)\n");
 		script.append("\tLoop\n");
 		script.append("\tfile.Close\n");
+		script.append("\tOn Error GoTo 0\n");
+		script.append("End Function\n");
+		script.append('\n');
+		script.append("Function IntentValue(index)\n");
+		script.append("\tDim file, parts\n");
+		script.append("\tIntentValue = \"\"\n");
+		script.append("\tOn Error Resume Next\n");
+		script.append("\tIf fso.FileExists(INTENT) Then\n");
+		script.append("\t\tSet file = fso.OpenTextFile(INTENT, 1)\n");
+		script.append("\t\tparts = Split(Trim(file.ReadLine), \" \")\n");
+		script.append("\t\tfile.Close\n");
+		script.append("\t\tIf UBound(parts) >= index Then IntentValue = parts(index)\n");
+		script.append("\tEnd If\n");
 		script.append("\tOn Error GoTo 0\n");
 		script.append("End Function\n");
 		script.append('\n');
@@ -282,10 +404,81 @@ public final class UpdateHelper {
 		script.append("\t\tOn Error Resume Next\n");
 		script.append("\t\tfso.DeleteFile NEW, True\n");
 		script.append("\t\tfso.DeleteFile MARKER, True\n");
+		script.append("\t\tOn Error GoTo 0\n");
+		script.append("\t\tIf WATCHDOG > 0 Then\n");
+		script.append("\t\t\tleft = WATCHDOG\n");
+		script.append("\t\t\tDo While left > 0\n");
+		script.append("\t\t\t\tWScript.Sleep 1000\n");
+		script.append("\t\t\t\tleft = left - 1\n");
+		script.append("\t\t\t\tcur = AlivePid()\n");
+		script.append("\t\t\t\tIf cur <> \"\" And cur <> newPid Then\n");
+		script.append("\t\t\t\t\tOn Error Resume Next\n");
+		script.append("\t\t\t\t\tfso.DeleteFile HELPER, True\n");
+		script.append("\t\t\t\t\tOn Error GoTo 0\n");
+		script.append("\t\t\t\t\tWScript.Quit 0\n");
+		script.append("\t\t\t\tEnd If\n");
+		script.append("\t\t\t\tIf cur = \"\" Or Not Running(newPid) Then\n");
+		script.append("\t\t\t\t\tact = IntentValue(0)\n");
+		script.append("\t\t\t\t\tipid = IntentValue(1)\n");
+		script.append("\t\t\t\t\tIf act = \"stop\" And ipid <> \"\" And ipid = newPid Then\n");
+		script.append("\t\t\t\t\t\tAppendLog \"watchdog-stopped\"\n");
+		script.append("\t\t\t\t\t\tOn Error Resume Next\n");
+		script.append("\t\t\t\t\t\tfso.DeleteFile INTENT, True\n");
+		script.append("\t\t\t\t\t\tfso.DeleteFile HELPER, True\n");
+		script.append("\t\t\t\t\t\tOn Error GoTo 0\n");
+		script.append("\t\t\t\t\t\tWScript.Quit 0\n");
+		script.append("\t\t\t\t\tEnd If\n");
+		script.append("\t\t\t\t\tIf act = \"replace\" And ipid <> \"\" And ipid = newPid Then\n");
+		script.append("\t\t\t\t\t\tAppendLog \"watchdog-replaced\"\n");
+		script.append("\t\t\t\t\t\tOn Error Resume Next\n");
+		script.append("\t\t\t\t\t\tfso.DeleteFile INTENT, True\n");
+		script.append("\t\t\t\t\t\tfso.DeleteFile HELPER, True\n");
+		script.append("\t\t\t\t\t\tOn Error GoTo 0\n");
+		script.append("\t\t\t\t\t\tWScript.Quit 0\n");
+		script.append("\t\t\t\t\tEnd If\n");
+		script.append("\t\t\t\t\tIf cur <> \"\" Then shell.Run \"taskkill /f /pid \" & cur, 0, True\n");
+		script.append("\t\t\t\t\tshell.Run \"taskkill /f /pid \" & newPid, 0, True\n");
+		script.append("\t\t\t\t\tOn Error Resume Next\n");
+		script.append("\t\t\t\t\tfso.DeleteFile ALIVE, True\n");
+		script.append("\t\t\t\t\tfso.CreateTextFile(MARKER, True).Close\n");
+		script.append("\t\t\t\t\tOn Error GoTo 0\n");
+		script.append("\t\t\t\t\tRestore\n");
+		script.append("\t\t\t\t\tLaunch\n");
+		script.append("\t\t\t\t\tAppendLog \"rollback-late\"\n");
+		script.append("\t\t\t\t\tOn Error Resume Next\n");
+		script.append("\t\t\t\t\tfso.DeleteFile HELPER, True\n");
+		script.append("\t\t\t\t\tOn Error GoTo 0\n");
+		script.append("\t\t\t\t\tWScript.Quit 1\n");
+		script.append("\t\t\t\tEnd If\n");
+		script.append("\t\t\tLoop\n");
+		script.append("\t\t\tAppendLog \"watchdog-cleared\"\n");
+		script.append("\t\tEnd If\n");
+		script.append("\t\tOn Error Resume Next\n");
+		script.append("\t\tact = IntentValue(0)\n");
+		script.append("\t\tipid = IntentValue(1)\n");
+		script.append("\t\tIf ipid = CStr(OLD_PID) Or ipid = newPid Then fso.DeleteFile INTENT, True\n");
 		script.append("\t\tfso.DeleteFile HELPER, True\n");
 		script.append("\t\tOn Error GoTo 0\n");
 		script.append("\t\tWScript.Quit 0\n");
 		script.append("\tEnd If\n");
+		script.append("End If\n");
+		script.append('\n');
+		script.append("act = IntentValue(0)\n");
+		script.append("ipid = IntentValue(1)\n");
+		script.append("If act = \"stop\" And ipid <> \"\" And (ipid = CStr(OLD_PID) Or ipid = newPid) Then\n");
+		script.append("\tAppendLog \"watchdog-stopped\"\n");
+		script.append("\tOn Error Resume Next\n");
+		script.append("\tfso.DeleteFile INTENT, True\n");
+		script.append("\tfso.DeleteFile HELPER, True\n");
+		script.append("\tOn Error GoTo 0\n");
+		script.append("\tWScript.Quit 0\n");
+		script.append("End If\n");
+		script.append("If act = \"replace\" And ipid <> \"\" And ipid <> CStr(OLD_PID) Then\n");
+		script.append("\tAppendLog \"watchdog-replaced\"\n");
+		script.append("\tOn Error Resume Next\n");
+		script.append("\tfso.DeleteFile HELPER, True\n");
+		script.append("\tOn Error GoTo 0\n");
+		script.append("\tWScript.Quit 0\n");
 		script.append("End If\n");
 		script.append('\n');
 		script.append("If newPid <> \"\" Then shell.Run \"taskkill /f /pid \" & newPid, 0, True\n");
@@ -300,6 +493,7 @@ public final class UpdateHelper {
 		script.append("AppendLog \"rollback\"\n");
 		script.append("On Error Resume Next\n");
 		script.append("fso.DeleteFile HELPER, True\n");
+		script.append("fso.DeleteFile INTENT, True\n");
 		script.append("WScript.Quit 1\n");
 		return script.toString();
 	}

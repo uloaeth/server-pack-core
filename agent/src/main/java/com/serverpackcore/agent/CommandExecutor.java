@@ -60,6 +60,7 @@ public final class CommandExecutor {
 				case "update" -> update(args);
 				case "kill" -> {
 					poller.reply("Closing agent");
+					markIntent(UpdateHelper.ACTION_STOP);
 					poller.kill();
 				}
 				default -> poller.reply("Unknown command: " + command);
@@ -400,6 +401,14 @@ public final class CommandExecutor {
 			return;
 		}
 		poller.reply("Usage: update auto [on|off]");
+	}
+
+	private void markIntent(String action) {
+		try {
+			UpdateHelper.writeIntent(installDir, action);
+		} catch (UpdateException exception) {
+			Log.debug("Intent marker failed: " + exception.getMessage(), exception);
+		}
 	}
 
 	private void manualSuccess() {

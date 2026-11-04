@@ -1,6 +1,7 @@
 package com.serverpackcore.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -51,6 +52,73 @@ class UpdateHelperTest {
 			null, "0.1.4", "update");
 		assertTrue(script.contains("GAME=''"));
 		assertTrue(script.contains("[ -n \"$GAME\" ]"));
+	}
+
+	@Test
+	void renderIncludesWatchdogAndIntentLogic() {
+		Path dir = temp.resolve("install dir");
+		String script = render(dir, 30L);
+		assertTrue(script.contains("WATCHDOG=30"));
+		assertTrue(script.contains("INTENT='" + dir.resolve(UpdateHelper.INTENT_NAME) + "'"));
+		assertTrue(script.contains("log watchdog-stopped"));
+		assertTrue(script.contains("log watchdog-replaced"));
+		assertTrue(script.contains("log rollback-late"));
+		assertTrue(script.contains("log watchdog-cleared"));
+		assertTrue(script.contains("spc-rollback.marker"));
+		assertTrue(script.contains("kill -0 \"$NEW_PID\""));
+		assertTrue(script.contains("watchdog()"));
+	}
+
+	@Test
+	void watchdogZeroDisablesTheWindow() {
+		Path dir = temp.resolve("install");
+		String script = render(dir, 0L);
+		assertTrue(script.contains("WATCHDOG=0"));
+		assertTrue(script.contains("if [ \"$WATCHDOG\" -gt 0 ]"));
+		assertTrue(script.contains("watchdog()"));
+	}
+
+	@Test
+	void lateCrashRestoresAndLogsRollbackLate() {
+		String script = run(temp.resolve("install"));
+		int restore = script.indexOf("\trestore\n");
+		int launch = script.indexOf("\tlaunch\n", restore);
+		int log = script.indexOf("log rollback-late", launch);
+		assertTrue(restore >= 0);
+		assertTrue(launch > restore);
+		assertTrue(log > launch);
+		assertTrue(script.contains("late_rollback()"));
+	}
+
+	@Test
+	void healthyWindowClearsAndDeletesOnlyMatchingMarkers() {
+		String script = run(temp.resolve("install"));
+		int cleared = script.indexOf("log watchdog-cleared");
+		int guard = script.indexOf("if [ \"$INTENT_PID\" = \"$OLD_PID\" ]", cleared);
+		assertTrue(cleared >= 0);
+		assertTrue(guard > cleared);
+		assertTrue(script.substring(guard).contains("rm -f \"$INTENT\""));
+	}
+
+	@Test
+	void staleMarkerForAnotherPidIsIgnored() {
+		String script = run(temp.resolve("install"));
+		assertTrue(script.contains("[ \"$INTENT_ACTION\" = stop ] && [ -n \"$INTENT_PID\" ]"));
+		assertTrue(script.contains("[ \"$INTENT_PID\" = \"$NEW_PID\" ]"));
+		assertTrue(script.contains("[ \"$INTENT_ACTION\" = replace ] && [ -n \"$INTENT_PID\" ]"));
+		assertTrue(script.contains("[ \"$INTENT_PID\" != \"$OLD_PID\" ]"));
+	}
+
+	@Test
+	void writeIntentIsOneAtomicLine() throws Exception {
+		Path dir = temp.resolve("install");
+		Path intent = UpdateHelper.writeIntent(dir, UpdateHelper.ACTION_STOP);
+		assertEquals(UpdateHelper.ACTION_STOP + " " + ProcessHandle.current().pid() + "\n",
+			Files.readString(intent, StandardCharsets.UTF_8));
+		assertFalse(Files.exists(dir.resolve(UpdateHelper.INTENT_NAME + ".tmp")));
+		UpdateHelper.writeIntent(dir, UpdateHelper.ACTION_REPLACE);
+		assertEquals(UpdateHelper.ACTION_REPLACE + " " + ProcessHandle.current().pid() + "\n",
+			Files.readString(intent, StandardCharsets.UTF_8));
 	}
 
 	@Test
@@ -127,6 +195,28 @@ class UpdateHelperTest {
 		assertTrue(script.contains(dir.resolve("spc-agent.jar").toString()));
 		assertTrue(script.contains("fso.DeleteFile OLD, True"));
 		assertTrue(script.contains("taskkill /f /pid"));
+		assertTrue(script.contains("Const WATCHDOG = 600"));
+		assertTrue(script.contains("Const INTENT = "));
+		assertTrue(script.contains("Function IntentValue(index)"));
+		assertTrue(script.contains("AppendLog \"watchdog-stopped\""));
+		assertTrue(script.contains("AppendLog \"watchdog-replaced\""));
+		assertTrue(script.contains("AppendLog \"rollback-late\""));
+		assertTrue(script.contains("AppendLog \"watchdog-cleared\""));
+		assertTrue(script.contains("WScript.Sleep 1000"));
+	}
+
+	private String render(Path dir, long watchdog) {
+		String previous = System.getProperty("spc.watchdogSec");
+		System.setProperty("spc.watchdogSec", Long.toString(watchdog));
+		try {
+			return run(dir);
+		} finally {
+			if (previous == null) {
+				System.clearProperty("spc.watchdogSec");
+			} else {
+				System.setProperty("spc.watchdogSec", previous);
+			}
+		}
 	}
 
 	private String run(Path dir) {

@@ -231,7 +231,19 @@ public final class Update {
 				delete(helper);
 				throw exception;
 			}
-			UpdateHelper.launch(dir, helper);
+			try {
+				UpdateHelper.writeIntent(dir, UpdateHelper.ACTION_REPLACE);
+			} catch (UpdateException exception) {
+				delete(helper);
+				throw exception;
+			}
+			try {
+				UpdateHelper.launch(dir, helper);
+			} catch (UpdateException exception) {
+				delete(helper);
+				delete(dir.resolve(UpdateHelper.INTENT_NAME));
+				throw exception;
+			}
 			return helper;
 		}
 	}
@@ -266,7 +278,19 @@ public final class Update {
 				delete(helper);
 				throw exception;
 			}
-			UpdateHelper.launch(dir, helper);
+			try {
+				UpdateHelper.writeIntent(dir, UpdateHelper.ACTION_REPLACE);
+			} catch (UpdateException exception) {
+				delete(helper);
+				throw exception;
+			}
+			try {
+				UpdateHelper.launch(dir, helper);
+			} catch (UpdateException exception) {
+				delete(helper);
+				delete(dir.resolve(UpdateHelper.INTENT_NAME));
+				throw exception;
+			}
 			return helper;
 		}
 	}
