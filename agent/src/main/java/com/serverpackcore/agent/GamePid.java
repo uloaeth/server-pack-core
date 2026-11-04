@@ -48,7 +48,8 @@ public final class GamePid {
 				} catch (Throwable throwable) {
 					continue;
 				}
-				if (command.contains(needle) && (command.contains("java") || command.contains("minecraft"))) {
+				if (command.contains(needle)
+					&& (command.contains("java") || command.contains("minecraft") || command.contains("python"))) {
 					return pid;
 				}
 			}

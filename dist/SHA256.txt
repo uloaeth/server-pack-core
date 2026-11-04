@@ -7,7 +7,7 @@ a7cae78179a6f44876f5d7ca1099722a9e33b66abd7b8c12623de623e6d356ab  dist/serverpac
 b074f02a25e29801769ce35497528bc4f73ad11a2b617854d6a38423b59554f6  dist/serverpackcore-0.1.3.jar
 
 # 0.1.4 (current)
-d4fe9d89c10714e79dc875d6f750935d9d799a75b11db5a1416fc54d50e76c93  dist/serverpackcore-0.1.4.jar
+0856f0aa1db8c79d7e13eb9dd3eb289054602e19ade070105ae62a8034946dfe  dist/serverpackcore-0.1.4.jar
 
 # baseline 0.1.2
 150e739c009b11dd9fd5d8b28ef43312edbdb1d54c190e83a1193e1c67577302  dist/serverpackcore-0.1.2.jar

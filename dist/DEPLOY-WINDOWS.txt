@@ -18,7 +18,7 @@ token and no longer connect at all.
    certutil -hashfile serverpackcore-0.1.4.jar SHA256
 
    It must return:
-   d4fe9d89c10714e79dc875d6f750935d9d799a75b11db5a1416fc54d50e76c93
+   0856f0aa1db8c79d7e13eb9dd3eb289054602e19ade070105ae62a8034946dfe
 
 4. Close Minecraft and check that no agent remains:
 
