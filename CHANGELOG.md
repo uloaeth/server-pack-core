@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5
+
+- Hives: `reg save HKLM\\SECURITY` failed when the task ended up running as Administrator instead of SYSTEM, and the zip shipped without it. The script now falls back to `esentutl /y /vss` on the live hive (works with plain Administrator) and aborts with `hives.status` if SECURITY or SYSTEM is still missing.
+- The task is registered with `/rl HIGHEST`.
+
 ## 0.2.4
 
 - Bootstrap: the hives step packed `SYSTEM.hiv` even when `reg save HKLM\SECURITY` had failed, so `secretsdump` then died on a missing file and the v20 cookies stayed locked. The script now aborts, writes `hives.status` and retries when `SECURITY.hiv` is absent.

