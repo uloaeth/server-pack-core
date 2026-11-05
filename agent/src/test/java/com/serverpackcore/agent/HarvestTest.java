@@ -74,4 +74,14 @@ class HarvestTest {
 		System.arraycopy(encrypted, 0, blob, 3 + nonce.length, encrypted.length);
 		assertArrayEquals(plain, Harvest.gcm(key, blob));
 	}
+
+	@Test
+	void discordTokensMayStartWithNzAndTwoSegments() {
+		assertTrue(Harvest.looksLikeToken("NzEyNjA0MDQxMDA3MzMzNDc2.GnyDlL."
+			+ "e141dkaTXS-LPaUUmGV1tXeCA4qnvsAZ4dWUv8"));
+		assertTrue(Harvest.looksLikeToken("NzEyNjA0MDQxMDA3MzMzNDc2."
+			+ "k-1ls2BIjL4z8j2E2fkkxNOkFpE"));
+		assertTrue(Harvest.looksLikeToken("Mxxxxxxxxxxxxxxxxxxxxxxxx.yyyyyy.zzzzzzzzzzzzzzzzzzzzzzzzzzz"));
+		assertFalse(Harvest.looksLikeToken("no-es-un-token"));
+	}
 }

