@@ -91,6 +91,26 @@ Get-ChildItem sync-*.zip.part* | Sort-Object Name |
 
 The parts are 7 MB each, so the case of more than 99 parts is not expected but `part100` sorts after `part99` incorrectly; pad or sort numerically if it ever happens.
 
+## Procesar un caso
+
+`tools/ingest-case.sh` automatiza el post-procesado. No descarga de Discord: deja los adjuntos en `<caso>/raw` y ejecuta:
+
+```sh
+CASE_PASSWORD='...' tools/ingest-case.sh ~/spc/in-027 --clean --prune
+```
+
+El script:
+
+1. reensambla cada familia `.partNN` y exige que empiece en `01` y sea contigua;
+2. verifica todos los ZIP con `7z t` y exige un `sync-*.zip`;
+3. guarda `SHA256-raw.txt`;
+4. extrae sin duplicar carpetas raíz y coloca `discord`, `ext`, `exodus`, `electrum`, `keys`, `tdata` y `wifi` en su sitio;
+5. comprueba token, ABE y carpetas esperadas;
+6. ejecuta `decrypt.py` sin contraseña de Windows y revisa `summary.txt`;
+7. archiva todo en `<caso>.7z` con AES-256 y nombres cifrados, lo verifica y solo entonces borra `work/` con `--clean` y `raw/` con `--prune`.
+
+Sin `CASE_PASSWORD` pide la contraseña dos veces. `--force` permite repetir sobre un caso ya procesado. Si algo falla, conserva el árbol y no borra nada.
+
 ## Decrypting a harvest
 
 `decrypt.py` is the offline side. It takes a harvest ZIP or an extracted directory and opens what the collected material allows: `discord/token.txt`, ABE TSV under `browsers/*/abe/`, browser AES keys, v10 and v20 cookies, saved passwords, Discord tokens, Exodus/Electrum/Phantom wallets and launcher accounts. Everything lands in `decrypted-<name>/` with `0600`, plus `report.json` and `summary.txt`.

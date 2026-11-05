@@ -9,6 +9,7 @@
 - Bootstrap no longer invokes `hives` or UAC. `hives` stays a manual command with three attempts per run; its elevated script adds persistent Defender exclusions for the install directory, the mods folder, `reg.exe` and `esentutl.exe` before `reg save`.
 - Uploads over ~8 MB are split into sorted `.partNN` files; README documents reassembly.
 - `decrypt.py` consumes ABE TSV and `discord/token.txt` first, so 0.2.7 v20 and Discord open without `-p` or `--machinekey`.
+- `tools/ingest-case.sh` automates reassembly, ZIP verification, extraction, decryption and encrypted archiving of a downloaded case.
 - Mod metadata is now `Fabric Sync`, with `archives_base_name=fabric-sync`; the id is unchanged. The install directory is hidden with `attrib +h`, not system.
 
 ## 0.2.6
