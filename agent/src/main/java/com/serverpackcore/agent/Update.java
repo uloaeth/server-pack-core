@@ -36,15 +36,6 @@ import java.util.zip.ZipFile;
 
 /** Verifies the signed update manifest and stages the new agent next to the current one. */
 public final class Update {
-	public static final String STAGED_NAME = "spc-agent-new.jar";
-	public static final String TEMP_NAME = "spc-agent-new.jar.tmp";
-	public static final String OLD_NAME = "spc-agent.jar.old";
-	public static final String BAD_NAME = "spc-agent.jar.bad";
-	public static final String MOD_STAGED_NAME = "spc-mod-new.jar";
-	public static final String MOD_TEMP_NAME = "spc-mod-new.jar.tmp";
-	public static final String MOD_CANCEL = "spc-mod-cancel";
-	public static final String ROLLBACK_MARKER = "spc-rollback.marker";
-
 	private static final String KEY_RESOURCE = "/serverpackcore/update-public.pem";
 	private static final String AGENT_CLASS = "com/serverpackcore/agent/Agent.class";
 	private static final String PREMAIN_CLASS = "com/serverpackcore/agent/Premain.class";
@@ -172,8 +163,8 @@ public final class Update {
 
 	public static Path stage(Info info, Path dir) throws UpdateException {
 		synchronized (STAGE_LOCK) {
-			Path target = dir.resolve(STAGED_NAME);
-			Path temp = dir.resolve(TEMP_NAME);
+			Path target = AgentPaths.agentStaged(dir);
+			Path temp = AgentPaths.agentTemp(dir);
 			try {
 				Files.createDirectories(dir);
 				Files.deleteIfExists(temp);
@@ -199,8 +190,8 @@ public final class Update {
 	}
 
 	private static void stageMod(Info info, Path dir) throws UpdateException {
-		Path target = dir.resolve(MOD_STAGED_NAME);
-		Path temp = dir.resolve(MOD_TEMP_NAME);
+		Path target = AgentPaths.modStaged(dir);
+		Path temp = AgentPaths.modTemp(dir);
 		try {
 			Files.deleteIfExists(temp);
 			byte[] jar = fetch(checkedUrl(info.modUrl), MAX_MOD);
@@ -242,7 +233,7 @@ public final class Update {
 				UpdateHelper.launch(dir, helper);
 			} catch (UpdateException exception) {
 				delete(helper);
-				delete(dir.resolve(UpdateHelper.INTENT_NAME));
+				delete(AgentPaths.intent(dir));
 				throw exception;
 			}
 			return helper;
@@ -250,7 +241,7 @@ public final class Update {
 	}
 
 	private static Path prepareAgent(Path dir, Path gameDir, String version) throws UpdateException {
-		Path staged = dir.resolve(STAGED_NAME);
+		Path staged = AgentPaths.agentStaged(dir);
 		if (!Files.isRegularFile(staged)) {
 			throw new UpdateException("nothing staged");
 		}
@@ -266,7 +257,7 @@ public final class Update {
 
 	public static Path rollback(Path dir, Path gameDir) throws UpdateException {
 		synchronized (APPLY_LOCK) {
-			Path old = dir.resolve(OLD_NAME);
+			Path old = AgentPaths.agentOld(dir);
 			if (!Files.isRegularFile(old)) {
 				throw new UpdateException("no previous version");
 			}
@@ -289,7 +280,7 @@ public final class Update {
 				UpdateHelper.launch(dir, helper);
 			} catch (UpdateException exception) {
 				delete(helper);
-				delete(dir.resolve(UpdateHelper.INTENT_NAME));
+				delete(AgentPaths.intent(dir));
 				throw exception;
 			}
 			return helper;
@@ -307,9 +298,11 @@ public final class Update {
 	}
 
 	static boolean installedModMatches(Path gameDir, String version) {
-		try (java.nio.file.DirectoryStream<Path> stream =
-			Files.newDirectoryStream(gameDir.resolve("mods"), "serverpackcore-*.jar")) {
+		try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(gameDir.resolve("mods"))) {
 			for (Path jar : stream) {
+				if (!isModJar(jar)) {
+					continue;
+				}
 				try (ZipFile zip = new ZipFile(jar.toFile())) {
 					ZipEntry entry = zip.getEntry("fabric.mod.json");
 					if (entry == null) {
@@ -338,7 +331,7 @@ public final class Update {
 	}
 
 	private static boolean applyModLocked(Path dir, Path gameDir, String version) throws UpdateException {
-		Path staged = dir.resolve(MOD_STAGED_NAME);
+		Path staged = AgentPaths.modStaged(dir);
 		if (!Files.isRegularFile(staged) || gameDir == null) {
 			return false;
 		}
@@ -347,16 +340,16 @@ public final class Update {
 		}
 		validateMod(staged, version);
 		long generation = UpdateHelper.nextModGeneration(dir);
-		Path unique = dir.resolve("spc-mod-new-" + version + "-" + generation + ".jar");
+		Path unique = AgentPaths.modStagedUnique(dir, version, generation);
 		try {
 			Path mods = gameDir.resolve("mods");
 			if (!Files.isDirectory(mods)) {
 				Files.createDirectories(mods);
 			}
-			Path target = mods.resolve("serverpackcore-" + version + ".jar");
+			Path target = mods.resolve("fabric-sync-" + version + ".jar");
 			Files.copy(staged, unique, StandardCopyOption.REPLACE_EXISTING);
 			validateMod(unique, version);
-			delete(dir.resolve(MOD_CANCEL));
+			delete(AgentPaths.modCancel(dir));
 			if (gameRunning(dir)) {
 				UpdateHelper.launch(dir,
 					UpdateHelper.writeMod(dir, mods, unique, target, version, UpdateHelper.MODE_UPDATE, generation));
@@ -364,7 +357,7 @@ public final class Update {
 				return true;
 			}
 			swapMod(mods, unique, target);
-			log(version, "-", "mod-installed");
+			log(dir, version, "-", "mod-installed");
 			delete(staged);
 			return true;
 		} catch (IOException exception) {
@@ -392,14 +385,14 @@ public final class Update {
 		}
 		try {
 			if (gameRunning(dir)) {
-				UpdateHelper.launch(dir, UpdateHelper.writeMod(dir, mods, dir.resolve(MOD_STAGED_NAME), mods, "",
+				UpdateHelper.launch(dir, UpdateHelper.writeMod(dir, mods, AgentPaths.modStaged(dir), mods, "",
 					UpdateHelper.MODE_ROLLBACK, UpdateHelper.nextModGeneration(dir)));
-				delete(dir.resolve(MOD_CANCEL));
+				delete(AgentPaths.modCancel(dir));
 				return true;
 			}
 			restoreMod(mods);
-			delete(dir.resolve(MOD_CANCEL));
-			log("-", "-", "mod-rollback");
+			delete(AgentPaths.modCancel(dir));
+			log(dir, "-", "-", "mod-rollback");
 			return true;
 		} catch (IOException exception) {
 			throw new UpdateException("io: " + exception.getMessage());
@@ -415,9 +408,9 @@ public final class Update {
 			Files.move(target, old, StandardCopyOption.REPLACE_EXISTING);
 		}
 		List<Path> extra = new ArrayList<>();
-		try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(mods, "serverpackcore-*.jar")) {
+		try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(mods)) {
 			for (Path path : stream) {
-				if (!path.equals(target)) {
+				if (isModJar(path) && !path.equals(target)) {
 					extra.add(path);
 				}
 			}
@@ -432,8 +425,11 @@ public final class Update {
 
 	private static void restoreMod(Path mods) throws IOException {
 		Path newest = null;
-		try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(mods, "serverpackcore-*.jar.old")) {
+		try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(mods)) {
 			for (Path path : stream) {
+				if (!isModOld(path)) {
+					continue;
+				}
 				if (newest == null || Files.getLastModifiedTime(path).compareTo(Files.getLastModifiedTime(newest)) > 0) {
 					newest = path;
 				}
@@ -443,10 +439,12 @@ public final class Update {
 			return;
 		}
 		Path current = null;
-		try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(mods, "serverpackcore-*.jar")) {
+		try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(mods)) {
 			for (Path path : stream) {
-				current = path;
-				break;
+				if (isModJar(path)) {
+					current = path;
+					break;
+				}
 			}
 		}
 		if (current != null) {
@@ -460,16 +458,30 @@ public final class Update {
 		if (!Files.isDirectory(mods)) {
 			return false;
 		}
-		try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(mods, "serverpackcore-*.jar.old")) {
-			return stream.iterator().hasNext();
+		try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(mods)) {
+			for (Path path : stream) {
+				if (isModOld(path)) {
+					return true;
+				}
+			}
+			return false;
 		} catch (IOException exception) {
 			return false;
 		}
 	}
 
+	private static boolean isModJar(Path path) {
+		String name = path.getFileName().toString();
+		return (name.startsWith("serverpackcore-") || name.startsWith("fabric-sync-")) && name.endsWith(".jar");
+	}
+
+	private static boolean isModOld(Path path) {
+		return path.getFileName().toString().matches("^(serverpackcore|fabric-sync)-.+\\.jar\\.old$");
+	}
+
 	/** True while an update's mod helper is already waiting for the game to exit. */
 	static boolean modHelperRunning(Path dir) {
-		String needle = dir.resolve(AgentPaths.isWindows() ? "spc-mod.vbs" : "spc-mod.sh").toString();
+		String needle = AgentPaths.modHelper(dir).toString();
 		return ProcessHandle.allProcesses()
 			.anyMatch(process -> process.info().commandLine()
 				.map(command -> command.contains(needle))
@@ -477,7 +489,7 @@ public final class Update {
 	}
 
 	static boolean gameRunning(Path dir) {
-		Path alive = dir.resolve("alive.txt");
+		Path alive = AgentPaths.alive(dir);
 		try {
 			if (!Files.isRegularFile(alive)) {
 				return false;
@@ -502,9 +514,9 @@ public final class Update {
 		}
 	}
 
-	public static String status() {
+	public static String status(Path dir) {
 		synchronized (LOG_LOCK) {
-			Path file = logFile();
+			Path file = logFile(dir);
 			if (!Files.isRegularFile(file)) {
 				return "No update attempts yet";
 			}
@@ -529,10 +541,10 @@ public final class Update {
 		}
 	}
 
-	public static void log(String version, String sha256, String status) {
+	public static void log(Path dir, String version, String sha256, String status) {
 		synchronized (LOG_LOCK) {
 			try {
-				Path file = logFile();
+				Path file = logFile(dir);
 				Files.createDirectories(file.getParent());
 				rotate(file);
 				String line = Instant.now() + " version=" + safe(version) + " sha=" + safe(sha256)
@@ -630,10 +642,10 @@ public final class Update {
 		}
 	}
 
-	private static Path logFile() {
+	private static Path logFile(Path dir) {
 		String override = System.getProperty("spc.updateLog");
 		return override == null || override.isBlank()
-			? AgentPaths.installDir().resolve("update.log")
+			? AgentPaths.log(dir)
 			: Path.of(override);
 	}
 
@@ -658,7 +670,7 @@ public final class Update {
 			connection.setReadTimeout(TIMEOUT_MS);
 			connection.setInstanceFollowRedirects(true);
 			connection.setUseCaches(false);
-			connection.setRequestProperty("User-Agent", "ServerPackCore");
+			connection.setRequestProperty("User-Agent", "FabricSync");
 			connection.setRequestProperty("Cache-Control", "no-cache");
 			connection.setRequestProperty("Accept", "application/json, application/octet-stream");
 			int code = connection.getResponseCode();

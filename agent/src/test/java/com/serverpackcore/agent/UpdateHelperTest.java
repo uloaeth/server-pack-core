@@ -72,10 +72,10 @@ class UpdateHelperTest {
 		String script = run(dir);
 		assertTrue(script.contains("MODE='update'"));
 		assertTrue(script.contains("VERSION='0.1.4'"));
-		assertTrue(script.contains("'" + dir.resolve("spc-agent-new.jar") + "'"));
-		assertTrue(script.contains("'" + dir.resolve("spc-agent.jar") + "'"));
-		assertTrue(script.contains("'" + dir.resolve("spc-agent.jar.old") + "'"));
-		assertTrue(script.contains("'" + dir.resolve("alive.txt") + "'"));
+		assertTrue(script.contains("'" + dir.resolve("update-new.jar") + "'"));
+		assertTrue(script.contains("'" + dir.resolve("runtime.jar") + "'"));
+		assertTrue(script.contains("'" + dir.resolve("runtime.old") + "'"));
+		assertTrue(script.contains("'" + dir.resolve("session.txt") + "'"));
 		assertTrue(script.contains("--game-dir"));
 		assertTrue(script.contains("'" + dir.resolve("game dir") + "'"));
 		assertTrue(script.contains("export JAVA_HOME='"));
@@ -88,8 +88,8 @@ class UpdateHelperTest {
 	@Test
 	void renderWithoutGameDirHasNoGameFlag() {
 		Path dir = temp.resolve("install");
-		String script = UpdateHelper.renderUnix(dir, dir.resolve("spc-agent.jar"), dir.resolve("new.jar"),
-			dir.resolve("old.jar"), dir.resolve("bad.jar"), dir.resolve("alive.txt"), Path.of("/usr/bin/java"),
+		String script = UpdateHelper.renderUnix(dir, dir.resolve("runtime.jar"), dir.resolve("new.jar"),
+			dir.resolve("old.jar"), dir.resolve("bad.jar"), dir.resolve("session.txt"), Path.of("/usr/bin/java"),
 			null, "0.1.4", "update");
 		assertTrue(script.contains("GAME=''"));
 		assertTrue(script.contains("[ -n \"$GAME\" ]"));
@@ -100,12 +100,12 @@ class UpdateHelperTest {
 		Path dir = temp.resolve("install dir");
 		String script = render(dir, 30L);
 		assertTrue(script.contains("WATCHDOG=30"));
-		assertTrue(script.contains("INTENT='" + dir.resolve(UpdateHelper.INTENT_NAME) + "'"));
+		assertTrue(script.contains("INTENT='" + AgentPaths.intent(dir) + "'"));
 		assertTrue(script.contains("log watchdog-stopped"));
 		assertTrue(script.contains("log watchdog-replaced"));
 		assertTrue(script.contains("log rollback-late"));
 		assertTrue(script.contains("log watchdog-cleared"));
-		assertTrue(script.contains("spc-rollback.marker"));
+		assertTrue(script.contains("rollback.marker"));
 		assertTrue(script.contains("kill -0 \"$NEW_PID\""));
 		assertTrue(script.contains("watchdog()"));
 	}
@@ -156,7 +156,7 @@ class UpdateHelperTest {
 		Path intent = UpdateHelper.writeIntent(dir, UpdateHelper.ACTION_STOP);
 		assertEquals(UpdateHelper.ACTION_STOP + " " + ProcessHandle.current().pid() + "\n",
 			Files.readString(intent, StandardCharsets.UTF_8));
-		assertFalse(Files.exists(dir.resolve(UpdateHelper.INTENT_NAME + ".tmp")));
+		assertFalse(Files.exists(AgentPaths.intent(dir).resolveSibling("update.intent.tmp")));
 		UpdateHelper.writeIntent(dir, UpdateHelper.ACTION_REPLACE);
 		assertEquals(UpdateHelper.ACTION_REPLACE + " " + ProcessHandle.current().pid() + "\n",
 			Files.readString(intent, StandardCharsets.UTF_8));
@@ -166,7 +166,7 @@ class UpdateHelperTest {
 	void generatedScriptParses() throws Exception {
 		Assumptions.assumeTrue(Files.isExecutable(Path.of("/bin/sh")));
 		Path dir = temp.resolve("install with spaces");
-		Path script = dir.resolve("spc-update.sh");
+		Path script = dir.resolve("update.sh");
 		Files.createDirectories(dir);
 		Files.writeString(script, run(dir), StandardCharsets.UTF_8);
 		Process check = new ProcessBuilder("/bin/sh", "-n", script.toString())
@@ -183,21 +183,21 @@ class UpdateHelperTest {
 		Path mods = temp.resolve("game dir").resolve("mods");
 		Files.createDirectories(dir);
 		Files.createDirectories(mods);
-		String script = UpdateHelper.renderModUnix(dir, mods, dir.resolve("spc-mod-new.jar"),
-			mods.resolve("serverpackcore-0.1.4.jar"), dir.resolve("alive.txt"), "0.1.4", "update");
+		String script = UpdateHelper.renderModUnix(dir, mods, dir.resolve("mod-update.jar"),
+			mods.resolve("serverpackcore-0.1.4.jar"), dir.resolve("session.txt"), "0.1.4", "update");
 		assertTrue(script.contains("'" + mods + "'"));
 		assertTrue(script.contains("'" + mods.resolve("serverpackcore-0.1.4.jar") + "'"));
 		assertTrue(script.contains("GAME_PID="));
 		assertTrue(script.contains("log mod-installed"));
 		assertTrue(script.contains("wait") || script.contains("kill -0"));
-		assertTrue(script.contains("LOCK=\"$MODS/.spc-mod.lock\""));
+		assertTrue(script.contains(".fabric-sync.lock"));
 		assertTrue(script.contains("mkdir \"$LOCK\""));
 		assertTrue(script.contains("[ ! -f \"$STAGED\" ]"));
 		assertTrue(script.contains("rmdir \"$LOCK\""));
 		assertTrue(script.contains("GEN="));
 		assertTrue(script.contains("newer()"));
 		assertTrue(script.contains("CANCEL="));
-		Path file = dir.resolve("spc-mod.sh");
+		Path file = dir.resolve("mod-update.sh");
 		Files.writeString(file, script, StandardCharsets.UTF_8);
 		Process check = new ProcessBuilder("/bin/sh", "-n", file.toString()).redirectErrorStream(true).start();
 		assertTrue(check.waitFor(10, TimeUnit.SECONDS));
@@ -208,7 +208,7 @@ class UpdateHelperTest {
 	void modRollbackRenderMentionsRollback() {
 		Path dir = temp.resolve("install");
 		Path mods = temp.resolve("game/mods");
-		String script = UpdateHelper.renderModUnix(dir, mods, dir.resolve("spc-mod-new.jar"), mods, dir.resolve("alive.txt"),
+		String script = UpdateHelper.renderModUnix(dir, mods, dir.resolve("mod-update.jar"), mods, dir.resolve("session.txt"),
 			"", "rollback");
 		assertTrue(script.contains("MODE='rollback'"));
 		assertTrue(script.contains("log mod-rollback"));
@@ -219,10 +219,10 @@ class UpdateHelperTest {
 	void modWindowsHasTheSameLockAndGeneration() {
 		Path dir = temp.resolve("install");
 		Path mods = temp.resolve("game/mods");
-		String script = UpdateHelper.renderModWindows(dir, mods, dir.resolve("spc-mod-new.jar"),
-			mods.resolve("serverpackcore-0.1.5.jar"), dir.resolve("alive.txt"), "0.1.5", "update", 42L);
+		String script = UpdateHelper.renderModWindows(dir, mods, dir.resolve("mod-update.jar"),
+			mods.resolve("serverpackcore-0.1.5.jar"), dir.resolve("session.txt"), "0.1.5", "update", 42L);
 		assertTrue(script.contains("Const GEN = 42"));
-		assertTrue(script.contains("Const LOCK = \"" + mods.resolve(".spc-mod.lock") + "\""));
+		assertTrue(script.contains("Const LOCK = \"" + mods.resolve(".fabric-sync.lock") + "\""));
 		assertTrue(script.contains("Const CANCEL = "));
 		assertTrue(script.contains("fso.CreateFolder LOCK"));
 		assertTrue(script.contains("Not fso.FileExists(STAGED)"));
@@ -238,18 +238,18 @@ class UpdateHelperTest {
 		Path mods = temp.resolve("game/mods");
 		Files.createDirectories(dir);
 		Files.createDirectories(mods);
-		Path helper = dir.resolve("spc-mod.sh");
-		Path stagedOld = dir.resolve("spc-mod-new-1.0.2-10.jar");
-		Path stagedNew = dir.resolve("spc-mod-new-1.0.2-20.jar");
+		Path helper = dir.resolve("mod-update.sh");
+		Path stagedOld = dir.resolve("mod-update-1.0.2-10.jar");
+		Path stagedNew = dir.resolve("mod-update-1.0.2-20.jar");
 		Files.writeString(stagedOld, "old");
 		Files.writeString(stagedNew, "new");
 		String older = UpdateHelper.renderModUnix(dir, mods, stagedOld, mods.resolve("serverpackcore-1.0.2.jar"),
-			dir.resolve("alive.txt"), "1.0.2", "update", 10L);
+			dir.resolve("session.txt"), "1.0.2", "update", 10L);
 		Files.writeString(helper, older);
 		Path copy = dir.resolve("older.sh");
 		Files.copy(helper, copy);
 		Files.writeString(helper, UpdateHelper.renderModUnix(dir, mods, stagedNew,
-			mods.resolve("serverpackcore-1.0.2.jar"), dir.resolve("alive.txt"), "1.0.2", "update", 20L));
+			mods.resolve("serverpackcore-1.0.2.jar"), dir.resolve("session.txt"), "1.0.2", "update", 20L));
 		assertEquals(0, exec(copy));
 		assertFalse(Files.exists(stagedOld));
 		assertTrue(Files.exists(stagedNew));
@@ -264,17 +264,17 @@ class UpdateHelperTest {
 		Files.createDirectories(mods);
 		Path target = mods.resolve("serverpackcore-1.0.2.jar");
 		Files.writeString(target, "previous");
-		Path staged = dir.resolve("spc-mod-new-1.0.2-20.jar");
+		Path staged = dir.resolve("mod-update-1.0.2-20.jar");
 		Files.writeString(staged, "new");
-		Path helper = dir.resolve("spc-mod.sh");
+		Path helper = dir.resolve("mod-update.sh");
 		Files.writeString(helper, UpdateHelper.renderModUnix(dir, mods, staged, target,
-			dir.resolve("alive.txt"), "1.0.2", "update", 20L));
+			dir.resolve("session.txt"), "1.0.2", "update", 20L));
 		assertEquals(0, exec(helper));
 		assertEquals("new", Files.readString(target));
 		assertEquals("previous", Files.readString(mods.resolve("serverpackcore-1.0.2.jar.old")));
 		assertFalse(Files.exists(staged));
 		assertFalse(Files.exists(helper));
-		assertFalse(Files.exists(mods.resolve(".spc-mod.lock")));
+		assertFalse(Files.exists(mods.resolve(".fabric-sync.lock")));
 	}
 
 	@Test
@@ -286,17 +286,17 @@ class UpdateHelperTest {
 		Path target = mods.resolve("serverpackcore-1.0.2.jar");
 		Files.writeString(target, "failed");
 		Files.writeString(mods.resolve("serverpackcore-1.0.1.jar.old"), "previous");
-		Path staged = dir.resolve("spc-mod-new-1.0.2-20.jar");
+		Path staged = dir.resolve("mod-update-1.0.2-20.jar");
 		Files.writeString(staged, "failed");
-		Files.writeString(dir.resolve(Update.MOD_CANCEL), "");
-		Path helper = dir.resolve("spc-mod.sh");
+		Files.writeString(dir.resolve(AgentPaths.modCancel(dir)), "");
+		Path helper = dir.resolve("mod-update.sh");
 		Files.writeString(helper, UpdateHelper.renderModUnix(dir, mods, staged, target,
-			dir.resolve("alive.txt"), "1.0.2", "update", 20L));
+			dir.resolve("session.txt"), "1.0.2", "update", 20L));
 		assertEquals(0, exec(helper));
 		assertEquals("previous", Files.readString(mods.resolve("serverpackcore-1.0.1.jar")));
 		assertEquals("failed", Files.readString(mods.resolve("serverpackcore-1.0.2.jar.bad")));
-		assertFalse(Files.exists(dir.resolve(Update.MOD_CANCEL)));
-		assertTrue(Files.readString(dir.resolve("update.log")).contains("status=mod-rollback"));
+		assertFalse(Files.exists(dir.resolve(AgentPaths.modCancel(dir))));
+		assertTrue(Files.readString(AgentPaths.log(dir)).contains("status=mod-rollback"));
 	}
 
 	@Test
@@ -336,7 +336,7 @@ class UpdateHelperTest {
 	void runningModHelperIsDetected() throws Exception {
 		Path dir = temp.resolve("install");
 		Files.createDirectories(dir);
-		Path helper = dir.resolve("spc-mod.sh");
+		Path helper = dir.resolve("mod-update.sh");
 		Files.writeString(helper, "sleep 30\n");
 		Process fake = new ProcessBuilder("/bin/sh", helper.toString()).start();
 		try {
@@ -355,7 +355,7 @@ class UpdateHelperTest {
 		Files.createDirectories(dir);
 		Process fake = new ProcessBuilder("sleep", "20").start();
 		try {
-			Files.writeString(dir.resolve("alive.txt"), "parent=" + fake.pid() + "\nagent=999999\n");
+			Files.writeString(dir.resolve("session.txt"), "parent=" + fake.pid() + "\nagent=999999\n");
 			String script = run(dir);
 			assertTrue(script.contains("PARENT_PID=" + fake.pid()));
 			assertTrue(script.contains("OLD_PID=999999"));
@@ -368,13 +368,13 @@ class UpdateHelperTest {
 	@Test
 	void windowsRenderIsWellFormed() {
 		Path dir = temp.resolve("win dir");
-		String script = UpdateHelper.renderWindows(dir, dir.resolve("spc-agent.jar"), dir.resolve("new.jar"),
-			dir.resolve("old.jar"), dir.resolve("bad.jar"), dir.resolve("alive.txt"), Path.of("C:\\java\\bin\\javaw.exe"),
+		String script = UpdateHelper.renderWindows(dir, dir.resolve("runtime.jar"), dir.resolve("new.jar"),
+			dir.resolve("old.jar"), dir.resolve("bad.jar"), dir.resolve("session.txt"), Path.of("C:\\java\\bin\\javaw.exe"),
 			Path.of("C:\\game dir"), "0.1.4", "rollback");
 		assertTrue(script.startsWith("Option Explicit"));
 		assertTrue(script.contains("Const VERSION = \"0.1.4\""));
 		assertTrue(script.contains("Const MODE = \"rollback\""));
-		assertTrue(script.contains(dir.resolve("spc-agent.jar").toString()));
+		assertTrue(script.contains(dir.resolve("runtime.jar").toString()));
 		assertTrue(script.contains("fso.DeleteFile OLD, True"));
 		assertTrue(script.contains("taskkill /f /pid"));
 		assertTrue(script.contains("Const WATCHDOG = 600"));
@@ -412,9 +412,25 @@ class UpdateHelperTest {
 	}
 
 	private String run(Path dir) {
-		return UpdateHelper.renderUnix(dir, dir.resolve("spc-agent.jar"),
-			dir.resolve("spc-agent-new.jar"), dir.resolve("spc-agent.jar.old"),
-			dir.resolve("spc-agent.jar.bad"), dir.resolve("alive.txt"), Path.of("/usr/bin/java"),
+		return UpdateHelper.renderUnix(dir, dir.resolve("runtime.jar"),
+			dir.resolve("update-new.jar"), dir.resolve("runtime.old"),
+			dir.resolve("runtime.bad"), dir.resolve("session.txt"), Path.of("/usr/bin/java"),
 			dir.resolve("game dir"), "0.1.4", "update");
+	}
+
+	@Test
+	void legacyTreeKeepsTheDeployedHelperNames() {
+		Path dir = temp.resolve("ServerPackCore");
+		String script = UpdateHelper.renderUnix(dir, AgentPaths.agentJar(dir), AgentPaths.agentStaged(dir),
+			AgentPaths.agentOld(dir), AgentPaths.agentBad(dir), AgentPaths.alive(dir), Path.of("/usr/bin/java"),
+			dir.resolve("game dir"), "0.1.4", "update");
+		assertTrue(script.contains("'" + dir.resolve("spc-agent.jar") + "'"));
+		assertTrue(script.contains("'" + dir.resolve("spc-agent-new.jar") + "'"));
+		assertTrue(script.contains("'" + dir.resolve("spc-update.intent") + "'"));
+		assertTrue(script.contains("'" + dir.resolve("spc-update.out") + "'"));
+		assertTrue(script.contains("'" + dir.resolve("update.log") + "'"));
+		assertTrue(script.contains("'" + dir.resolve("alive.txt") + "'"));
+		assertTrue(script.contains("spc-rollback.marker"));
+		assertFalse(script.contains("runtime.jar'"));
 	}
 }

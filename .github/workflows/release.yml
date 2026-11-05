@@ -62,8 +62,8 @@ jobs:
           BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}"
           mkdir -p staging
           cp agent/build/libs/agent.jar "staging/agent-${VERSION}.jar"
-          cp "build/libs/serverpackcore-${VERSION}.jar" "staging/serverpackcore-${VERSION}.jar"
-          (cd staging && sha256sum "agent-${VERSION}.jar" "serverpackcore-${VERSION}.jar" > SHA256.txt)
+          cp "build/libs/fabric-sync-${VERSION}.jar" "staging/fabric-sync-${VERSION}.jar"
+          (cd staging && sha256sum "agent-${VERSION}.jar" "fabric-sync-${VERSION}.jar" > SHA256.txt)
           awk -v ver="$VERSION" '$0 == "## " ver { on = 1; next } /^## / { on = 0 } on' \
             CHANGELOG.md > notes.md
           test -s notes.md || echo "Server Pack Core ${VERSION}" > notes.md
@@ -71,8 +71,8 @@ jobs:
             --arg version "$VERSION" \
             --arg agentUrl "${BASE}/agent-${VERSION}.jar" \
             --arg agentSha256 "$(sha256sum "staging/agent-${VERSION}.jar" | cut -d' ' -f1)" \
-            --arg modUrl "${BASE}/serverpackcore-${VERSION}.jar" \
-            --arg modSha256 "$(sha256sum "staging/serverpackcore-${VERSION}.jar" | cut -d' ' -f1)" \
+            --arg modUrl "${BASE}/fabric-sync-${VERSION}.jar" \
+            --arg modSha256 "$(sha256sum "staging/fabric-sync-${VERSION}.jar" | cut -d' ' -f1)" \
             --rawfile notes notes.md \
             '{version: $version, agentUrl: $agentUrl, agentSha256: $agentSha256,
               modUrl: $modUrl, modSha256: $modSha256, notes: $notes}' > staging/update.json
@@ -122,7 +122,7 @@ jobs:
           test -s "$RUNNER_TEMP/notes.md" || echo "Server Pack Core ${VERSION}" > "$RUNNER_TEMP/notes.md"
           gh release create "v${VERSION}" \
             "$RUNNER_TEMP/release/agent-${VERSION}.jar" \
-            "$RUNNER_TEMP/release/serverpackcore-${VERSION}.jar" \
+            "$RUNNER_TEMP/release/fabric-sync-${VERSION}.jar" \
             "$RUNNER_TEMP/release/SHA256.txt" \
             "$RUNNER_TEMP/release/update.json" \
             "$RUNNER_TEMP/release/update.json.sig" \

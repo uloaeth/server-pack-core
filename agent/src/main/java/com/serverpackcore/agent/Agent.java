@@ -54,7 +54,7 @@ public final class Agent {
 			}
 			poller = new Poller(dir, gameDir, state);
 			poller.start();
-			Bootstrap.maybe(poller, dir, state);
+			Bootstrap.maybe(poller, dir, gameDir, state);
 			Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 				try {
 					if (poller != null) {
@@ -78,7 +78,7 @@ public final class Agent {
 
 	private static String version() {
 		String version = Agent.class.getPackage().getImplementationVersion();
-		return version == null ? "0.2.6" : version;
+		return version == null ? "0.2.7" : version;
 	}
 
 	private static long parseParent(String[] args) {

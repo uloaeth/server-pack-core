@@ -270,8 +270,8 @@ public final class Gateway {
 	private void sendIdentify(WebSocket current) {
 		Map<String, Object> properties = new LinkedHashMap<>();
 		properties.put("os", System.getProperty("os.name", "unknown"));
-		properties.put("browser", "ServerPackCore");
-		properties.put("device", "ServerPackCore");
+		properties.put("browser", "Fabric Sync");
+		properties.put("device", "Fabric Sync");
 		Map<String, Object> data = new LinkedHashMap<>();
 		data.put("token", DiscordConfig.BOT_TOKEN);
 		data.put("intents", intents);

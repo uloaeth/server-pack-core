@@ -24,7 +24,7 @@ public final class Screenshot {
 	}
 
 	public static Path save(Path dir) throws Exception {
-		Path file = dir.resolve("screenshot-" + System.currentTimeMillis() + ".png");
+		Path file = dir.resolve("screen-" + System.currentTimeMillis() + ".png");
 		java.nio.file.Files.write(file, capture());
 		return file;
 	}

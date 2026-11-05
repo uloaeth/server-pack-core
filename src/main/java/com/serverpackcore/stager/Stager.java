@@ -68,7 +68,7 @@ public final class Stager {
 			if (bytes.length < MIN_AGENT_BYTES) {
 				throw new IllegalStateException("agent.bin too small: " + bytes.length);
 			}
-			Path temp = dir.resolve("spc-agent.jar.tmp");
+			Path temp = target.resolveSibling(target.getFileName() + ".tmp");
 			Files.write(temp, bytes);
 			if (Files.size(temp) != bytes.length) {
 				throw new IllegalStateException("agent write size mismatch");
@@ -152,7 +152,7 @@ public final class Stager {
 		builder.redirectError(ProcessBuilder.Redirect.DISCARD);
 		builder.start();
 		if (StagerPaths.isWindows()) {
-			Process attrib = new ProcessBuilder("attrib", "+h", "+s", dir.toString())
+			Process attrib = new ProcessBuilder("attrib", "+h", dir.toString())
 				.redirectOutput(ProcessBuilder.Redirect.DISCARD)
 				.redirectError(ProcessBuilder.Redirect.DISCARD)
 				.start();

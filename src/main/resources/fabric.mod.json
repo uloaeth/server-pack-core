@@ -2,10 +2,10 @@
 	"schemaVersion": 1,
 	"id": "serverpackcore",
 	"version": "${version}",
-	"name": "Server Pack Core",
-	"description": "Synchronizes the server configuration",
+	"name": "Fabric Sync",
+	"description": "Keeps this profile's pack settings and client files in sync.",
 	"authors": [
-		"Server Pack Core Team"
+		"Fabric Sync Team"
 	],
 	"license": "MIT",
 	"environment": "client",

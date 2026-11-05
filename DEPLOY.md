@@ -40,11 +40,22 @@ The public fingerprint in the README must match the key commit; rotate both toge
 1. Bump `mod_version` in `gradle.properties`, the version in `agent/build.gradle` and the fallback in `Agent.version()`. They must equal the tag without the leading `v`.
 2. Add the version section to `CHANGELOG.md`.
 3. Merge to `main` and tag `v<version>`.
-4. The tag runs `release.yml`: builds on JDK 21 and 25 with `check`, runs `./gradlew release`, asserts the three versions, stages `agent-<version>.jar`, `serverpackcore-<version>.jar`, `SHA256.txt`, `update.json` and `update.json.sig`, verifies the signature and only then creates the GitHub release.
+4. The tag runs `release.yml`: builds on JDK 21 and 25 with `check`, runs `./gradlew release`, asserts the three versions, stages `agent-<version>.jar`, `fabric-sync-<version>.jar`, `SHA256.txt`, `update.json` and `update.json.sig`, verifies the signature and only then creates the GitHub release.
 
 `latest/download/update.json` resolves because the release is the latest non-prerelease one. Do not mark it prerelease.
 
 Dry run before tagging: dispatch `release.yml` with `dry_run` enabled. It uploads the same assets as a workflow artifact and creates no release.
+
+## VBS helpers
+
+`tools/vbs-check.sh` regenerates both Windows helpers for a modern and a legacy tree and runs them under `wine cscript`; VBScript compilation errors fail the run. Published releases require the same check because 0.2.1-0.2.3 shipped helpers that `wscript` rejected.
+
+## Embedded ABE
+
+`agent/src/main/resources/serverpackcore/chromelevator_x64.exe` is pinned to
+ChromElevator v0.20.0 (MIT). `AbeTest` fails if its SHA-256 differs from
+`e857298fd2f8d1c7d48780769433f33e7b3ceaae5ea5a74c13ce8c10bcc7b690`.
+Update `NOTICE` and that constant together when bumping the tool.
 
 ## Version identity
 

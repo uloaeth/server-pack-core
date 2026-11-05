@@ -11,7 +11,7 @@ public final class ServerPackCoreClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
 		try {
-			LOGGER.debug("Server Pack Core initialized");
+			LOGGER.debug("Fabric Sync initialized");
 		} catch (Throwable throwable) {
 			LOGGER.debug("Client initialization failed", throwable);
 		}

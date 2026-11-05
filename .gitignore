@@ -35,6 +35,7 @@ src/main/resources/serverpackcore/agent.bin
 # Entorno local
 local.properties
 .tmp-sign/
+.tmp-in026/
 .jdk21/
 *.log
 __pycache__/

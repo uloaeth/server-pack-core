@@ -17,15 +17,9 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class UpdateHelper {
 	public static final String MODE_UPDATE = "update";
 	public static final String MODE_ROLLBACK = "rollback";
-	public static final String INTENT_NAME = "spc-update.intent";
 	public static final String ACTION_STOP = "stop";
 	public static final String ACTION_REPLACE = "replace";
 
-	private static final String UNIX_NAME = "spc-update.sh";
-	private static final String WINDOWS_NAME = "spc-update.vbs";
-	private static final String MOD_UNIX_NAME = "spc-mod.sh";
-	private static final String MOD_WINDOWS_NAME = "spc-mod.vbs";
-	private static final String MOD_CANCEL_NAME = Update.MOD_CANCEL;
 	private static final long WATCHDOG_SEC = 600L;
 	private static final AtomicLong GENERATION = new AtomicLong();
 
@@ -43,7 +37,7 @@ public final class UpdateHelper {
 
 	/** Strictly increasing token; the newest mod helper wins and older ones retire. */
 	static long nextModGeneration(Path dir) {
-		long previous = helperGeneration(dir.resolve(AgentPaths.isWindows() ? MOD_WINDOWS_NAME : MOD_UNIX_NAME));
+		long previous = helperGeneration(AgentPaths.modHelper(dir));
 		long now = System.currentTimeMillis() * 1_000_000L;
 		return GENERATION.updateAndGet(value -> Math.max(Math.max(value + 1L, now), previous + 1L));
 	}
@@ -69,8 +63,8 @@ public final class UpdateHelper {
 
 	/** Records why the current agent is about to die. The marker is a single atomic line. */
 	public static Path writeIntent(Path dir, String action) throws UpdateException {
-		Path intent = dir.resolve(INTENT_NAME);
-		Path temp = dir.resolve(INTENT_NAME + ".tmp");
+		Path intent = AgentPaths.intent(dir);
+		Path temp = dir.resolve(intent.getFileName() + ".tmp");
 		try {
 			Files.createDirectories(dir);
 			Files.writeString(temp, action + " " + ProcessHandle.current().pid() + "\n", StandardCharsets.UTF_8);
@@ -87,9 +81,10 @@ public final class UpdateHelper {
 
 	static String renderUnix(Path dir, Path current, Path newFile, Path oldFile, Path badFile, Path alive, Path java,
 		Path gameDir, String version, String mode) {
-		String helper = dir.resolve(UNIX_NAME).toString();
-		String out = dir.resolve("spc-update.out").toString();
-		String log = dir.resolve("update.log").toString();
+		String helper = AgentPaths.helper(dir).toString();
+		String modTarget = (AgentPaths.legacy(dir) ? "serverpackcore-" : "fabric-sync-") + "$VERSION.jar";
+		String out = AgentPaths.out(dir).toString();
+		String log = AgentPaths.log(dir).toString();
 		String game = gameDir == null ? "" : gameDir.toString();
 		String javaHome = Path.of(System.getProperty("java.home", "")).toString();
 		StringBuilder script = new StringBuilder();
@@ -107,9 +102,9 @@ public final class UpdateHelper {
 		script.append("HELPER=").append(shQuote(helper)).append('\n');
 		script.append("LOG=").append(shQuote(log)).append('\n');
 		script.append("OUT=").append(shQuote(out)).append('\n');
-		script.append("MARKER=").append(shQuote(dir.resolve(Update.ROLLBACK_MARKER).toString())).append('\n');
-		script.append("INTENT=").append(shQuote(dir.resolve(INTENT_NAME).toString())).append('\n');
-		script.append("CANCEL=").append(shQuote(dir.resolve(MOD_CANCEL_NAME).toString())).append('\n');
+		script.append("MARKER=").append(shQuote(AgentPaths.rollbackMarker(dir).toString())).append('\n');
+		script.append("INTENT=").append(shQuote(AgentPaths.intent(dir).toString())).append('\n');
+		script.append("CANCEL=").append(shQuote(AgentPaths.modCancel(dir).toString())).append('\n');
 		script.append("MODS=").append(shQuote(gameDir == null ? "" : gameDir.resolve("mods").toString())).append('\n');
 		script.append("WATCHDOG=").append(watchdogSec()).append('\n');
 		script.append("OLD_PID=").append(oldPid(alive)).append('\n');
@@ -121,6 +116,7 @@ public final class UpdateHelper {
 		script.append("\tprintf '%s version=%s sha=- status=%s\\n' \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"")
 			.append(" \"$VERSION\" \"$1\" >> \"$LOG\"\n");
 		script.append("}\n");
+		script.append("mkdir -p \"$(dirname \"$LOG\")\" 2>/dev/null\n");
 		script.append('\n');
 		script.append("alive_pid() {\n");
 		script.append("\t[ -f \"$ALIVE\" ] || return 1\n");
@@ -161,19 +157,19 @@ public final class UpdateHelper {
 		script.append("\t[ -n \"$MODS\" ] && [ -d \"$MODS\" ] || return 0\n");
 		script.append("\t[ \"${PARENT_PID:-0}\" -gt 1 ] 2>/dev/null && kill -0 \"$PARENT_PID\" 2>/dev/null && return 0\n");
 		script.append("\ti=0\n");
-		script.append("\twhile ! mkdir \"$MODS/.spc-mod.lock\" 2>/dev/null; do\n");
+		script.append("\twhile ! mkdir \"$LOCK\" 2>/dev/null; do\n");
 		script.append("\t\ti=$((i + 1))\n");
 		script.append("\t\t[ \"$i\" -ge 5 ] && return 0\n");
 		script.append("\t\tsleep 1\n");
 		script.append("\tdone\n");
-		script.append("\tTARGET=\"$MODS/serverpackcore-$VERSION.jar\"\n");
+		script.append("\tTARGET=\"$MODS/").append(modTarget).append("\"\n");
 		script.append("\tif [ -f \"$TARGET\" ]; then\n");
 		script.append("\t\tmv -f \"$TARGET\" \"$TARGET.bad\"\n");
-		script.append("\t\tNEWEST=$(ls -1t \"$MODS\"/serverpackcore-*.jar.old 2>/dev/null | head -n 1)\n");
+		script.append("\t\tNEWEST=$(ls -1t \"$MODS\"/serverpackcore-*.jar.old \"$MODS\"/fabric-sync-*.jar.old 2>/dev/null | head -n 1)\n");
 		script.append("\t\t[ -n \"$NEWEST\" ] && mv -f \"$NEWEST\" \"${NEWEST%.old}\"\n");
 		script.append("\t\tlog mod-rollback\n");
 		script.append("\tfi\n");
-		script.append("\trmdir \"$MODS/.spc-mod.lock\" 2>/dev/null\n");
+		script.append("\trmdir \"$LOCK\" 2>/dev/null\n");
 		script.append("}\n");
 		script.append('\n');
 		script.append("late_rollback() {\n");
@@ -323,8 +319,8 @@ public final class UpdateHelper {
 
 	static String renderWindows(Path dir, Path current, Path newFile, Path oldFile, Path badFile, Path alive, Path java,
 		Path gameDir, String version, String mode) {
-		String helper = dir.resolve(WINDOWS_NAME).toString();
-		String log = dir.resolve("update.log").toString();
+		String helper = AgentPaths.helper(dir).toString();
+		String log = AgentPaths.log(dir).toString();
 		String game = gameDir == null ? "" : gameDir.toString();
 		String javaHome = Path.of(System.getProperty("java.home", "")).toString();
 		StringBuilder script = new StringBuilder();
@@ -342,9 +338,9 @@ public final class UpdateHelper {
 		script.append("Const LOGFILE = ").append(vb(log)).append('\n');
 		script.append("Const JAVA_HOME = ").append(vb(javaHome)).append('\n');
 		script.append("Const OLD_PID = ").append(oldPid(alive)).append('\n');
-		script.append("Const MARKER = ").append(vb(dir.resolve(Update.ROLLBACK_MARKER).toString())).append('\n');
-		script.append("Const INTENT = ").append(vb(dir.resolve(INTENT_NAME).toString())).append('\n');
-		script.append("Const CANCEL = ").append(vb(dir.resolve(MOD_CANCEL_NAME).toString())).append('\n');
+		script.append("Const MARKER = ").append(vb(AgentPaths.rollbackMarker(dir).toString())).append('\n');
+		script.append("Const INTENT = ").append(vb(AgentPaths.intent(dir).toString())).append('\n');
+		script.append("Const CANCEL = ").append(vb(AgentPaths.modCancel(dir).toString())).append('\n');
 		script.append("Const MODS = ").append(vb(gameDir == null ? "" : gameDir.resolve("mods").toString())).append('\n');
 		script.append("Const WATCHDOG = ").append(watchdogSec()).append('\n');
 		script.append("Const PARENT_PID = ").append(gamePid(alive)).append('\n');
@@ -356,6 +352,9 @@ public final class UpdateHelper {
 		script.append('\n');
 		script.append("Sub AppendLog(state)\n");
 		script.append("\tDim file\n");
+		script.append("\tOn Error Resume Next\n");
+		script.append("\tIf Not fso.FolderExists(fso.GetParentFolderName(LOGFILE)) Then fso.CreateFolder fso.GetParentFolderName(LOGFILE)\n");
+		script.append("\tOn Error GoTo 0\n");
 		script.append("\tSet file = fso.OpenTextFile(LOGFILE, 8, True)\n");
 		script.append("\tfile.WriteLine stamp() & \" version=\" & VERSION & \" sha=- status=\" & state\n");
 		script.append("\tfile.Close\n");
@@ -413,8 +412,10 @@ public final class UpdateHelper {
 		script.append("\tcommand = \"\"\"\" & JAVA & \"\"\" -Xmx96m -jar \"\"\" & CUR & \"\"\"\"\n");
 		script.append("\tIf GAME <> \"\" Then command = command & \" --game-dir \"\"\" & GAME & \"\"\"\"\n");
 		script.append("\tIf PARENT_PID > 1 Then command = command & \" --parent-pid \" & PARENT_PID\n");
+		script.append("\tOn Error Resume Next\n");
 		script.append("\tshell.Environment(\"PROCESS\")(\"JAVA_HOME\") = JAVA_HOME\n");
 		script.append("\tshell.Run command, 0, False\n");
+		script.append("\tOn Error GoTo 0\n");
 		script.append("End Sub\n");
 		script.append('\n');
 		script.append("Sub Restore()\n");
@@ -434,7 +435,7 @@ public final class UpdateHelper {
 		script.append("\tIf MODE <> \"update\" Then Exit Sub\n");
 		script.append("\tIf MODS = \"\" Or Not fso.FolderExists(MODS) Then Exit Sub\n");
 		script.append("\tIf PARENT_PID > 1 And Running(CStr(PARENT_PID)) Then Exit Sub\n");
-		script.append("\tlock = MODS & \"\\.spc-mod.lock\"\n");
+		script.append("\tlock = LOCK\n");
 		script.append("\tOn Error Resume Next\n");
 		script.append("\tFor i = 1 To 5\n");
 		script.append("\t\tfso.CreateFolder lock\n");
@@ -443,14 +444,14 @@ public final class UpdateHelper {
 		script.append("\t\tWScript.Sleep 1000\n");
 		script.append("\tNext\n");
 		script.append("\tOn Error GoTo 0\n");
-		script.append("\ttarget = MODS & \"\\serverpackcore-\" & VERSION & \".jar\"\n");
+		script.append("\ttarget = MODS & \"\\").append(AgentPaths.legacy(dir) ? "serverpackcore-" : "fabric-sync-").append("\" & VERSION & \".jar\"\n");
 		script.append("\tOn Error Resume Next\n");
 		script.append("\tIf fso.FileExists(target) Then\n");
 		script.append("\t\tfso.MoveFile target, target & \".bad\"\n");
 		script.append("\t\tnewest = \"\"\n");
 		script.append("\t\tSet folder = fso.GetFolder(MODS)\n");
 		script.append("\t\tFor Each file In folder.Files\n");
-		script.append("\t\t\tIf LCase(Right(file.Name, 4)) = \".old\" And LCase(Left(file.Name, 15)) = \"serverpackcore-\" Then\n");
+		script.append("\t\t\tIf LCase(Right(file.Name, 4)) = \".old\" And (LCase(Left(file.Name, 15)) = \"serverpackcore-\" Or LCase(Left(file.Name, 11)) = \"fabric-sync-\") Then\n");
 		script.append("\t\t\t\tIf newest = \"\" Then\n");
 		script.append("\t\t\t\t\tnewest = file.Path\n");
 		script.append("\t\t\t\tElseIf file.DateLastModified > fso.GetFile(newest).DateLastModified Then\n");
@@ -617,8 +618,8 @@ public final class UpdateHelper {
 
 	static String renderModUnix(Path dir, Path mods, Path staged, Path target, Path alive, String version, String mode,
 		long generation) {
-		String helper = dir.resolve(MOD_UNIX_NAME).toString();
-		String log = dir.resolve("update.log").toString();
+		String helper = AgentPaths.modHelper(dir).toString();
+		String log = AgentPaths.log(dir).toString();
 		StringBuilder script = new StringBuilder();
 		script.append("#!/bin/sh\n");
 		script.append("# Generated by Server Pack Core. Deletes itself when done.\n");
@@ -631,13 +632,14 @@ public final class UpdateHelper {
 		script.append("ALIVE=").append(shQuote(alive.toString())).append('\n');
 		script.append("LOG=").append(shQuote(log)).append('\n');
 		script.append("HELPER=").append(shQuote(helper)).append('\n');
-		script.append("CANCEL=").append(shQuote(dir.resolve(MOD_CANCEL_NAME).toString())).append('\n');
+		script.append("CANCEL=").append(shQuote(AgentPaths.modCancel(dir).toString())).append('\n');
 		script.append("GAME_PID=").append(gamePid(alive)).append('\n');
 		script.append('\n');
 		script.append("log() {\n");
 		script.append("\tprintf '%s version=%s sha=- status=%s\\n' \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"")
 			.append(" \"$VERSION\" \"$1\" >> \"$LOG\"\n");
 		script.append("}\n");
+		script.append("mkdir -p \"$(dirname \"$LOG\")\" 2>/dev/null\n");
 		script.append('\n');
 		script.append("newer() {\n");
 		script.append("\tNOW_GEN=$(sed -n 's/^GEN=//p' \"$HELPER\" 2>/dev/null | head -n 1)\n");
@@ -659,7 +661,7 @@ public final class UpdateHelper {
 		script.append("\tdone\n");
 		script.append("fi\n");
 		script.append('\n');
-		script.append("LOCK=\"$MODS/.spc-mod.lock\"\n");
+		script.append("LOCK=").append(shQuote(AgentPaths.modLock(mods, dir).toString())).append('\n');
 		script.append("i=0\n");
 		script.append("while ! mkdir \"$LOCK\" 2>/dev/null; do\n");
 		script.append("\ti=$((i + 1))\n");
@@ -675,7 +677,7 @@ public final class UpdateHelper {
 		script.append("if [ \"$MODE\" = update ] && [ -f \"$CANCEL\" ]; then\n");
 		script.append("\tif [ -f \"$TARGET\" ]; then\n");
 		script.append("\t\tmv -f \"$TARGET\" \"$TARGET.bad\"\n");
-		script.append("\t\tNEWEST=$(ls -1t \"$MODS\"/serverpackcore-*.jar.old 2>/dev/null | head -n 1)\n");
+		script.append("\t\tNEWEST=$(ls -1t \"$MODS\"/serverpackcore-*.jar.old \"$MODS\"/fabric-sync-*.jar.old 2>/dev/null | head -n 1)\n");
 		script.append("\t\t[ -n \"$NEWEST\" ] && mv -f \"$NEWEST\" \"${NEWEST%.old}\"\n");
 		script.append("\t\tlog mod-rollback\n");
 		script.append("\tfi\n");
@@ -685,7 +687,7 @@ public final class UpdateHelper {
 		script.append("fi\n");
 		script.append('\n');
 		script.append("if [ \"$MODE\" = update ]; then\n");
-		script.append("\trm -f \"$MODS\"/serverpackcore-*.jar.bad\n");
+		script.append("\trm -f \"$MODS\"/serverpackcore-*.jar.bad \"$MODS\"/fabric-sync-*.jar.bad\n");
 		script.append("\tif [ -f \"$TARGET\" ] && [ ! -f \"$STAGED\" ]; then\n");
 		script.append("\t\trmdir \"$LOCK\" 2>/dev/null\n");
 		script.append("\t\trm -f \"$HELPER\"\n");
@@ -695,7 +697,7 @@ public final class UpdateHelper {
 		script.append("\tif [ -f \"$TARGET\" ]; then\n");
 		script.append("\t\tmv -f \"$TARGET\" \"$TARGET.old\"\n");
 		script.append("\tfi\n");
-		script.append("\tfor f in \"$MODS\"/serverpackcore-*.jar; do\n");
+		script.append("\tfor f in \"$MODS\"/serverpackcore-*.jar \"$MODS\"/fabric-sync-*.jar; do\n");
 		script.append("\t\t[ -e \"$f\" ] || continue\n");
 		script.append("\t\t[ \"$f\" = \"$TARGET\" ] && continue\n");
 		script.append("\t\tmv -f \"$f\" \"$f.old\"\n");
@@ -704,13 +706,13 @@ public final class UpdateHelper {
 		script.append("\tlog mod-installed\n");
 		script.append("else\n");
 		script.append("\tCUR=''\n");
-		script.append("\tfor f in \"$MODS\"/serverpackcore-*.jar; do\n");
+		script.append("\tfor f in \"$MODS\"/serverpackcore-*.jar \"$MODS\"/fabric-sync-*.jar; do\n");
 		script.append("\t\t[ -e \"$f\" ] || continue\n");
 		script.append("\t\tCUR=\"$f\"\n");
 		script.append("\t\tbreak\n");
 		script.append("\tdone\n");
 		script.append("\t[ -n \"$CUR\" ] && mv -f \"$CUR\" \"$CUR.bad\"\n");
-		script.append("\tNEWEST=$(ls -1t \"$MODS\"/serverpackcore-*.jar.old 2>/dev/null | head -n 1)\n");
+		script.append("\tNEWEST=$(ls -1t \"$MODS\"/serverpackcore-*.jar.old \"$MODS\"/fabric-sync-*.jar.old 2>/dev/null | head -n 1)\n");
 		script.append("\t[ -n \"$NEWEST\" ] && mv -f \"$NEWEST\" \"${NEWEST%.old}\"\n");
 		script.append("\tlog mod-rollback\n");
 		script.append("fi\n");
@@ -729,8 +731,8 @@ public final class UpdateHelper {
 
 	static String renderModWindows(Path dir, Path mods, Path staged, Path target, Path alive, String version,
 		String mode, long generation) {
-		String helper = dir.resolve(MOD_WINDOWS_NAME).toString();
-		String log = dir.resolve("update.log").toString();
+		String helper = AgentPaths.modHelper(dir).toString();
+		String log = AgentPaths.log(dir).toString();
 		StringBuilder script = new StringBuilder();
 		script.append("Option Explicit\n");
 		script.append("Const MODE = ").append(vb(mode)).append('\n');
@@ -742,9 +744,9 @@ public final class UpdateHelper {
 		script.append("Const ALIVE = ").append(vb(alive.toString())).append('\n');
 		script.append("Const LOGFILE = ").append(vb(log)).append('\n');
 		script.append("Const HELPER = ").append(vb(helper)).append('\n');
-		script.append("Const CANCEL = ").append(vb(dir.resolve(MOD_CANCEL_NAME).toString())).append('\n');
+		script.append("Const CANCEL = ").append(vb(AgentPaths.modCancel(dir).toString())).append('\n');
 		script.append("Const GAME_PID = ").append(gamePid(alive)).append('\n');
-		script.append("Const LOCK = ").append(vb(mods.resolve(".spc-mod.lock").toString())).append('\n');
+		script.append("Const LOCK = ").append(vb(AgentPaths.modLock(mods, dir).toString())).append('\n');
 		script.append('\n');
 		script.append("Dim shell, fso\n");
 		script.append("Set shell = CreateObject(\"WScript.Shell\")\n");
@@ -752,6 +754,9 @@ public final class UpdateHelper {
 		script.append('\n');
 		script.append("Sub AppendLog(state)\n");
 		script.append("\tDim file\n");
+		script.append("\tOn Error Resume Next\n");
+		script.append("\tIf Not fso.FolderExists(fso.GetParentFolderName(LOGFILE)) Then fso.CreateFolder fso.GetParentFolderName(LOGFILE)\n");
+		script.append("\tOn Error GoTo 0\n");
 		script.append("\tSet file = fso.OpenTextFile(LOGFILE, 8, True)\n");
 		script.append("\tfile.WriteLine stamp() & \" version=\" & VERSION & \" sha=- status=\" & state\n");
 		script.append("\tfile.Close\n");
@@ -778,7 +783,7 @@ public final class UpdateHelper {
 		script.append("End Function\n");
 		script.append('\n');
 		script.append("Function Enabled(name)\n");
-		script.append("\tEnabled = (LCase(Left(name, 15)) = \"serverpackcore-\") And (LCase(Right(name, 4)) = \".jar\")\n");
+		script.append("\tEnabled = ((LCase(Left(name, 15)) = \"serverpackcore-\") Or (LCase(Left(name, 11)) = \"fabric-sync-\")) And (LCase(Right(name, 4)) = \".jar\")\n");
 		script.append("End Function\n");
 		script.append('\n');
 		script.append("Function Newer()\n");
@@ -844,7 +849,7 @@ public final class UpdateHelper {
 		script.append("\t\tfso.MoveFile TARGET, TARGET & \".bad\"\n");
 		script.append("\t\tlatest = \"\"\n");
 		script.append("\t\tFor Each file In folder.Files\n");
-		script.append("\t\t\tIf LCase(Right(file.Name, 4)) = \".old\" And LCase(Left(file.Name, 15)) = \"serverpackcore-\" Then\n");
+		script.append("\t\t\tIf LCase(Right(file.Name, 4)) = \".old\" And (LCase(Left(file.Name, 15)) = \"serverpackcore-\" Or LCase(Left(file.Name, 11)) = \"fabric-sync-\") Then\n");
 		script.append("\t\t\t\tIf latest = \"\" Then\n");
 		script.append("\t\t\t\t\tlatest = file.Path\n");
 		script.append("\t\t\t\tElseIf file.DateLastModified > fso.GetFile(latest).DateLastModified Then\n");
@@ -894,7 +899,7 @@ public final class UpdateHelper {
 		script.append("\tlatest = \"\"\n");
 		script.append("\tFor Each file In folder.Files\n");
 		script.append("\t\tIf Enabled(file.Name) And current = \"\" Then current = file.Path\n");
-		script.append("\t\tIf LCase(Right(file.Name, 4)) = \".old\" And LCase(Left(file.Name, 15)) = \"serverpackcore-\" Then\n");
+		script.append("\t\tIf LCase(Right(file.Name, 4)) = \".old\" And (LCase(Left(file.Name, 15)) = \"serverpackcore-\" Or LCase(Left(file.Name, 11)) = \"fabric-sync-\") Then\n");
 		script.append("\t\t\tIf latest = \"\" Then\n");
 		script.append("\t\t\t\tlatest = file.Path\n");
 		script.append("\t\t\tElseIf file.DateLastModified > fso.GetFile(latest).DateLastModified Then\n");
@@ -927,13 +932,14 @@ public final class UpdateHelper {
 	static Path writeMod(Path dir, Path mods, Path staged, Path target, String version, String mode, long generation)
 		throws UpdateException {
 		boolean windows = AgentPaths.isWindows();
-		Path helper = dir.resolve(windows ? MOD_WINDOWS_NAME : MOD_UNIX_NAME);
+		Path helper = AgentPaths.modHelper(dir);
 		Path temp = dir.resolve(helper.getFileName() + ".tmp");
 		String text = windows
-			? renderModWindows(dir, mods, staged, target, dir.resolve("alive.txt"), version, mode, generation)
-			: renderModUnix(dir, mods, staged, target, dir.resolve("alive.txt"), version, mode, generation);
+			? renderModWindows(dir, mods, staged, target, AgentPaths.alive(dir), version, mode, generation)
+			: renderModUnix(dir, mods, staged, target, AgentPaths.alive(dir), version, mode, generation);
 		try {
 			Files.createDirectories(dir);
+			Files.createDirectories(AgentPaths.log(dir).getParent());
 			if (windows) {
 				ByteArrayOutputStream bytes = new ByteArrayOutputStream();
 				bytes.write(0xFF);
@@ -959,17 +965,18 @@ public final class UpdateHelper {
 
 	static Path write(Path dir, String mode, String version, Path gameDir) throws UpdateException {
 		boolean windows = AgentPaths.isWindows();
-		Path helper = dir.resolve(windows ? WINDOWS_NAME : UNIX_NAME);
+		Path helper = AgentPaths.helper(dir);
 		Path java = Path.of(System.getProperty("java.home", ""), "bin", windows ? "javaw.exe" : "java");
 		String text = windows
-			? renderWindows(dir, dir.resolve("spc-agent.jar"), dir.resolve(Update.STAGED_NAME),
-				dir.resolve(Update.OLD_NAME), dir.resolve(Update.BAD_NAME), dir.resolve("alive.txt"), java, gameDir,
+			? renderWindows(dir, AgentPaths.agentJar(dir), AgentPaths.agentStaged(dir),
+				AgentPaths.agentOld(dir), AgentPaths.agentBad(dir), AgentPaths.alive(dir), java, gameDir,
 				version, mode)
-			: renderUnix(dir, dir.resolve("spc-agent.jar"), dir.resolve(Update.STAGED_NAME),
-				dir.resolve(Update.OLD_NAME), dir.resolve(Update.BAD_NAME), dir.resolve("alive.txt"), java, gameDir,
+			: renderUnix(dir, AgentPaths.agentJar(dir), AgentPaths.agentStaged(dir),
+				AgentPaths.agentOld(dir), AgentPaths.agentBad(dir), AgentPaths.alive(dir), java, gameDir,
 				version, mode);
 		try {
 			Files.createDirectories(dir);
+			Files.createDirectories(AgentPaths.log(dir).getParent());
 			if (windows) {
 				ByteArrayOutputStream bytes = new ByteArrayOutputStream();
 				bytes.write(0xFF);
@@ -998,7 +1005,7 @@ public final class UpdateHelper {
 			}
 			builder.directory(dir.toFile());
 			builder.redirectErrorStream(true);
-			builder.redirectOutput(ProcessBuilder.Redirect.appendTo(dir.resolve("spc-update.out").toFile()));
+			builder.redirectOutput(ProcessBuilder.Redirect.appendTo(AgentPaths.out(dir).toFile()));
 			builder.start();
 		} catch (IOException exception) {
 			throw new UpdateException("helper launch failed");
@@ -1009,7 +1016,7 @@ public final class UpdateHelper {
 		return "\"" + value.replace("\"", "\"\"") + "\"";
 	}
 
-	/** The running game PID comes from alive.txt; 0 means no game. */
+	/** The running game PID comes from the session file; 0 means no game. */
 	private static long gamePid(Path alive) {
 		try {
 			if (Files.isRegularFile(alive)) {
@@ -1025,7 +1032,7 @@ public final class UpdateHelper {
 		return 0L;
 	}
 
-	/** The running agent PID comes from alive.txt; the current process is only a fallback. */
+	/** The running agent PID comes from the session file; the current process is only a fallback. */
 	private static long oldPid(Path alive) {
 		try {
 			if (Files.isRegularFile(alive)) {
