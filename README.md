@@ -220,7 +220,7 @@ The root task builds `agent/` with a separate Gradle build and copies `agent.jar
 1. Create a Fabric Loader 0.20.1 profile for Minecraft 1.20.1.
 2. Remove any previous `serverpackcore-*.jar` or `fabric-sync-*.jar` from the profile's `mods/` folder.
 3. Install Fabric API 0.92.12+1.20.1 in the profile (optional).
-4. Copy `build/libs/fabric-sync-<version>.jar` to the profile's `mods/` folder.
+4. Copy `build/libs/fabric-sync-<version>.jar` to the profile's `mods/` folder. In Prism Launcher that is the instance tree, for example `%APPDATA%\PrismLauncher\instances\1.20.1\minecraft\mods`; with the official launcher it is `%APPDATA%\.minecraft\mods`.
 
 ## Tests
 

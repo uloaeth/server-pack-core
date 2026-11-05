@@ -69,7 +69,8 @@ public final class Credentials {
 
 	private static String override(String property, String environment) {
 		String value = System.getProperty(property);
-		if (value == null || value.isBlank()) {
+		// CI and the release workflow export SPC_*; tests need a clean slate.
+		if ((value == null || value.isBlank()) && !Boolean.getBoolean("spc.ignoreEnv")) {
 			value = System.getenv(environment);
 		}
 		return value == null ? "" : value.trim();

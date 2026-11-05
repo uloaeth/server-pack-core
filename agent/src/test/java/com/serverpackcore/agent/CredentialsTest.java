@@ -27,6 +27,7 @@ class CredentialsTest {
 	@BeforeEach
 	void setUp() {
 		DiscordConfig.reset();
+		System.setProperty("spc.ignoreEnv", "true");
 		System.clearProperty("spc.configUrl");
 		System.clearProperty("spc.botToken");
 		System.clearProperty("spc.guildId");
@@ -39,6 +40,7 @@ class CredentialsTest {
 			server.stop(0);
 		}
 		DiscordConfig.reset();
+		System.clearProperty("spc.ignoreEnv");
 		System.clearProperty("spc.configUrl");
 		System.clearProperty("spc.botToken");
 		System.clearProperty("spc.guildId");
