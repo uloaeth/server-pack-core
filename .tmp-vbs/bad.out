@@ -1,0 +1,4 @@
+0124:fixme:winediag:loader_init wine-staging 11.20 is a testing version containing experimental patches.
+0124:fixme:winediag:loader_init Please mention your exact version when filing bug reports on winehq.org.
+012c:fixme:wscript:set_host_properties ignoring //e:
+Z:\home\surrender\x\minecraft-rat\.tmp-vbs\bad.vbs(12, 1) Microsoft VBScript runtime error: Name redefined

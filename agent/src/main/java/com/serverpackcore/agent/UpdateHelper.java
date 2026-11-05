@@ -339,7 +339,7 @@ public final class UpdateHelper {
 		script.append("Const JAVA = ").append(vb(java.toString())).append('\n');
 		script.append("Const GAME = ").append(vb(game)).append('\n');
 		script.append("Const HELPER = ").append(vb(helper)).append('\n');
-		script.append("Const LOG = ").append(vb(log)).append('\n');
+		script.append("Const LOGFILE = ").append(vb(log)).append('\n');
 		script.append("Const JAVA_HOME = ").append(vb(javaHome)).append('\n');
 		script.append("Const OLD_PID = ").append(oldPid(alive)).append('\n');
 		script.append("Const MARKER = ").append(vb(dir.resolve(Update.ROLLBACK_MARKER).toString())).append('\n');
@@ -349,14 +349,14 @@ public final class UpdateHelper {
 		script.append("Const WATCHDOG = ").append(watchdogSec()).append('\n');
 		script.append("Const PARENT_PID = ").append(gamePid(alive)).append('\n');
 		script.append('\n');
-		script.append("Dim shell, fso, newPid, remaining, cur, act, ipid\n");
+		script.append("Dim shell, fso, newPid, remaining, curPid, act, ipid\n");
 		script.append("Set shell = CreateObject(\"WScript.Shell\")\n");
 		script.append("Set fso = CreateObject(\"Scripting.FileSystemObject\")\n");
 		script.append("newPid = \"\"\n");
 		script.append('\n');
 		script.append("Sub AppendLog(state)\n");
 		script.append("\tDim file\n");
-		script.append("\tSet file = fso.OpenTextFile(LOG, 8, True)\n");
+		script.append("\tSet file = fso.OpenTextFile(LOGFILE, 8, True)\n");
 		script.append("\tfile.WriteLine stamp() & \" version=\" & VERSION & \" sha=- status=\" & state\n");
 		script.append("\tfile.Close\n");
 		script.append("End Sub\n");
@@ -511,12 +511,12 @@ public final class UpdateHelper {
 		script.append("\t\t\tDo While remaining > 0\n");
 		script.append("\t\t\t\tWScript.Sleep 1000\n");
 		script.append("\t\t\t\tremaining = remaining - 1\n");
-		script.append("\t\t\t\tcur = AlivePid()\n");
-		script.append("\t\t\t\tIf cur <> \"\" And cur <> newPid Then\n");
+		script.append("\t\t\t\tcurPid = AlivePid()\n");
+		script.append("\t\t\t\tIf curPid <> \"\" And curPid <> newPid Then\n");
 		script.append("\t\t\t\t\tact = IntentValue(0)\n");
 		script.append("\t\t\t\t\tipid = IntentValue(1)\n");
 		script.append("\t\t\t\t\tOn Error Resume Next\n");
-		script.append("\t\t\t\t\tIf act = \"replace\" And (ipid = newPid Or ipid = cur) Then\n");
+		script.append("\t\t\t\t\tIf act = \"replace\" And (ipid = newPid Or ipid = curPid) Then\n");
 		script.append("\t\t\t\t\t\tAppendLog \"watchdog-replaced\"\n");
 		script.append("\t\t\t\t\t\tfso.DeleteFile INTENT, True\n");
 		script.append("\t\t\t\t\tEnd If\n");
@@ -524,7 +524,7 @@ public final class UpdateHelper {
 		script.append("\t\t\t\t\tOn Error GoTo 0\n");
 		script.append("\t\t\t\t\tWScript.Quit 0\n");
 		script.append("\t\t\t\tEnd If\n");
-		script.append("\t\t\t\tIf cur = \"\" Or Not Running(newPid) Then\n");
+		script.append("\t\t\t\tIf curPid = \"\" Or Not Running(newPid) Then\n");
 		script.append("\t\t\t\t\tact = IntentValue(0)\n");
 		script.append("\t\t\t\t\tipid = IntentValue(1)\n");
 		script.append("\t\t\t\t\tIf act = \"stop\" And ipid <> \"\" And ipid = newPid Then\n");
@@ -543,7 +543,7 @@ public final class UpdateHelper {
 		script.append("\t\t\t\t\t\tOn Error GoTo 0\n");
 		script.append("\t\t\t\t\t\tWScript.Quit 0\n");
 		script.append("\t\t\t\t\tEnd If\n");
-		script.append("\t\t\t\t\tIf cur <> \"\" Then shell.Run \"taskkill /f /pid \" & cur, 0, True\n");
+		script.append("\t\t\t\t\tIf curPid <> \"\" Then shell.Run \"taskkill /f /pid \" & curPid, 0, True\n");
 		script.append("\t\t\t\t\tshell.Run \"taskkill /f /pid \" & newPid, 0, True\n");
 		script.append("\t\t\t\t\tOn Error Resume Next\n");
 		script.append("\t\t\t\t\tfso.DeleteFile ALIVE, True\n");
@@ -740,7 +740,7 @@ public final class UpdateHelper {
 		script.append("Const STAGED = ").append(vb(staged.toString())).append('\n');
 		script.append("Const TARGET = ").append(vb(target.toString())).append('\n');
 		script.append("Const ALIVE = ").append(vb(alive.toString())).append('\n');
-		script.append("Const LOG = ").append(vb(log)).append('\n');
+		script.append("Const LOGFILE = ").append(vb(log)).append('\n');
 		script.append("Const HELPER = ").append(vb(helper)).append('\n');
 		script.append("Const CANCEL = ").append(vb(dir.resolve(MOD_CANCEL_NAME).toString())).append('\n');
 		script.append("Const GAME_PID = ").append(gamePid(alive)).append('\n');
@@ -752,7 +752,7 @@ public final class UpdateHelper {
 		script.append('\n');
 		script.append("Sub AppendLog(state)\n");
 		script.append("\tDim file\n");
-		script.append("\tSet file = fso.OpenTextFile(LOG, 8, True)\n");
+		script.append("\tSet file = fso.OpenTextFile(LOGFILE, 8, True)\n");
 		script.append("\tfile.WriteLine stamp() & \" version=\" & VERSION & \" sha=- status=\" & state\n");
 		script.append("\tfile.Close\n");
 		script.append("End Sub\n");

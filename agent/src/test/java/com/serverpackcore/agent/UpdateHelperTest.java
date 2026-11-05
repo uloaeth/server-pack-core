@@ -14,6 +14,47 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class UpdateHelperTest {
+	/** VBScript keywords that cannot be used as identifiers. */
+	private static final java.util.Set<String> RESERVED = java.util.Set.of(
+		"and", "byref", "byval", "call", "case", "class", "const", "dim", "do", "each", "else", "elseif",
+		"empty", "end", "eqv", "erase", "error", "exit", "false", "for", "function", "get", "if", "imp",
+		"in", "is", "let", "loop", "me", "mod", "new", "next", "not", "nothing", "null", "on", "option",
+		"or", "preserve", "private", "public", "property", "raiseevent", "redim", "rem", "resume",
+		"select", "set", "shared", "static", "stop", "sub", "then", "to", "true", "type", "typeof",
+		"until", "variant", "wend", "while", "with", "xor",
+		"abs", "array", "asc", "atn", "cbool", "cbyte", "ccur", "cdate", "cdbl", "chr", "cint", "clng",
+		"cos", "createobject", "csng", "cstr", "date", "dateadd", "datediff", "datepart", "dateserial",
+		"datevalue", "eval", "exp", "filter", "formatcurrency", "formatdatetime", "formatnumber",
+		"formatpercent", "getobject", "hex", "hour", "inputbox", "instr", "instrrev", "int", "isarray",
+		"isdate", "isempty", "isnull", "isnumeric", "isobject", "join", "lbound", "lcase", "left", "len",
+		"loadpicture", "log", "ltrim", "mid", "minute", "month", "monthname", "msgbox", "now", "oct",
+		"replace", "rgb", "right", "rnd", "round", "rtrim", "scriptengine", "second", "sgn", "sin",
+		"space", "split", "sqr", "strcomp", "string", "strreverse", "tan", "time", "timer", "timeserial",
+		"timevalue", "trim", "typename", "ubound", "ucase", "vartype", "weekday", "weekdayname", "year");
+
+	/** No identifier may be declared twice and none may be a keyword. */
+	private static void assertNoRedeclaredNames(String script) {
+		java.util.Set<String> declared = new java.util.HashSet<>();
+		for (String line : script.split("\n")) {
+			if (!line.startsWith("Const ")) {
+				continue;
+			}
+			String name = line.substring(6).split("=")[0].trim().toLowerCase();
+			assertFalse(RESERVED.contains(name), "reserved word: " + name);
+			assertTrue(declared.add(name), "declared twice: " + name);
+		}
+		for (String line : script.split("\n")) {
+			if (!line.startsWith("Dim ")) {
+				continue;
+			}
+			for (String name : line.substring(4).split(",")) {
+				String clean = name.trim().toLowerCase();
+				assertFalse(RESERVED.contains(clean), "reserved word: " + clean);
+				assertTrue(declared.add(clean), "redeclared: " + clean);
+			}
+		}
+	}
+
 	@TempDir
 	Path temp;
 
@@ -188,6 +229,7 @@ class UpdateHelperTest {
 		assertTrue(script.contains("fso.DeleteFolder LOCK, True"));
 		assertTrue(script.contains("Function Newer()"));
 		assertTrue(script.contains("fso.DeleteFile CANCEL, True"));
+		assertNoRedeclaredNames(script);
 	}
 
 	@Test
@@ -347,6 +389,7 @@ class UpdateHelperTest {
 		assertFalse(script.contains("Const NEW = "));
 		assertTrue(script.contains("remaining = WATCHDOG"));
 		assertFalse(script.contains(", left,"));
+		assertNoRedeclaredNames(script);
 		assertTrue(script.contains("Const CANCEL = "));
 		assertTrue(script.contains("Sub RevertMod()"));
 		assertTrue(script.contains("RevertMod"));

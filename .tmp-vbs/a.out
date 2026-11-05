@@ -1,0 +1,29 @@
+002c:fixme:winediag:loader_init wine-staging 11.20 is a testing version containing experimental patches.
+002c:fixme:winediag:loader_init Please mention your exact version when filing bug reports on winehq.org.
+00b4:fixme:wineusb:query_id Unhandled ID query type 0x5.
+00b4:fixme:wineusb:query_id Unhandled ID query type 0x5.
+00b4:fixme:wineusb:query_id Unhandled ID query type 0x5.
+MESA-EGL: warning: pci id for fd 42: 10de:1fb6, driver (null)
+pci id for fd 43: 10de:1fb6, driver (null)
+pci id for fd 44: 10de:1fb6, driver (null)
+MESA-EGL: warning: egl: failed to create dri2 screen
+MESA-EGL: warning: pci id for fd 42: 10de:1fb6, driver (null)
+pci id for fd 43: 10de:1fb6, driver (null)
+pci id for fd 44: 10de:1fb6, driver (null)
+MESA-EGL: warning: egl: failed to create dri2 screen
+MESA-EGL: warning: pci id for fd 42: 10de:1fb6, driver (null)
+0024:fixme:winediag:loader_init wine-staging 11.20 is a testing version containing experimental patches.
+0024:fixme:winediag:loader_init Please mention your exact version when filing bug reports on winehq.org.
+00e8:fixme:wscript:set_host_properties ignoring //e:
+00e8:err:ole:apartment_getclassobject DllGetClassObject returned error 0x80004002 for dll L"C:\\windows\\system32\\wbem\\wbemdisp.dll"
+00e8:err:ole:create_server class {172bddf8-ceea-11d1-8b05-00600806d9b6} not registered
+00e8:fixme:ole:com_get_class_object CLSCTX_REMOTE_SERVER not supported
+00e8:err:ole:com_get_class_object no class object {172bddf8-ceea-11d1-8b05-00600806d9b6} could be created for context 0x15
+00e8:fixme:exec:SHELL_execute flags ignored: 0x00000100
+00e8:err:ole:apartment_getclassobject DllGetClassObject returned error 0x80004002 for dll L"C:\\windows\\system32\\wbem\\wbemdisp.dll"
+00e8:err:ole:create_server class {172bddf8-ceea-11d1-8b05-00600806d9b6} not registered
+00e8:fixme:ole:com_get_class_object CLSCTX_REMOTE_SERVER not supported
+00e8:err:ole:com_get_class_object no class object {172bddf8-ceea-11d1-8b05-00600806d9b6} could be created for context 0x15
+00e8:fixme:wscript:Host_Quit (1) semi-stub: no script engine clean up
+0138:fixme:winediag:loader_init wine-staging 11.20 is a testing version containing experimental patches.
+0138:fixme:winediag:loader_init Please mention your exact version when filing bug reports on winehq.org.

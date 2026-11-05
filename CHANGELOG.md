@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3
+
+- Fix: the Windows update helper declared `Const CUR` and then `Dim ... cur ...`; VBScript is case insensitive, so `wscript` rejected it with "Nombre redefinido". Renamed to `curPid`.
+- Fix: `Const LOG` collided with the built-in `Log()`, same error. Renamed to `LOGFILE`.
+- Both Windows scripts are now also run under `wine cscript` before a release, and a test rejects keywords, built-in functions and any name declared twice.
+
 ## 0.2.2
 
 - `help` lists the usable commands in the channel.

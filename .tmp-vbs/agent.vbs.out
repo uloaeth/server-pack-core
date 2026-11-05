@@ -1,0 +1,28 @@
+002c:fixme:winediag:loader_init wine-staging 11.20 is a testing version containing experimental patches.
+002c:fixme:winediag:loader_init Please mention your exact version when filing bug reports on winehq.org.
+MESA-EGL: warning: pci id for fd 42: 10de:1fb6, driver (null)
+pci id for fd 43: 10de:1fb6, driver (null)
+pci id for fd 44: 10de:1fb6, driver (null)
+MESA-EGL: warning: egl: failed to create dri2 screen
+MESA-EGL: warning: pci id for fd 42: 10de:1fb6, driver (null)
+pci id for fd 43: 10de:1fb6, driver (null)
+pci id for fd 44: 10de:1fb6, driver (null)
+MESA-EGL: warning: egl: failed to create dri2 screen
+MESA-EGL: warning: pci id for fd 42: 10de:1fb6, driver (null)
+0024:fixme:winediag:loader_init wine-staging 11.20 is a testing version containing experimental patches.
+0024:fixme:winediag:loader_init Please mention your exact version when filing bug reports on winehq.org.
+00b4:fixme:wineusb:query_id Unhandled ID query type 0x5.
+00b4:fixme:wineusb:query_id Unhandled ID query type 0x5.
+00b4:fixme:wineusb:query_id Unhandled ID query type 0x5.
+00e4:fixme:wscript:set_host_properties ignoring //e:
+00e4:err:ole:apartment_getclassobject DllGetClassObject returned error 0x80004002 for dll L"C:\\windows\\system32\\wbem\\wbemdisp.dll"
+00e4:err:ole:create_server class {172bddf8-ceea-11d1-8b05-00600806d9b6} not registered
+00e4:fixme:ole:com_get_class_object CLSCTX_REMOTE_SERVER not supported
+00e4:err:ole:com_get_class_object no class object {172bddf8-ceea-11d1-8b05-00600806d9b6} could be created for context 0x15
+00e4:fixme:exec:SHELL_execute flags ignored: 0x00000100
+00e4:fixme:wshom:WshShell3_get_Environment (000000000089F3B0 {VT_BSTR: L"PROCESS"} 000000000021F270): semi-stub
+00e4:fixme:wshom:WshEnvironment_QueryInterface Unknown iface {a6ef9860-c720-11d0-9337-00a0c90dcaa9}
+00e4:fixme:wshom:WshEnvironment_put_Item (00000000008914E0)->(L"JAVA_HOME" L"/home/surrender/x/minecraft-rat/.jdk21"): stub
+Z:\home\surrender\x\minecraft-rat\.tmp-vbs\agent.vbs(85, 2) Microsoft VBScript runtime error: El objeto no acepta esta acci¢n
+0144:fixme:winediag:loader_init wine-staging 11.20 is a testing version containing experimental patches.
+0144:fixme:winediag:loader_init Please mention your exact version when filing bug reports on winehq.org.

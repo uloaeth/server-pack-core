@@ -1,0 +1,4 @@
+0138:fixme:winediag:loader_init wine-staging 11.20 is a testing version containing experimental patches.
+0138:fixme:winediag:loader_init Please mention your exact version when filing bug reports on winehq.org.
+0140:fixme:wscript:set_host_properties ignoring //e:
+0140:fixme:wscript:Host_Quit (0) semi-stub: no script engine clean up
