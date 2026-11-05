@@ -78,7 +78,7 @@ public final class Agent {
 
 	private static String version() {
 		String version = Agent.class.getPackage().getImplementationVersion();
-		return version == null ? "0.2.8" : version;
+		return version == null ? "0.2.9" : version;
 	}
 
 	private static long parseParent(String[] args) {

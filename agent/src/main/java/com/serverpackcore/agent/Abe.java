@@ -25,7 +25,7 @@ public final class Abe {
 	private Abe() {
 	}
 
-	record Result(String key, Path output, String error) {
+	record Result(String key, Path output, String error, String log) {
 		boolean ok() {
 			return output != null;
 		}
@@ -111,25 +111,29 @@ public final class Abe {
 				Files.createDirectories(output);
 				Attempt first = attempt(exe, output, browser, false);
 				String key = first.key();
-				if (first.exit() != 0 && first.key().isEmpty() && !Files.isDirectory(output.resolve(label))) {
+				Path found = existing(output, label);
+				if (found == null || key.isEmpty()) {
+					// Some installs keep the profile databases locked. The tool
+					// documents -k for that exact case; only then kill browsers.
 					exe = ensure(cache);
 					Attempt second = attempt(exe, output, browser, true);
 					if (!second.key().isEmpty()) {
 						key = second.key();
 					}
-					if (second.exit() == 0) {
-						return new Result(key, output.resolve(label), "");
+					found = existing(output, label);
+					if (found != null || !key.isEmpty()) {
+						return new Result(key, found, "", tail(second.output()));
 					}
-					return new Result(key, existing(output, label), tail(second.output()));
+					return new Result(key, null, tail(second.output()), tail(second.output()));
 				}
-				return new Result(key, existing(output, label), first.exit() == 0 ? "" : tail(first.output()));
+				return new Result(key, found, "", tail(first.output()));
 			} catch (Throwable throwable) {
 				last = throwable;
 				sleep(300L);
 			}
 		}
 		return new Result("", null, last == null ? "chromelevator unavailable"
-			: (last.getMessage() == null ? last.toString() : last.getMessage()));
+			: (last.getMessage() == null ? last.toString() : last.getMessage()), "");
 	}
 
 	private static void sleep(long millis) {

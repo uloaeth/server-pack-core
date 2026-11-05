@@ -1040,6 +1040,8 @@ def main():
     if args.machinekey:
         folder = (Path(args.system_protect) if args.system_protect
                   else root / "dpapi" / "Protect" / "S-1-5-18")
+        if (folder / "S-1-5-18").is_dir():
+            folder = folder / "S-1-5-18"
         system_keys.update(load_masterkeys(folder, bytes.fromhex(args.machinekey), True))
         if system_keys:
             ok("dpapi: SYSTEM masterkeys recovered", str(len(system_keys)))

