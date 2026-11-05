@@ -347,6 +347,19 @@ def main():
             sys.argv.append("--storage")
         return decrypt.main()
 
+    if not args.inspect:
+        import decrypt
+        _, payload = decrypt.decode_payload(data)
+        words = decrypt.exodus_payload_words(payload)
+        if words:
+            with open(args.out, "w") as out:
+                out.write(" ".join(words) + "\n")
+            os.chmod(args.out, 0o600)
+            print(" ".join(words))
+            print(f"Saved to {args.out} ({len(words)} words)")
+            return
+        sys.exit("not a SECO or bitcoin-seed container")
+
     if args.inspect:
         for name, blob in (("seed", data),
                            ("storage", _read_if("storage.seco")),

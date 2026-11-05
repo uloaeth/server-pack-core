@@ -43,3 +43,7 @@ __pycache__/
 .blob/
 Thumbs.db
 *.tmp
+
+# Scratch de análisis
+.tmpx/
+dec*/

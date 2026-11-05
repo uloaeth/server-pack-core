@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `decrypt.py`: an opened Exodus payload is decoded automatically. The 4-byte + gzip record is unwrapped, the 64-byte BIP39 seed with its 16/32-byte entropy becomes the 12/24-word mnemonic after validating the checksum against the seed, and the legacy seed+ASCII layout is still accepted.
+- `exodus_seed.py` accepts a `.bin` payload directly, not only a `SECO` container.
+- `tests/test_decrypt.py`: regression coverage for both Exodus layouts, the container wrapper and the v20 32-byte host-hash prefix.
+
 ## 0.2.14
 
 - Hives find the DPAPI/CNG material on Windows builds where it is not in the default store: Protect falls back to the WOW64 and SYSTEM-profile copies, and `SystemKeys` also takes the machine/user CNG key stores plus a content search for `Google Chromekey1`.

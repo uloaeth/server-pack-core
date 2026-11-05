@@ -113,7 +113,7 @@ Sin `CASE_PASSWORD` pide la contraseña dos veces. `--force` permite repetir sob
 
 ## Decrypting a harvest
 
-`decrypt.py` is the offline side. It takes a harvest ZIP or an extracted directory and opens what the collected material allows: `discord/token.txt`, ABE TSV under `browsers/*/abe/`, browser AES keys, v10 and v20 cookies, saved passwords, Discord tokens, Exodus/Electrum/Phantom wallets and launcher accounts. Everything lands in `decrypted-<name>/` with `0600`, plus `report.json` and `summary.txt`.
+`decrypt.py` is the offline side. It takes a harvest ZIP or an extracted directory and opens what the collected material allows: `discord/token.txt`, ABE TSV under `browsers/*/abe/`, browser AES keys, v10 and v20 cookies, saved passwords, Discord tokens, Exodus/Electrum/Phantom wallets and launcher accounts. Everything lands in `decrypted-<name>/` with `0600`, plus `report.json` and `summary.txt`. Opened Exodus payloads are decoded automatically: the 4-byte + gzip record, the 64-byte BIP39 seed with its 16/32-byte entropy (12/24 words, checksum verified against the seed) and the legacy seed+ASCII layout all yield `wallets/exodus-seed.txt` without a manual step.
 
 ```
 ./decrypt.py sync-0000.zip --list                 # inventory only

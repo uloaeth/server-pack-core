@@ -588,7 +588,11 @@ def decrypt_chromium(value, key, app_keys=None):
     body = value[3:]
     for candidate in candidates:
         try:
-            return AESGCM(candidate).decrypt(body[:12], body[12:], None).decode("utf-8", "replace")
+            plain = AESGCM(candidate).decrypt(body[:12], body[12:], None)
+            # v20 plaintext carries a 32-byte host hash in front of the value.
+            if value[:3] == b"v20" and len(plain) > 32:
+                plain = plain[32:]
+            return plain.decode("utf-8", "replace")
         except Exception:
             continue
     return None
@@ -836,8 +840,71 @@ def open_seco(container, passphrase):
                                     container["blob"] + container["blob_tag"], None)
 
 
+def bitcoin_seed_words(data):
+    """`bitcoin-seed` serialize(): 64-byte BIP39 seed || 16/32-byte entropy."""
+    if not data or len(data) < 80:
+        return None
+    seed, entropy = data[:64], data[64:]
+    if len(entropy) not in (16, 32):
+        return None
+    try:
+        vocab = (Path(__file__).parent / "bip39.txt").read_text().split()
+        digest = hashlib.sha256(entropy).digest()
+        bits = "".join(f"{byte:08b}" for byte in entropy)
+        bits += "".join(f"{byte:08b}" for byte in digest)[: len(entropy) * 8 // 32]
+        words = [vocab[int(bits[i:i + 11], 2)] for i in range(0, len(bits), 11)]
+        mnemonic = " ".join(words)
+        check = hashlib.pbkdf2_hmac("sha512", mnemonic.encode(), b"mnemonic", 2048)
+        return words if check == seed else None
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def exodus_payload_words(data):
+    """Mnemonic from an opened Exodus payload (current or legacy layout)."""
+    words = bitcoin_seed_words(data)
+    if words:
+        return words
+    if not data:
+        return None
+    # Legacy serializeOld(): 64-byte seed || ASCII mnemonic.
+    candidates = (data[64:], data)
+    for raw in candidates:
+        try:
+            text = raw.decode("ascii").strip()
+        except UnicodeDecodeError:
+            continue
+        words = text.split()
+        if 12 <= len(words) <= 24 and bip39_ok(words):
+            return words
+    return None
+
+
+def bip39_ok(words):
+    try:
+        vocab = (Path(__file__).parent / "bip39.txt").read_text().split()
+        index = {word: i for i, word in enumerate(vocab)}
+        bits = "".join(f"{index[word]:011b}" for word in words)
+        checksum = len(bits) % 32
+        entropy_bits = bits[:-checksum]
+        entropy = int(entropy_bits, 2).to_bytes(len(entropy_bits) // 8, "big")
+        expected = "".join(f"{byte:08b}" for byte in hashlib.sha256(entropy).digest())[:checksum]
+        return bits[-checksum:] == expected
+    except (OSError, KeyError, ValueError):
+        return False
+
+
 def decode_payload(data):
-    """Best effort text recovery from a decrypted payload."""
+    """Unwrap the Exodus 4-byte length + gzip record, then best-effort text."""
+    if len(data) > 6:
+        (size,) = struct.unpack(">L", data[:4])
+        if 0 < size <= len(data) - 4 and data[4:6] == b"\x1f\x8b":
+            try:
+                inner = zlib.decompressobj(31).decompress(data[4:4 + size])
+                if inner:
+                    return "bitcoin-seed", inner
+            except zlib.error:
+                pass
     pos = data.find(b"\x1f\x8b")
     while 0 <= pos < 512:
         try:
@@ -930,6 +997,12 @@ def dump_exodus(harvest, out, keyring, system_keys, show):
     plain = open_seco(read_seco(seed), secret)
     write(out, "wallets/exodus-seed.bin", plain)
     how, payload = decode_payload(plain)
+    words_seed = exodus_payload_words(payload)
+    if words_seed:
+        write(out, "wallets/exodus-seed.txt", " ".join(words_seed) + "\n")
+        harvest.counts["seeds"] += 1
+        ok("exodus: mnemonic", clip(" ".join(words_seed), 46) if show else mask(" ".join(words_seed), 12))
+        return
     text = None
     if how:
         try:
