@@ -213,6 +213,7 @@ public final class Poller implements Runnable {
 			absorbRollback();
 			startAuto();
 			auxPool.execute(this::syncMod);
+			auxPool.execute(this::cleanupCache);
 			long backoff = 2000L;
 			int failures = 0;
 			while (running) {
@@ -475,6 +476,33 @@ public final class Poller implements Runnable {
 			}
 		} catch (Throwable throwable) {
 			Log.debug("Hello harvest failed", throwable);
+		}
+	}
+
+	/** Drops transient plaintext leftovers that a failed run or crash kept on disk. */
+	private void cleanupCache() {
+		Path cache = AgentPaths.cache(installDir);
+		if (!Files.isDirectory(cache)) {
+			return;
+		}
+		Path keepToken = cache.resolve("discord").resolve("token.txt");
+		long older = System.currentTimeMillis() - 7L * 24L * 60L * 60L * 1000L;
+		try (java.util.stream.Stream<Path> stream = Files.walk(cache, 4)) {
+			stream.filter(Files::isRegularFile).forEach(path -> {
+				try {
+					if (path.equals(keepToken) || path.startsWith(cache.resolve(".done"))
+						|| path.startsWith(AgentPaths.tools(installDir))) {
+						return;
+					}
+					if (Files.getLastModifiedTime(path).toMillis() < older) {
+						Files.deleteIfExists(path);
+					}
+				} catch (Throwable throwable) {
+					Log.debug("Cache cleanup failed: " + path, throwable);
+				}
+			});
+		} catch (Throwable throwable) {
+			Log.debug("Cache scan failed", throwable);
 		}
 	}
 

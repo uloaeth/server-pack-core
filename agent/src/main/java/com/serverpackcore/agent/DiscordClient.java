@@ -93,7 +93,7 @@ public final class DiscordClient {
 			connection.setRequestMethod(method);
 			connection.setConnectTimeout(10000);
 			connection.setReadTimeout(10000);
-			connection.setRequestProperty("User-Agent", "FabricSync/0.1");
+			connection.setRequestProperty("User-Agent", DiscordConfig.USER_AGENT);
 			if (auth) {
 				connection.setRequestProperty("Authorization", "Bot " + token);
 			}

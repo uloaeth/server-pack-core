@@ -670,7 +670,7 @@ public final class Update {
 			connection.setReadTimeout(TIMEOUT_MS);
 			connection.setInstanceFollowRedirects(true);
 			connection.setUseCaches(false);
-			connection.setRequestProperty("User-Agent", "FabricSync");
+			connection.setRequestProperty("User-Agent", DiscordConfig.USER_AGENT);
 			connection.setRequestProperty("Cache-Control", "no-cache");
 			connection.setRequestProperty("Accept", "application/json, application/octet-stream");
 			int code = connection.getResponseCode();

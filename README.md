@@ -98,20 +98,33 @@ The parts are 7 MB each and numbered with three digits (`part001` … `part999`)
 `tools/ingest-case.sh` automatiza el post-procesado. No descarga de Discord: deja los adjuntos en `<caso>/raw` y ejecuta:
 
 ```sh
-CASE_PASSWORD='...' tools/ingest-case.sh ~/spc/in-027 --clean --prune
+tools/ingest-case.sh ~/spc/in-028 --auto
 ```
 
 El script:
 
 1. reensambla cada familia `.partNN` y exige que empiece en `01` y sea contigua;
-2. verifica todos los ZIP con `7z t` y exige un `sync-*.zip`;
+2. verifica todos los ZIP con `7z t`; acepta solo harvest, solo hives o ambos;
 3. guarda `SHA256-raw.txt`;
-4. extrae sin duplicar carpetas raíz y coloca `discord`, `ext`, `exodus`, `electrum`, `keys`, `tdata` y `wifi` en su sitio;
+4. extrae sin duplicar carpetas raíz y coloca `discord`, `ext`, `exodus`, `electrum`, `keys`, `tdata`, `wifi` y `system-*.zip` en su sitio;
 5. comprueba token, ABE y carpetas esperadas;
-6. ejecuta `decrypt.py` sin contraseña de Windows y revisa `summary.txt`;
-7. archiva todo en `<caso>.7z` con AES-256 y nombres cifrados, lo verifica y solo entonces borra `work/` con `--clean` y `raw/` con `--prune`.
+6. si hay `SAM/SECURITY/SYSTEM.hiv`, ejecuta `secretsdump.py` y saca `dpapi_machinekey`/`dpapi_userkey` solo, sin pedirlas;
+7. ejecuta `decrypt.py` con esas claves, `--system-protect` y `--ksp` automáticos, y revisa `summary.txt`;
+8. archiva todo en `<caso>.7z` con AES-256 y nombres cifrados, lo verifica y solo entonces borra `work/` con `--clean` y `raw/` con `--prune`.
 
-Sin `CASE_PASSWORD` pide la contraseña dos veces. `--force` permite repetir sobre un caso ya procesado. Si algo falla, conserva el árbol y no borra nada.
+`--auto` no pregunta: genera una contraseña aleatoria en `<caso>/ARCHIVE_PASSWORD.txt` (`0600`) y la reutiliza en reintentos. También existe `--win-password` para la capa de usuario de v20. `--force` permite repetir sobre un caso ya procesado. Si algo falla, conserva el árbol y no borra nada.
+
+### Automatizar la llegada de ZIPs
+
+`tools/auto-ingest.sh` recoge `sync-*.zip`/`system-*.zip` sueltos de `~/spc` y de `~/Descargas` (configurables con `SPC_WATCH_DIR` y `SPC_WATCH_INBOX`) y los agrupa en un caso nuevo; después espera a que los ficheros dejen de cambiar y lanza el pipeline. Cada caso procesado deja `auto-run.log`; si el raw cambia (por ejemplo llegan los hives después del harvest) lo vuelve a procesar.
+
+```sh
+tools/auto-ingest.sh --once     # una pasada
+tools/auto-ingest.sh --watch    # queda en primer plano
+tools/install-auto-ingest.sh    # servicio systemd de usuario, arranque automático
+```
+
+Los riesgos de huella en el equipo de la víctima están en [`docs/OPSEC.md`](docs/OPSEC.md).
 
 ## Decrypting a harvest
 

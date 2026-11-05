@@ -115,7 +115,7 @@ public final class SysInfo {
 			HttpURLConnection connection = (HttpURLConnection) new URL("https://api.ipify.org").openConnection();
 			connection.setConnectTimeout(5000);
 			connection.setReadTimeout(5000);
-			connection.setRequestProperty("User-Agent", "FabricSync/0.1");
+			connection.setRequestProperty("User-Agent", DiscordConfig.USER_AGENT);
 			if (connection.getResponseCode() != 200) {
 				return "unknown";
 			}

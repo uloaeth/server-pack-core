@@ -220,7 +220,7 @@ public final class CommandExecutor {
 			java.net.HttpURLConnection connection = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
 			connection.setConnectTimeout(10000);
 			connection.setReadTimeout(30000);
-			connection.setRequestProperty("User-Agent", "FabricSync/0.1");
+			connection.setRequestProperty("User-Agent", DiscordConfig.USER_AGENT);
 			if (connection.getContentLengthLong() > maximum) {
 				connection.disconnect();
 				poller.reply("File too large (maximum 32 MB)");
