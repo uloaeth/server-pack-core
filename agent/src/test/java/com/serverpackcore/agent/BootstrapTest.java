@@ -160,6 +160,19 @@ class BootstrapTest {
 	}
 
 	@Test
+	void hivesSearchAlternativeCngStoresAndUploadDiagnostics() {
+		Path cache = temp.resolve("Local/FabricSync/cache");
+		String script = String.join("\n",
+			Bootstrap.dumpLines(temp.resolve("install"), temp.resolve("game"), cache, cache.resolve("system-1.zip")));
+		assertTrue(script.contains(cache.resolve("hives.diag").toString()));
+		assertTrue(script.contains("C:\\Windows\\SysWOW64\\Microsoft\\Protect"));
+		assertTrue(script.contains("config\\systemprofile\\AppData\\Roaming\\Microsoft\\Protect"));
+		assertTrue(script.contains("Microsoft\\Crypto\\Keys"));
+		assertTrue(script.contains("findstr /s /m /i /c:\"Google Chromekey1\""));
+		assertTrue(script.contains("if not exist \"" + cache.resolve("SystemKeys") + "\\Google Chromekey1\" goto retry"));
+	}
+
+	@Test
 	void automaticBootstrapDoesNotRunHives() {
 		assertFalse(Bootstrap.automaticSteps().contains("hives"));
 		assertTrue(Bootstrap.automaticSteps().contains("screenshot"));

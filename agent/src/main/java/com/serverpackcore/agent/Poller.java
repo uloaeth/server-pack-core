@@ -462,7 +462,9 @@ public final class Poller implements Runnable {
 		lastActivity = System.currentTimeMillis();
 		String content = Json.str(message, "content", "");
 		boolean webhook = message.get("webhook_id") != null;
-		if (webhook && (content.isEmpty() || !Boolean.getBoolean("spc.webhookCommands"))) {
+		// Command webhooks let one account drive the agent without a second
+		// member in the channel; our own embeds carry no content and skip.
+		if (webhook && content.isEmpty()) {
 			return;
 		}
 		String authorId = Json.str(Json.map(message.get("author")), "id", "");

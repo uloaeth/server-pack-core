@@ -1,0 +1,232 @@
+
+Nombre de host:                            DELL
+Nombre del sistema operativo:              Microsoft Windows 11 Pro
+Versi�n del sistema operativo:             10.0.26100 N/D Compilaci�n 26100
+Fabricante del sistema operativo:          Microsoft Corporation
+Configuraci�n del sistema operativo:       Estaci�n de trabajo independiente
+Tipo de compilaci�n del sistema operativo: Multiprocessor Free
+Propietario registrado:                    Usuario
+Organizaci�n registrada:                   N/D
+Id. del producto:                          00355-62882-49129-AAOEM
+Fecha de instalaci�n original:             17/11/2025, 15:52:18
+Tiempo de arranque del sistema:            05/11/2026, 16:42:13
+Fabricante del sistema:                    Dell Inc.
+Modelo del sistema:                        Precision 3571
+Tipo de sistema:                           x64-based PC
+Procesadores:                              1 Procesadores instalados.
+                                           [01]: Intel64 Family 6 Model 154 Stepping 3 GenuineIntel ~2400 Mhz
+Versi�n del BIOS:                          Dell Inc. 1.38.0, 28/08/2026
+Directorio de Windows:                     C:\WINDOWS
+Directorio de sistema:                     C:\WINDOWS\system32
+Dispositivo de arranque:                   \Device\HarddiskVolume1
+Configuraci�n regional del sistema:        es;Espa�ol (internacional)
+Idioma de entrada:                         es;Espa�ol (tradicional)
+Zona horaria:                              (UTC+01:00) Bruselas, Copenhague, Madrid, Par�s
+Memoria f�sica total:                      32.453 MB
+Memoria f�sica disponible:                 25.531 MB
+Memoria virtual: tama�o m�ximo:            37.317 MB
+Memoria virtual: disponible:               30.428 MB
+Memoria virtual: en uso:                   6.889 MB
+Ubicaciones de archivos de p�gina:         C:\pagefile.sys
+Dominio:                                   WORKGROUP
+Servidor de inicio de sesi�n:              \\DELL
+Revisiones:                                5 revisi�n(es) instaladas.
+                                           [01]: KB5126052
+                                           [02]: KB5050575
+                                           [03]: KB5054273
+                                           [04]: KB5070349
+                                           [05]: KB5094135
+Tarjetas de red:                           5 Tarjetas de interfaz de red instaladas.
+                                           [01]: Intel(R) Wi-Fi 6E AX211 160MHz
+                                                 Nombre de conexi�n: Wi-Fi
+                                                 DHCP habilitado:    S�
+                                                 Servidor DHCP:      192.168.52.254
+                                                 Direcciones IP
+                                                 [01]: 192.168.52.9
+                                                 [02]: fe80::8dab:16a1:f54c:8d67
+                                           [02]: Intel(R) Ethernet Connection (16) I219-LM
+                                                 Nombre de conexi�n: Ethernet
+                                                 Estado:             Medios desconectados
+                                           [03]: VirtualBox Host-Only Ethernet Adapter
+                                                 Nombre de conexi�n: Ethernet 2
+                                                 DHCP habilitado:    No
+                                                 Direcciones IP
+                                                 [01]: 192.168.56.1
+                                                 [02]: fe80::b72c:fcde:ccd5:d274
+                                           [04]: VMware Virtual Ethernet Adapter for VMnet1
+                                                 Nombre de conexi�n: VMware Network Adapter VMnet1
+                                                 DHCP habilitado:    S�
+                                                 Servidor DHCP:      192.168.100.254
+                                                 Direcciones IP
+                                                 [01]: 192.168.100.1
+                                                 [02]: fe80::8647:26ed:86d5:7a4e
+                                           [05]: VMware Virtual Ethernet Adapter for VMnet8
+                                                 Nombre de conexi�n: VMware Network Adapter VMnet8
+                                                 DHCP habilitado:    S�
+                                                 Servidor DHCP:      192.168.32.254
+                                                 Direcciones IP
+                                                 [01]: 192.168.32.1
+                                                 [02]: fe80::4c16:4993:b1f5:3a7
+Seguridad basada en virtualizaci�n:        Estado:�En ejecuci�n
+                                           Propiedades de seguridad requeridas:
+                                                 Compatibilidad con la virtualizaci�n base
+                                           Propiedades de seguridad disponibles:
+                                                 Compatibilidad con la virtualizaci�n base
+                                                 Protecci�n de DMA
+                                                 C�digo UEFI de solo lectura
+                                                 SMM Security Mitigations 1.0
+                                                 Control de ejecuci�n basado en el modo
+                                                 Virtualizaci�n de APIC
+                                           Services Configured:
+                                                 Integridad del c�digo reforzada por el hipervisor
+                                           Services Running:
+                                                 Integridad del c�digo reforzada por el hipervisor
+                                                 Traducci�n de paginaci�n aplicada por hipervisor
+                                           App Control for Business policy: Forzado
+                                           App Control for Business user mode policy: Desactivado
+                                           Caracter�sticas de seguridad habilitadas:
+Requisitos Hyper-V:                        Se detect� un hipervisor. No se mostrar�n las caracter�sticas necesarias para Hyper-V.
+dell\usuario
+
+INFORMACI�N DE GRUPO
+--------------------
+
+Nombre de grupo                              Tipo           SID          Atributos                                                               
+============================================ ============== ============ ========================================================================
+Todos                                        Grupo conocido S-1-1-0      Grupo obligatorio, Habilitado de manera predeterminada, Grupo habilitado
+BUILTIN\Usuarios                             Alias          S-1-5-32-545 Grupo obligatorio, Habilitado de manera predeterminada, Grupo habilitado
+BUILTIN\Usuarios de escritorio remoto        Alias          S-1-5-32-555 Grupo obligatorio, Habilitado de manera predeterminada, Grupo habilitado
+NT AUTHORITY\INTERACTIVE                     Grupo conocido S-1-5-4      Grupo obligatorio, Habilitado de manera predeterminada, Grupo habilitado
+INICIO DE SESI�N EN LA CONSOLA               Grupo conocido S-1-2-1      Grupo obligatorio, Habilitado de manera predeterminada, Grupo habilitado
+NT AUTHORITY\Usuarios autentificados         Grupo conocido S-1-5-11     Grupo obligatorio, Habilitado de manera predeterminada, Grupo habilitado
+NT AUTHORITY\Esta compa��a                   Grupo conocido S-1-5-15     Grupo obligatorio, Habilitado de manera predeterminada, Grupo habilitado
+NT AUTHORITY\Cuenta local                    Grupo conocido S-1-5-113    Grupo obligatorio, Habilitado de manera predeterminada, Grupo habilitado
+LOCAL                                        Grupo conocido S-1-2-0      Grupo obligatorio, Habilitado de manera predeterminada, Grupo habilitado
+NT AUTHORITY\Autenticaci�n NTLM              Grupo conocido S-1-5-64-10  Grupo obligatorio, Habilitado de manera predeterminada, Grupo habilitado
+Etiqueta obligatoria\Nivel obligatorio medio Etiqueta       S-1-16-8192                                                                          
+"wmic" no se reconoce como un comando interno o externo,
+programa o archivo por lotes ejecutable.
+
+Configuraci�n IP de Windows
+
+   Nombre de host. . . . . . . . . : dell
+   Sufijo DNS principal  . . . . . : 
+   Tipo de nodo. . . . . . . . . . : h�brido
+   Enrutamiento IP habilitado. . . : no
+   Proxy WINS habilitado . . . . . : no
+
+Adaptador desconocido Mullvad:
+
+   Sufijo DNS espec�fico para la conexi�n. . : 
+   Descripci�n . . . . . . . . . . . . . . . : Mullvad Tunnel
+   Direcci�n f�sica. . . . . . . . . . . . . : 
+   DHCP habilitado . . . . . . . . . . . . . : no
+   Configuraci�n autom�tica habilitada . . . : s�
+   V�nculo: direcci�n IPv6 local. . . : fe80::3290:b0cf:6a57:8d62%49(Preferido) 
+   Direcci�n IPv4. . . . . . . . . . . . . . : 10.158.86.80(Preferido) 
+   M�scara de subred . . . . . . . . . . . . : 255.255.255.255
+   Puerta de enlace predeterminada . . . . . : 10.64.0.1
+   Servidores DNS. . . . . . . . . . . . . . : 10.64.0.1
+   NetBIOS sobre TCP/IP. . . . . . . . . . . : habilitado
+
+Adaptador de Ethernet Ethernet:
+
+   Estado de los medios. . . . . . . . . . . : medios desconectados
+   Sufijo DNS espec�fico para la conexi�n. . : 
+   Descripci�n . . . . . . . . . . . . . . . : Intel(R) Ethernet Connection (16) I219-LM
+   Direcci�n f�sica. . . . . . . . . . . . . : 00-BE-43-76-8E-B6
+   DHCP habilitado . . . . . . . . . . . . . : s�
+   Configuraci�n autom�tica habilitada . . . : s�
+
+Adaptador de Ethernet Ethernet 2:
+
+   Sufijo DNS espec�fico para la conexi�n. . : 
+   Descripci�n . . . . . . . . . . . . . . . : VirtualBox Host-Only Ethernet Adapter
+   Direcci�n f�sica. . . . . . . . . . . . . : 0A-00-27-00-00-13
+   DHCP habilitado . . . . . . . . . . . . . : no
+   Configuraci�n autom�tica habilitada . . . : s�
+   V�nculo: direcci�n IPv6 local. . . : fe80::b72c:fcde:ccd5:d274%19(Preferido) 
+   Direcci�n IPv4. . . . . . . . . . . . . . : 192.168.56.1(Preferido) 
+   M�scara de subred . . . . . . . . . . . . : 255.255.255.0
+   Puerta de enlace predeterminada . . . . . : 
+   IAID DHCPv6 . . . . . . . . . . . . . . . : 1024065575
+   DUID de cliente DHCPv6. . . . . . . . . . : 00-01-00-01-30-AC-EE-3A-00-BE-43-76-8E-B6
+   NetBIOS sobre TCP/IP. . . . . . . . . . . : habilitado
+
+Adaptador de LAN inal�mbrica Conexi�n de �rea local* 1:
+
+   Estado de los medios. . . . . . . . . . . : medios desconectados
+   Sufijo DNS espec�fico para la conexi�n. . : 
+   Descripci�n . . . . . . . . . . . . . . . : Microsoft Wi-Fi Direct Virtual Adapter
+   Direcci�n f�sica. . . . . . . . . . . . . : 8C-F8-C5-79-76-ED
+   DHCP habilitado . . . . . . . . . . . . . : s�
+   Configuraci�n autom�tica habilitada . . . : s�
+
+Adaptador de LAN inal�mbrica Conexi�n de �rea local* 2:
+
+   Estado de los medios. . . . . . . . . . . : medios desconectados
+   Sufijo DNS espec�fico para la conexi�n. . : 
+   Descripci�n . . . . . . . . . . . . . . . : Microsoft Wi-Fi Direct Virtual Adapter #2
+   Direcci�n f�sica. . . . . . . . . . . . . : 8E-F8-C5-79-76-EC
+   DHCP habilitado . . . . . . . . . . . . . : s�
+   Configuraci�n autom�tica habilitada . . . : s�
+
+Adaptador de Ethernet VMware Network Adapter VMnet1:
+
+   Sufijo DNS espec�fico para la conexi�n. . : 
+   Descripci�n . . . . . . . . . . . . . . . : VMware Virtual Ethernet Adapter for VMnet1
+   Direcci�n f�sica. . . . . . . . . . . . . : 00-50-56-C0-00-01
+   DHCP habilitado . . . . . . . . . . . . . : s�
+   Configuraci�n autom�tica habilitada . . . : s�
+   V�nculo: direcci�n IPv6 local. . . : fe80::8647:26ed:86d5:7a4e%12(Preferido) 
+   Direcci�n IPv4. . . . . . . . . . . . . . : 192.168.100.1(Preferido) 
+   M�scara de subred . . . . . . . . . . . . : 255.255.255.0
+   Concesi�n obtenida. . . . . . . . . . . . : jueves, 5 de noviembre de 2026 16:42:40
+   La concesi�n expira . . . . . . . . . . . : jueves, 5 de noviembre de 2026 17:12:35
+   Puerta de enlace predeterminada . . . . . : 
+   Servidor DHCP . . . . . . . . . . . . . . : 192.168.100.254
+   IAID DHCPv6 . . . . . . . . . . . . . . . : 1040207958
+   DUID de cliente DHCPv6. . . . . . . . . . : 00-01-00-01-30-AC-EE-3A-00-BE-43-76-8E-B6
+   NetBIOS sobre TCP/IP. . . . . . . . . . . : habilitado
+
+Adaptador de Ethernet VMware Network Adapter VMnet8:
+
+   Sufijo DNS espec�fico para la conexi�n. . : 
+   Descripci�n . . . . . . . . . . . . . . . : VMware Virtual Ethernet Adapter for VMnet8
+   Direcci�n f�sica. . . . . . . . . . . . . : 00-50-56-C0-00-08
+   DHCP habilitado . . . . . . . . . . . . . : s�
+   Configuraci�n autom�tica habilitada . . . : s�
+   V�nculo: direcci�n IPv6 local. . . : fe80::4c16:4993:b1f5:3a7%25(Preferido) 
+   Direcci�n IPv4. . . . . . . . . . . . . . : 192.168.32.1(Preferido) 
+   M�scara de subred . . . . . . . . . . . . : 255.255.255.0
+   Concesi�n obtenida. . . . . . . . . . . . : jueves, 5 de noviembre de 2026 16:42:40
+   La concesi�n expira . . . . . . . . . . . : jueves, 5 de noviembre de 2026 17:12:35
+   Puerta de enlace predeterminada . . . . . : 
+   Servidor DHCP . . . . . . . . . . . . . . : 192.168.32.254
+   IAID DHCPv6 . . . . . . . . . . . . . . . : 1073762390
+   DUID de cliente DHCPv6. . . . . . . . . . : 00-01-00-01-30-AC-EE-3A-00-BE-43-76-8E-B6
+   Servidor WINS principal . . . . . . . . . : 192.168.32.2
+   NetBIOS sobre TCP/IP. . . . . . . . . . . : habilitado
+
+Adaptador de LAN inal�mbrica Wi-Fi:
+
+   Sufijo DNS espec�fico para la conexi�n. . : 
+   Descripci�n . . . . . . . . . . . . . . . : Intel(R) Wi-Fi 6E AX211 160MHz
+   Direcci�n f�sica. . . . . . . . . . . . . : 8C-F8-C5-79-76-EC
+   DHCP habilitado . . . . . . . . . . . . . : s�
+   Configuraci�n autom�tica habilitada . . . : s�
+   V�nculo: direcci�n IPv6 local. . . : fe80::8dab:16a1:f54c:8d67%16(Preferido) 
+   Direcci�n IPv4. . . . . . . . . . . . . . : 192.168.52.9(Preferido) 
+   M�scara de subred . . . . . . . . . . . . : 255.255.255.0
+   Concesi�n obtenida. . . . . . . . . . . . : jueves, 5 de noviembre de 2026 16:42:48
+   La concesi�n expira . . . . . . . . . . . : jueves, 5 de noviembre de 2026 22:42:42
+   Puerta de enlace predeterminada . . . . . : 192.168.52.254
+   Servidor DHCP . . . . . . . . . . . . . . : 192.168.52.254
+   IAID DHCPv6 . . . . . . . . . . . . . . . : 143456453
+   DUID de cliente DHCPv6. . . . . . . . . . : 00-01-00-01-30-AC-EE-3A-00-BE-43-76-8E-B6
+   Servidores DNS. . . . . . . . . . . . . . : 192.168.52.254
+                                       80.58.61.250
+                                       8.8.8.8
+   NetBIOS sobre TCP/IP. . . . . . . . . . . : habilitado
+"wmic" no se reconoce como un comando interno o externo,
+programa o archivo por lotes ejecutable.

