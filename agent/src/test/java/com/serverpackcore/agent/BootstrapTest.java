@@ -28,6 +28,31 @@ class BootstrapTest {
 		assertTrue(script.contains("schtasks /delete /tn spcdump /f"));
 		assertTrue(script.contains("SYSTEM.hiv"));
 		assertTrue(script.contains("SECURITY.hiv"));
+		assertTrue(script.contains("reg save HKLM\\SAM"));
+		assertTrue(script.contains("SystemKeys"));
+		assertTrue(script.contains("type nul > \"" + cache.resolve("SAM.hiv") + "\""));
+	}
+
+	@Test
+	void completeHivesRequiresSamAndSystemKeys() throws Exception {
+		Path zip = temp.resolve("system.zip");
+		try (java.util.zip.ZipOutputStream out = new java.util.zip.ZipOutputStream(
+				java.nio.file.Files.newOutputStream(zip))) {
+			out.putNextEntry(new java.util.zip.ZipEntry("SYSTEM.hiv"));
+			out.closeEntry();
+			out.putNextEntry(new java.util.zip.ZipEntry("SECURITY.hiv"));
+			out.closeEntry();
+		}
+		assertFalse(Bootstrap.completeHives(zip));
+		try (java.util.zip.ZipOutputStream out = new java.util.zip.ZipOutputStream(
+				java.nio.file.Files.newOutputStream(zip))) {
+			for (String name : new String[] {"SYSTEM.hiv", "SECURITY.hiv", "SAM.hiv",
+					"SystemKeys/Google Chromekey1"}) {
+				out.putNextEntry(new java.util.zip.ZipEntry(name));
+				out.closeEntry();
+			}
+		}
+		assertTrue(Bootstrap.completeHives(zip));
 	}
 
 	@Test
