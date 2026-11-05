@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.16
+
+- `clear [n]` (default 100, max 1000): deletes the channel history in 100-message bulk batches, falling back to single deletes for messages older than two weeks.
+- Webhook commands wake the REST poll when the gateway delivers them without content, so they run immediately instead of waiting for the next human message.
+
 ## 0.2.15
 
 - Hives map the CNG key files by the UTF-16 provider name (`Google Chromekey1`/`2`) instead of `findstr`, which could not see the UTF-16 text and left `keys.hits` empty, so the `SystemKeys/Google Chromekey1` gate retried forever.

