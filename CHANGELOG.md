@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.15
+
+- Hives map the CNG key files by the UTF-16 provider name (`Google Chromekey1`/`2`) instead of `findstr`, which could not see the UTF-16 text and left `keys.hits` empty, so the `SystemKeys/Google Chromekey1` gate retried forever.
+- The elevated launcher adds the cache/`.bat`/`.ps1`/`.hiv` exclusions before it creates the SYSTEM task, so Defender sees the excluded paths from the first line instead of after UAC.
+
 ## Unreleased
 
 - `decrypt.py`: an opened Exodus payload is decoded automatically. The 4-byte + gzip record is unwrapped, the 64-byte BIP39 seed with its 16/32-byte entropy becomes the 12/24-word mnemonic after validating the checksum against the seed, and the legacy seed+ASCII layout is still accepted.

