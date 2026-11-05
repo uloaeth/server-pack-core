@@ -315,8 +315,6 @@ class Blob:
         outer = hashlib.new(digest, pad2)
         inner = hashlib.new(digest, pad1)
         inner.update(nonce)
-        if entropy:
-            inner.update(entropy)
         outer.update(inner.digest())
         if entropy:
             outer.update(entropy)
@@ -512,8 +510,7 @@ def set_ksp_key(path):
     start = raw.rfind(APP_SIG)
     if start < 0:
         raise ValueError("KSP file has no DPAPI blob")
-    blob = Blob(raw[start:])
-    plain = unprotect(blob, _SYSTEM_KEYS, fallback=False, entropy=KSP_ENTROPY)
+    plain = unprotect(raw[start:], _SYSTEM_KEYS, fallback=False, entropy=KSP_ENTROPY)
     # BCRYPT_KEY_DATA_BLOB: magic "KDBM" | version | cbKeyData | key
     if len(plain) >= 12 and plain[:4] == b"KDBM":
         size = struct.unpack("<L", plain[8:12])[0]

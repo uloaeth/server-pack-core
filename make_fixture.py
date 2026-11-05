@@ -56,11 +56,15 @@ def make_masterkey(key, guid, material_secret=None, folder=None):
     (folder or protect).joinpath(guid).write_bytes(header + mk)
 
 
-def make_blob(plain, guid, master=None):
+def make_blob(plain, guid, master=None, entropy=None):
     master = master or masterkey
     salt = os.urandom(32)
     hmac_key = os.urandom(32)
-    session = hmac.new(hashlib.sha1(master).digest(), salt, "sha1").digest()
+    key_hash = hashlib.sha1(master).digest()
+    padded = key_hash + b"\0" * 64
+    inner = hashlib.sha1(bytes(b ^ 0x36 for b in padded[:64]) + salt).digest()
+    session = hashlib.sha1(bytes(b ^ 0x5C for b in padded[:64]) + inner
+                           + (entropy or b"")).digest()
     material = session + b"\0" * 64
     ipad = bytes(b ^ 0x36 for b in material[:64])
     opad = bytes(b ^ 0x5C for b in material[:64])
@@ -128,6 +132,36 @@ for host, name, value in ((".example.com", "session", "s3cr3t-cookie"),
     db.execute("INSERT INTO cookies VALUES (?,?,?,?)", (host, name, "", enc))
 db.commit()
 db.close()
+
+# Flag 4 with a synthetic Google Chromekey1 (KSP) and the static XOR constant.
+KSP_ENTROPY = b"xT5rZW5qVVbrvpuA\x00"
+FLAG4_XOR = bytes.fromhex("208A6DA7114A44E6B463114BD9DA397E939ADEFEDBF4588117926B0F2C503158")
+ksp = os.urandom(32)
+ksp_blob = make_blob(b"KDBM" + struct.pack("<L", 1) + struct.pack("<L", len(ksp)) + ksp,
+                     system_guid, system_master, KSP_ENTROPY)
+(root / "hives" / "SystemKeys").mkdir(parents=True)
+(root / "hives" / "SystemKeys" / "Google Chromekey1").write_bytes(ksp_blob)
+enc_key = cbc(ksp, b"\0" * 16, app_key)
+key2 = bytes(a ^ b for a, b in zip(app_key, FLAG4_XOR))
+iv4 = os.urandom(12)
+content4 = b"\x04" + enc_key + iv4 + AESGCM(key2).encrypt(iv4, app_key, None)
+envelope4 = (struct.pack("<L", len(header)) + header
+             + struct.pack("<L", len(content4)) + content4)
+app_bound4 = b"APPB" + make_blob(make_blob(envelope4, guid, masterkey), system_guid, system_master)
+flag4 = root / "browsers" / "flag4"
+(flag4 / "Default" / "Network").mkdir(parents=True)
+(flag4 / "Local State").write_text(json.dumps({"os_crypt": {
+    "app_bound_encrypted_key": base64.b64encode(app_bound4).decode()}}))
+(flag4 / "keys.txt").write_text(
+    "browser=flag4\nprofiles=Default\napp_bound=" + base64.b64encode(app_bound4).decode() + "\n")
+db4 = sqlite3.connect(flag4 / "Default" / "Network" / "Cookies")
+db4.execute("CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB)")
+nonce4 = os.urandom(12)
+db4.execute("INSERT INTO cookies VALUES (?,?,?,?)",
+            ("v20flag4.example.com", "app", "",
+             b"v20" + nonce4 + AESGCM(app_key).encrypt(nonce4, b"flag4-cookie", None)))
+db4.commit()
+db4.close()
 
 logins = sqlite3.connect(chrome / "Default" / "Login_Data")
 logins.execute("CREATE TABLE logins (origin_url TEXT, username_value TEXT, password_value BLOB)")
