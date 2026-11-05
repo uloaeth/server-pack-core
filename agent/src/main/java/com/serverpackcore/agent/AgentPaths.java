@@ -104,6 +104,10 @@ public final class AgentPaths {
 		return legacy(dir) ? dir.resolve("update.log") : dir.resolve("logs").resolve("update.log");
 	}
 
+	public static Path credentials(Path dir) {
+		return dir.resolve("discord.json");
+	}
+
 	public static Path out(Path dir) {
 		return dir.resolve(legacy(dir) ? "spc-update.out" : "update.out");
 	}

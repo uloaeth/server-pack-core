@@ -134,41 +134,34 @@ tasks.named('sourcesJar') {
 	dependsOn 'copyAgent'
 }
 
-// Publishing guard: a release without burned-in credentials is useless.
-def releaseSecretsFile = layout.projectDirectory.file('local.properties')
-
-def releaseSecret = { String key, String envName ->
-	providers.provider {
-		def properties = new Properties()
-		def file = releaseSecretsFile.asFile
-		if (file.isFile()) {
-			file.withInputStream { properties.load(it) }
-		}
-		def value = properties.getProperty(key)
-		if (value == null || value.trim().isEmpty()) {
-			value = System.getenv(envName)
-		}
-		return value == null ? '' : value.trim()
-	}
-}
+// Publishing guard: the public discord.json is what every installed agent reads.
+def publicConfigFile = layout.projectDirectory.file('discord.json')
 
 tasks.register('checkSecrets') {
 	group = 'verification'
-	description = 'Fails when the Discord credentials are missing or still placeholders.'
+	description = 'Fails when discord.json is missing, malformed or still has placeholders.'
 	doLast {
-		def values = [
-			'spc.botToken (or SPC_BOT_TOKEN)': releaseSecret('spc.botToken', 'SPC_BOT_TOKEN').get(),
-			'spc.guildId (or SPC_GUILD_ID)': releaseSecret('spc.guildId', 'SPC_GUILD_ID').get(),
-			'spc.categoryId (or SPC_CATEGORY_ID)': releaseSecret('spc.categoryId', 'SPC_CATEGORY_ID').get()
-		]
-		def missing = values.findAll { name, value ->
-			value.isEmpty() || value.startsWith('SPC_') || value.startsWith('<')
-		}.keySet()
+		def file = publicConfigFile.asFile
+		if (!file.isFile()) {
+			throw new GradleException('Missing discord.json; the agent reads its credentials from there.')
+		}
+		def json
+		try {
+			json = new groovy.json.JsonSlurper().parse(file)
+		} catch (Throwable throwable) {
+			throw new GradleException('discord.json is not valid JSON: ' + throwable.message)
+		}
+		def token = (json['botToken'] instanceof String && !json['botToken'].trim().isEmpty())
+			? json['botToken'] : json['botTokenB64']
+		def missing = ['guildId', 'categoryId'].findAll { key ->
+			def value = json[key]
+			!(value instanceof String) || value.trim().isEmpty() || value.startsWith('<') || value.startsWith('SPC_')
+		}
+		if (!(token instanceof String) || token.trim().isEmpty() || token.startsWith('<') || token.startsWith('SPC_')) {
+			missing.add('botToken/botTokenB64')
+		}
 		if (!missing.isEmpty()) {
-			throw new GradleException(
-				'Missing Discord credentials for a release: ' + missing.join(', ')
-					+ '. Provide local.properties or the SPC_* environment variables.'
-			)
+			throw new GradleException('discord.json has missing or placeholder fields: ' + missing.join(', '))
 		}
 	}
 }

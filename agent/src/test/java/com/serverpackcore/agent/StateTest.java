@@ -38,6 +38,12 @@ class StateTest {
 		assertEquals("hook", loaded.webhookUrl);
 		assertEquals("99", loaded.lastId);
 		assertTrue(loaded.hello);
+		try {
+			assertEquals("rw-------",
+				java.nio.file.attribute.PosixFilePermissions.toString(Files.getPosixFilePermissions(file)));
+		} catch (UnsupportedOperationException ignored) {
+			// Windows
+		}
 		assertTrue(loaded.persist);
 	}
 

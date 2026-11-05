@@ -28,6 +28,7 @@ public final class Agent {
 		try {
 			Path dir = AgentPaths.installDir();
 			Files.createDirectories(dir);
+			Log.init(dir);
 			lockChannel = FileChannel.open(AgentPaths.lock(dir), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
 			lock = lockChannel.tryLock();
 			if (lock == null) {
@@ -78,7 +79,7 @@ public final class Agent {
 
 	private static String version() {
 		String version = Agent.class.getPackage().getImplementationVersion();
-		return version == null ? "0.2.16" : version;
+		return version == null ? "0.2.17" : version;
 	}
 
 	private static long parseParent(String[] args) {

@@ -35,7 +35,6 @@ public final class Gateway {
 	private static final int OP_HEARTBEAT_ACK = 11;
 
 	private final Poller poller;
-	private final DiscordClient client;
 	private final ExecutorService httpExecutor;
 	private final HttpClient http;
 	private final ScheduledExecutorService scheduler;
@@ -76,7 +75,6 @@ public final class Gateway {
 
 	public Gateway(Poller poller, DiscordClient client) {
 		this.poller = poller;
-		this.client = client;
 		if (Boolean.getBoolean("spc.noContent")) {
 			contentIntent = false;
 			intents = DiscordConfig.INTENT_GUILDS | DiscordConfig.INTENT_GUILD_MESSAGES;
@@ -130,10 +128,6 @@ public final class Gateway {
 			}
 			int code = lastCloseCode;
 			long delay;
-			if (code == 1000 || code == 1001) {
-				reconnects++;
-				break;
-			}
 			reconnects++;
 			if (code == 4004) {
 				delay = 600000L;
@@ -165,7 +159,7 @@ public final class Gateway {
 
 	private void connect(CountDownLatch latch) throws Exception {
 		if (gatewayUrl.isEmpty()) {
-			Map<String, Object> info = Json.parseObject(client.get("/gateway/bot").body);
+			Map<String, Object> info = Json.parseObject(poller.client().get("/gateway/bot").body);
 			gatewayUrl = Json.str(info, "url", "");
 			if (gatewayUrl.isEmpty()) {
 				throw new IllegalStateException("empty gateway url");
@@ -273,7 +267,7 @@ public final class Gateway {
 		properties.put("browser", "Fabric Sync");
 		properties.put("device", "Fabric Sync");
 		Map<String, Object> data = new LinkedHashMap<>();
-		data.put("token", DiscordConfig.BOT_TOKEN);
+		data.put("token", DiscordConfig.token());
 		data.put("intents", intents);
 		data.put("properties", properties);
 		data.put("compress", false);
@@ -286,7 +280,7 @@ public final class Gateway {
 
 	private void sendResume(WebSocket current) {
 		Map<String, Object> data = new LinkedHashMap<>();
-		data.put("token", DiscordConfig.BOT_TOKEN);
+		data.put("token", DiscordConfig.token());
 		data.put("session_id", sessionId);
 		data.put("seq", lastSeq);
 		Map<String, Object> payload = new LinkedHashMap<>();
@@ -388,7 +382,7 @@ public final class Gateway {
 	}
 
 	private void onCompressed(byte[] chunk, int currentGeneration) {
-		if (currentGeneration != generation) {
+		if (stopped.get() || currentGeneration != generation) {
 			return;
 		}
 		synchronized (inflateLock) {

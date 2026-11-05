@@ -62,6 +62,12 @@ public final class State {
 			map.put("hivesAttempts", hivesAttempts);
 			Path temp = file.resolveSibling(file.getFileName() + ".tmp");
 			Files.writeString(temp, Json.stringify(map), StandardCharsets.UTF_8);
+			try {
+				Files.setPosixFilePermissions(temp,
+					java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+			} catch (Throwable ignored) {
+				// Windows
+			}
 			Files.move(temp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
 		} catch (Throwable throwable) {
 			Log.debug("State write failed", throwable);

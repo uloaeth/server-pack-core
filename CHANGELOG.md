@@ -1,8 +1,18 @@
 # Changelog
 
-## 0.2.16
+## 0.2.17
 
+- The bot token is no longer compiled into the public jar. Agents fetch `discord.json` over HTTPS (token base64-encoded to satisfy GitHub push protection), cache it in the install tree and pick up rotations automatically after a `401`; `local.properties` and the `SPC_*` variables remain development overrides. `checkSecrets` validates the public document instead of the local file.
+- Optional `allowedUsers` allowlist in `discord.json`: when set, only those user IDs (and webhooks) can run commands. The cached config and `config.json` are written `0600` on Unix.
+- Agent failures are appended to `<install>/logs/agent.log` (rotated at 256 KB, `0600` on Unix) instead of vanishing with the discarded launcher output.
+- `update check` and bare `update` report “up to date” instead of an error when the running version is current. Large downloads are numbered to three digits so lexical order stays numeric.
 - `clear [n]` (default 100, max 1000): deletes the channel history in 100-message bulk batches, falling back to single deletes for messages older than two weeks.
+- `clear` no longer aborts with `403 Missing Permissions`: when the bot has no Manage Messages, a failed bulk batch is retried one message at a time, so its own replies and webhook uploads are still removed and the rest are reported as skipped instead of failing after 0.
+- Uploads retry on network errors and rate limits, split parts verify each one, `harvest` keeps the ZIP when the upload fails, and bootstrap steps stay unmarked while any collected file could not be sent. Previously a hiccup deleted the data as if it had been delivered.
+- A deleted channel or webhook is recreated instead of leaving every poll and upload failing until reinstall; the REST poll also recovers from a 404.
+- The gateway reconnects after a normal 1000/1001 close (for example during a Discord deploy) instead of staying on slow REST fallback forever.
+- `sleep <s>` really takes seconds (default 1, max 60) and bare `persist` reports the state instead of silently disabling persistence.
+- The harvest ZIP is written as `.tmp` and moved into place, so a concurrent bootstrap upload cannot pick up a half-written archive.
 - Webhook commands wake the REST poll when the gateway delivers them without content, so they run immediately instead of waiting for the next human message.
 
 ## 0.2.15

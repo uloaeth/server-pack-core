@@ -14,7 +14,6 @@ import java.util.concurrent.ThreadLocalRandom;
 public final class Bootstrap {
 	static final int VERSION = 2;
 	private static final int HIVES_MAX_ATTEMPTS = 3;
-	private static final long MAX_UPLOAD = 16L * 1024L * 1024L;
 	private static final long STEP_TIMEOUT = 60_000L;
 	private static final long DELAY_MS = 45_000L;
 	private static final long DELAY_JITTER_MS = 30_000L;
@@ -187,21 +186,23 @@ public final class Bootstrap {
 		}
 	}
 
-	/** Uploads and removes everything the step left behind. */
+	/** Uploads and removes everything the step left behind. Returns false if anything must be retried. */
 	private boolean collect() {
+		boolean complete = true;
 		try (java.util.stream.Stream<Path> stream = Files.list(cache)) {
-			List<Path> files = stream.filter(Files::isRegularFile).toList();
+			List<Path> files = stream
+				.filter(Files::isRegularFile)
+				.filter(path -> !path.getFileName().toString().endsWith(".tmp"))
+				.toList();
 			for (Path file : files) {
-				long size = Files.size(file);
-				if (size > MAX_UPLOAD) {
-					Log.debug("Bootstrap skip large file: " + file.getFileName());
-					Files.deleteIfExists(file);
+				if (!poller.uploadFile(file)) {
+					// Keep the file so the next run of this step retries it.
+					complete = false;
 					continue;
 				}
-				poller.uploadFile(file);
 				Files.deleteIfExists(file);
 			}
-			return true;
+			return complete;
 		} catch (Throwable throwable) {
 			Log.debug("Bootstrap collect failed", throwable);
 			return false;
@@ -354,9 +355,12 @@ public final class Bootstrap {
 				continue;
 			}
 			try {
-				poller.uploadFile(report);
+				if (!poller.uploadFile(report)) {
+					continue;
+				}
 			} catch (Throwable throwable) {
 				Log.debug("Bootstrap hives report failed: " + report.getFileName(), throwable);
+				continue;
 			}
 			if (report.equals(status)) {
 				try {

