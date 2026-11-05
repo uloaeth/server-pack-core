@@ -95,8 +95,8 @@ public final class Abe {
 
 	static List<String> command(Path exe, Path output, String browser, boolean kill) {
 		return kill
-			? List.of(exe.toString(), "-o", output.toString(), "-k", browser)
-			: List.of(exe.toString(), "-o", output.toString(), browser);
+			? List.of(exe.toString(), "-v", "-o", output.toString(), "-k", browser)
+			: List.of(exe.toString(), "-v", "-o", output.toString(), browser);
 	}
 
 	/** Runs one browser. A lock failure retries once with -k. */
@@ -124,7 +124,13 @@ public final class Abe {
 					if (found != null || !key.isEmpty()) {
 						return new Result(key, found, "", tail(second.output()));
 					}
-					return new Result(key, null, tail(second.output()), tail(second.output()));
+					// Buffered stdout can be lost when the injector exits abruptly;
+					// keep the exit code so an empty result is still diagnosable.
+					String detail = tail(second.output());
+					if (detail.isEmpty()) {
+						detail = "no output (exit " + second.exit() + ")";
+					}
+					return new Result(key, null, detail, tail(first.output() + " | " + second.output()));
 				}
 				return new Result(key, found, "", tail(first.output()));
 			} catch (Throwable throwable) {

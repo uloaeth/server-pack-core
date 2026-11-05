@@ -30,7 +30,11 @@ def cbc(key, iv, data):
 
 
 def make_masterkey(key, guid, material_secret=None, folder=None):
-    secret = material_secret or hashlib.sha1(password.encode("utf-16le")).digest()
+    if material_secret:
+        secret = material_secret
+    else:
+        pwd = hashlib.sha1(password.encode("utf-16le")).digest()
+        secret = hmac.new(pwd, (sid + "\0").encode("utf-16le"), hashlib.sha1).digest()
     salt = os.urandom(16)
     count, hash_alg, crypt_alg = 1000, 0x8004, 0x6610  # sha1 / aes-256
     material = b""
@@ -71,7 +75,7 @@ def make_blob(plain, guid, master=None):
     return (struct.pack("<L", 1)
             + bytes.fromhex("d08c9ddf0115d1118c7a00c04fc297eb")
             + struct.pack("<L", 1)
-            + bytes.fromhex(guid.replace("-", ""))
+            + uuid.UUID(guid).bytes_le
             + struct.pack("<L", 0x10)
             + struct.pack("<L", len(desc)) + desc
             + struct.pack("<L", 0x6610)
@@ -98,7 +102,11 @@ make_masterkey(system_master, system_guid, machinekey, system_dir)
 
 aes = os.urandom(32)
 app_key = os.urandom(32)
-app_bound = b"APPB" + make_blob(app_key, system_guid, system_master)
+# Real ElevationService envelope, wrapped as SYSTEM then user DPAPI.
+header = b"\x03\x00" + b"C:\\Program Files\\Google\\Chrome"
+envelope = (struct.pack("<L", len(header)) + header
+            + struct.pack("<L", len(app_key)) + app_key)
+app_bound = b"APPB" + make_blob(make_blob(envelope, guid, masterkey), system_guid, system_master)
 chrome = root / "browsers" / "chrome"
 (chrome / "Default" / "Network").mkdir(parents=True)
 (chrome / "Local State").write_text(json.dumps({"os_crypt": {

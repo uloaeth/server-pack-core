@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.11
+
+- Discord harvest: the validated `cache/discord/token.txt` is included even if Discord's LevelDB no longer re-reads, and the sibling `Local State` is always part of the raw fallback so v10 blobs stay decryptable offline.
+- ABE runs lowercase and verbosely; an empty result now records the exit code instead of a blank `abe_error`.
+- Hives also collect `SAM.hiv` and `C:\ProgramData\Microsoft\Crypto\SystemKeys` (Google Chromekey1), needed for offline Chrome flag-3/flag-4 v20 keys.
+- `decrypt.py`: correct DPAPI KDF (password -> SHA1 -> SID HMAC), CNG HMAC validation, SYSTEM `S-1-5-18/User` masterkeys, the real SYSTEM->user app-bound chain, Edge/Brave raw 32-byte keys, and Chrome flag 3/4 via `--ksp` (auto-detected under `hives/SystemKeys`). Unknown flags now fail loudly instead of yielding a wrong key.
+- `tools/ingest-case.sh` passes `--system-userkey` and `--ksp`, and points `--system-protect` at the extracted hives.
+
 ## 0.2.10
 
 - Discord tokens that do not start with `M`/`N` are valid: the regex now accepts the `Nz...` form and the two-segment variant. This was why a correctly decrypted token produced no `token.txt`.

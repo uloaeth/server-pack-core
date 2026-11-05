@@ -37,9 +37,9 @@ class AbeTest {
 	void commandHasNoKillByDefault() {
 		Path exe = Path.of("chromelevator.exe");
 		Path out = Path.of("abe");
-		assertEquals(List.of("chromelevator.exe", "-o", "abe", "chrome"),
+		assertEquals(List.of("chromelevator.exe", "-v", "-o", "abe", "chrome"),
 			Abe.command(exe, out, "chrome", false));
-		assertEquals(List.of("chromelevator.exe", "-o", "abe", "-k", "chrome"),
+		assertEquals(List.of("chromelevator.exe", "-v", "-o", "abe", "-k", "chrome"),
 			Abe.command(exe, out, "chrome", true));
 	}
 

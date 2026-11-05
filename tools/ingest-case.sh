@@ -18,6 +18,8 @@ Opciones:
   --force         reutiliza work/ y decrypted/ existentes, sobrescribe el .7z
   --win-password  contraseña de Windows para blobs DPAPI antiguos o token
   --machinekey    DPAPI_SYSTEM machinekey en hex para v20 sin ABE
+  --system-userkey DPAPI_SYSTEM userkey en hex (abre S-1-5-18/User)
+  --ksp           fichero Google Chromekey1 copiado (v20 offline Chrome)
   --no-clean      desactiva --clean si viene de una variable
   -h, --help      esta ayuda
 
@@ -45,6 +47,8 @@ FORCE=0
 CASE=""
 WIN_PASSWORD=""
 MACHINEKEY=""
+SYSTEM_USERKEY=""
+KSP=""
 
 while (($#)); do
 	case "$1" in
@@ -54,6 +58,8 @@ while (($#)); do
 		--force) FORCE=1 ;;
 		--win-password) [[ $# -ge 2 ]] || die "--win-password necesita valor"; WIN_PASSWORD=$2; shift ;;
 		--machinekey) [[ $# -ge 2 ]] || die "--machinekey necesita valor"; MACHINEKEY=$2; shift ;;
+		--system-userkey) [[ $# -ge 2 ]] || die "--system-userkey necesita valor"; SYSTEM_USERKEY=$2; shift ;;
+		--ksp) [[ $# -ge 2 ]] || die "--ksp necesita valor"; KSP=$2; shift ;;
 		-h|--help) usage; exit 0 ;;
 		-*) die "opción desconocida: $1" ;;
 		*) [[ -z "$CASE" ]] || die "sobra el argumento: $1"; CASE=$1 ;;
@@ -224,6 +230,14 @@ mkdir -p "$DEC"
 DECRYPT_ARGS=("$WORK" -o "$DEC" -q --no-color)
 [[ -n "$WIN_PASSWORD" ]] && DECRYPT_ARGS+=(-p "$WIN_PASSWORD")
 [[ -n "$MACHINEKEY" ]] && DECRYPT_ARGS+=(--machinekey "$MACHINEKEY")
+[[ -n "$SYSTEM_USERKEY" ]] && DECRYPT_ARGS+=(--system-userkey "$SYSTEM_USERKEY")
+if [[ -z "$KSP" && -d "$WORK/hives/SystemKeys" ]]; then
+	KSP=$(find "$WORK/hives/SystemKeys" -maxdepth 1 -type f -iname '*chromekey*' -print -quit)
+fi
+[[ -n "$KSP" ]] && DECRYPT_ARGS+=(--ksp "$KSP")
+if [[ -d "$WORK/hives/ProtectSystem" ]]; then
+	DECRYPT_ARGS+=(--system-protect "$WORK/hives/ProtectSystem")
+fi
 set +e
 python3 "$DECRYPT" "${DECRYPT_ARGS[@]}" > "$CASE/decrypt.log" 2>&1
 DECRYPT_CODE=$?

