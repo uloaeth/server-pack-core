@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.4
+
+- Bootstrap: the hives step packed `SYSTEM.hiv` even when `reg save HKLM\SECURITY` had failed, so `secretsdump` then died on a missing file and the v20 cookies stayed locked. The script now aborts, writes `hives.status` and retries when `SECURITY.hiv` is absent.
+- Also delete the `spcdump` task when it aborts, instead of leaving it behind for the next attempt to overwrite.
+
 ## 0.2.3
 
 - Fix: the Windows update helper declared `Const CUR` and then `Dim ... cur ...`; VBScript is case insensitive, so `wscript` rejected it with "Nombre redefinido". Renamed to `curPid`.

