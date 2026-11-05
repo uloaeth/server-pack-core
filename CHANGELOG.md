@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.6
+
+- Harvest: the app-bound key (v20 cookies) is now unwrapped live while the agent runs in the victim session. The outer machine DPAPI layer and the inner user layer are both available to a normal user, so no administrator, no UAC and no `SECURITY.hiv` are needed. `keys.txt` gains `v20=<key>`; `app_bound=` stays as an offline fallback.
+- Harvest: the Exodus passphrase is unwrapped the same way when it is a machine DPAPI blob, into `wallets/exodus-passphrase.txt`. A plain passphrase still ships in `passphrase.json`.
+- `decrypt.py` consumes `v20=` and `exodus-passphrase.txt` first, then falls back to the existing machinekey paths. The `hives` step is now optional.
+- Harvest also keeps `admin/autologon.txt` (`DefaultPassword` when autologon is on) and any leftover `Unattend.xml` as a last resort for the administrator password.
+- `hives` is unchanged and still works, now only for offline `secretsdump` and as a fallback.
+
 ## 0.2.5
 
 - Hives: `reg save HKLM\\SECURITY` failed when the task ended up running as Administrator instead of SYSTEM, and the zip shipped without it. The script now falls back to `esentutl /y /vss` on the live hive (works with plain Administrator) and aborts with `hives.status` if SECURITY or SYSTEM is still missing.

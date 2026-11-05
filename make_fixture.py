@@ -105,7 +105,8 @@ chrome = root / "browsers" / "chrome"
     "encrypted_key": "DPAPI" + base64.b64encode(make_blob(aes, guid)).decode(),
     "app_bound_encrypted_key": base64.b64encode(app_bound).decode()}}))
 (chrome / "keys.txt").write_text(
-    "browser=chrome\nprofiles=Default\napp_bound=" + base64.b64encode(app_bound).decode() + "\n")
+    "browser=chrome\nprofiles=Default\napp_bound=" + base64.b64encode(app_bound).decode()
+    + "\nv20=" + app_key.hex() + "\n")
 
 db = sqlite3.connect(chrome / "Default" / "Network" / "Cookies")
 db.execute("CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB)")

