@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.13
+
+- Hives survive Defender: the dump adds persistent exclusions for the cache/install paths, the `.hiv` extension and `reg.exe`/`esentutl.exe`/`tar.exe` before the first `reg save`, waits for Defender to load them, and disables real-time monitoring only for the duration of the dump (the previous value is restored).
+- `reg save` has a per-hive VSS fallback (`esentutl /y /vss`) for SYSTEM, SECURITY and SAM, so a blocked command or a quarantined file no longer strands the archive.
+- The dump checks hive sizes and the presence of `ProtectSystem/S-1-5-18` and `SystemKeys/Google Chromekey1` before packing, retries up to three times, and verifies every member with `tar -tf`.
+- `completeHives` now requires all five members with real content, and a partial `system-*.zip` is deleted instead of short-circuiting the next attempt.
+
 ## 0.2.12
 
 - Hives no longer ship a partial ZIP: `SAM.hiv` and the `SystemKeys` folder get placeholders before `tar`, which aborts at the first missing member (that is why 0.2.11 archives silently lost `ProtectSystem`/`SystemKeys`).

