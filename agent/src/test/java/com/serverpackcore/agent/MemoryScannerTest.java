@@ -97,6 +97,17 @@ class MemoryScannerTest {
 	}
 
 	@Test
+	void twentyFourWinsOverAContainedTwelve() throws Exception {
+		Path dump = temp.resolve("twenty-four.bin");
+		String seed24 = "twin heavy doctor dream can vital fragile advice eternal object slender quote "
+			+ "dial gauge alley slow achieve blur talk defy trap opera palace sheriff";
+		Files.writeString(dump, "{\"mnemonic\":\"" + seed24 + "\"}", StandardCharsets.UTF_8);
+		List<MemoryScanner.Finding> findings = MemoryScanner.load().scan(dump);
+		assertTrue(findings.stream().anyMatch(finding -> finding.kind().equals("bip39-24")));
+		assertFalse(findings.stream().anyMatch(finding -> finding.kind().equals("bip39-12")));
+	}
+
+	@Test
 	void badWordIsRejected() throws Exception {
 		Path dump = temp.resolve("bad.bin");
 		Files.writeString(dump, "{\"mnemonic\":\"" + SEED.replace("about", "abandon") + "\"}",

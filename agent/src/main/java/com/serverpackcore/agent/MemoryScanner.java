@@ -251,13 +251,15 @@ final class MemoryScanner {
 				candidates.add(new Candidate(12, positions[11], positions[0], join(ring, 12)));
 			}
 		}
+		List<Candidate> ranges24 = new ArrayList<>();
 		for (Candidate candidate : candidates) {
 			if (candidate.length == 24) {
 				addExact(candidate.offset, "bip39-24", candidate.value);
+				ranges24.add(candidate);
 			}
 		}
 		for (Candidate candidate : candidates) {
-			if (candidate.length != 12 || contained(candidate, candidates)) {
+			if (candidate.length != 12 || contained(candidate, ranges24)) {
 				continue;
 			}
 			String[] tokens = candidate.value.split(" ");
@@ -275,14 +277,22 @@ final class MemoryScanner {
 		}
 	}
 
-	private static boolean contained(Candidate candidate, List<Candidate> candidates) {
-		for (Candidate other : candidates) {
-			if (other.length == 24 && candidate.offset >= other.offset
-				&& candidate.end <= other.end) {
-				return true;
+	/** The 24-word ranges are in stream order, so the last one starting before
+	 * the 12-word window is the only candidate that can contain it. */
+	private static boolean contained(Candidate candidate, List<Candidate> ranges24) {
+		int low = 0;
+		int high = ranges24.size() - 1;
+		int last = -1;
+		while (low <= high) {
+			int middle = (low + high) >>> 1;
+			if (ranges24.get(middle).offset <= candidate.offset) {
+				last = middle;
+				low = middle + 1;
+			} else {
+				high = middle - 1;
 			}
 		}
-		return false;
+		return last >= 0 && ranges24.get(last).end >= candidate.end;
 	}
 
 	private record Candidate(int length, long offset, long end, String value) {
