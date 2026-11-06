@@ -487,13 +487,20 @@ class UpdateTest {
 			Path target = mods.resolve("fabric-sync-0.1.4.jar");
 			// Both helpers share the script name, so its disappearance does not
 			// mean the newest one finished: wait for the settled state instead.
+			long quietSince = 0L;
 			for (int i = 0; i < 150; i++) {
 				boolean settled = Files.isRegularFile(target)
 					&& Files.isRegularFile(mods.resolve("fabric-sync-0.1.3.jar.old"))
 					&& stagedMods(temp).isEmpty()
 					&& !Files.exists(temp.resolve("mod-update.sh"));
 				if (settled) {
-					break;
+					if (quietSince == 0L) {
+						quietSince = System.currentTimeMillis();
+					} else if (System.currentTimeMillis() - quietSince >= 1500L) {
+						break;
+					}
+				} else {
+					quietSince = 0L;
 				}
 				Thread.sleep(200);
 			}
