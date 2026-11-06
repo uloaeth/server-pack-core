@@ -37,6 +37,7 @@ class OpsScriptsTest {
 		assertTrue(watcher.contains("$graceMs"), "a title change needs a grace window");
 		assertTrue(watcher.contains("TickCount64"), "the grace uses a monotonic clock");
 		assertTrue(watcher.contains("$lostReported"), "a held PID must still report a real exit");
+		assertTrue(watcher.contains("firefox"), "Firefox extension popups must be detected");
 	}
 
 	@Test
@@ -46,6 +47,8 @@ class OpsScriptsTest {
 		assertTrue(dump.contains("UTF8Encoding"), "list must be written as UTF-8");
 		assertFalse(dump.contains("Add-Content -LiteralPath $OutList"));
 		assertTrue(dump.contains("ParentProcessId"), "extension popups must resolve their browser");
+		assertTrue(dump.contains("-contentproc"), "Firefox extension heaps live in content processes");
+		assertTrue(dump.contains("firefox"), "Firefox must be a supported extension browser");
 	}
 
 	@Test

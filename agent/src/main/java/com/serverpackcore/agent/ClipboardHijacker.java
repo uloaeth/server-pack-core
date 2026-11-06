@@ -163,6 +163,8 @@ final class ClipboardHijacker {
 				return;
 			}
 			SecretDetector.Secret secret = SecretDetector.detect(text, process, title);
+			Log.debug("Clipboard event: " + process + " | " + title + " | " + clean.length()
+				+ " chars | " + (secret == null ? "no secret" : secret.kind()));
 			if (secret == null) {
 				return;
 			}

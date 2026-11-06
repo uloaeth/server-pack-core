@@ -24,6 +24,7 @@ class PasswordHeuristicTest {
 		assertTrue(PasswordHeuristic.looksLikePassword("chrome.exe", "Phantom"));
 		assertTrue(PasswordHeuristic.looksLikePassword("msedge.exe", "MetaMask"));
 		assertTrue(PasswordHeuristic.looksLikePassword("brave.exe", "Exodus Wallet"));
+		assertTrue(PasswordHeuristic.looksLikePassword("firefox.exe", "Phantom"));
 	}
 
 	@Test
