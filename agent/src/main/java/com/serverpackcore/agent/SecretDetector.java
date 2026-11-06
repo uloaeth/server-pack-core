@@ -56,7 +56,9 @@ final class SecretDetector {
 				// Not a key.
 			}
 		}
-		if (value.length() >= 6 && value.length() <= 128 && PasswordHeuristic.credentialSource(process, title)) {
+		if (value.length() >= 6 && value.length() <= 128
+			&& (PasswordHeuristic.credentialSource(process, title)
+				|| PasswordHeuristic.looksLikePassword(process, title))) {
 			return new Secret("password", value);
 		}
 		return null;
@@ -85,6 +87,7 @@ final class SecretDetector {
 			case "xprv" -> "clipboard xprv: " + secret.value();
 			case "evm-key" -> "clipboard clave privada EVM (o hex64): " + secret.value();
 			case "solana-key" -> "clipboard clave privada Solana: " + secret.value();
+			case "password" -> "clipboard contraseña (" + process + " | " + title + "): " + secret.value();
 			default -> "clipboard?: " + process + " | " + title + " | " + secret.value();
 		};
 	}
