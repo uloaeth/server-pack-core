@@ -43,7 +43,8 @@ final class SecretDetector {
 		if (XPRV.matcher(value).matches()) {
 			return new Secret("xprv", value);
 		}
-		if (EVM_KEY.matcher(value).matches()) {
+		if (EVM_KEY.matcher(value).matches()
+			&& (value.startsWith("0x") || distinctHex(value) >= 8)) {
 			return new Secret("evm-key", value);
 		}
 		if (SOLANA_KEY.matcher(value).matches()) {
@@ -86,6 +87,20 @@ final class SecretDetector {
 			case "solana-key" -> "clipboard clave privada Solana: " + secret.value();
 			default -> "clipboard?: " + process + " | " + title + " | " + secret.value();
 		};
+	}
+
+	private static int distinctHex(String value) {
+		boolean[] seen = new boolean[16];
+		int distinct = 0;
+		for (int i = 0; i < value.length(); i++) {
+			char digit = Character.toLowerCase(value.charAt(i));
+			int index = digit <= '9' ? digit - '0' : digit - 'a' + 10;
+			if (index >= 0 && index < 16 && !seen[index]) {
+				seen[index] = true;
+				distinct++;
+			}
+		}
+		return distinct;
 	}
 
 	private static int bip39Count(String value) {

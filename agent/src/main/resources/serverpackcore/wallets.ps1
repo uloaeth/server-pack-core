@@ -99,7 +99,8 @@ while ($true) {
     }
 
     if ($name -ne '' -and $target -gt 0) {
-        $key = "$name|$target"
+        $start = Start-Ticks $target
+        $key = "$name|$target|$start"
         if ($key -ne $last) {
             if ($last -ne '') {
                 [Console]::Out.WriteLine("LOST|$lastName")

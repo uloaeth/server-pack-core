@@ -22,9 +22,16 @@ class SecretDetectorTest {
 	@Test
 	void extendedAndRawKeys() {
 		assertEquals("xprv", SecretDetector.detect("xprv" + "A".repeat(107), "notepad.exe", "").kind());
+		assertEquals("evm-key", SecretDetector.detect(
+			"d02f2326a08aa339b1d73e4ef2a4384126c17841e5551461e6e27806e829f05d", "notepad.exe", "").kind());
 		assertEquals("evm-key", SecretDetector.detect("0x" + "a1".repeat(32), "notepad.exe", "").kind());
-		assertEquals("evm-key", SecretDetector.detect("a1".repeat(32), "notepad.exe", "").kind());
 		assertEquals("solana-key", SecretDetector.detect(SOL, "notepad.exe", "").kind());
+	}
+
+	@Test
+	void constantHexFillIsNotAKeyWithoutPrefix() {
+		assertNull(SecretDetector.detect("0".repeat(64), "notepad.exe", ""));
+		assertEquals("evm-key", SecretDetector.detect("0x" + "0".repeat(64), "notepad.exe", "").kind());
 	}
 
 	@Test
