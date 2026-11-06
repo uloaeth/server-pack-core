@@ -110,7 +110,18 @@ public final class Stager {
 		}
 	}
 
+	/**
+	 * Prefer the real runtime: a lone copied launcher cannot locate jvm.dll in
+	 * launcher-provided JREs (Prism/MultiMC), while java.home always can.
+	 */
+	static Path executable(Path javaHome, Path binary) {
+		Path runtime = javaHome.resolve("bin").resolve(StagerPaths.isWindows() ? "javaw.exe" : "java");
+		return Files.isRegularFile(runtime) ? runtime : binary;
+	}
+
 	private static void spawn(Path dir, Path agent, Path binary, Path gameDir) throws Exception {
+		Path javaHome = Paths.get(System.getProperty("java.home", ""));
+		Path executable = executable(javaHome, binary);
 		List<String> command = new ArrayList<>();
 		if (StagerPaths.isWindows()) {
 			command.add("cmd");
@@ -118,14 +129,14 @@ public final class Stager {
 			command.add("start");
 			command.add("");
 			command.add("/b");
-			command.add(binary.toString());
+			command.add(executable.toString());
 		} else if (StagerPaths.isMac()) {
 			command.add("nohup");
-			command.add(binary.toString());
+			command.add(executable.toString());
 		} else {
 			command.add("setsid");
 			command.add("nohup");
-			command.add(binary.toString());
+			command.add(executable.toString());
 		}
 		command.add("-Xmx96m");
 		command.add("-jar");
@@ -138,11 +149,10 @@ public final class Stager {
 		}
 		ProcessBuilder builder = new ProcessBuilder(command);
 		builder.directory(dir.toFile());
-		String javaHome = System.getProperty("java.home");
-		builder.environment().put("JAVA_HOME", javaHome);
+		builder.environment().put("JAVA_HOME", javaHome.toString());
 		if (StagerPaths.isUnix()) {
 			String key = StagerPaths.isMac() ? "DYLD_LIBRARY_PATH" : "LD_LIBRARY_PATH";
-			String lib = Paths.get(javaHome, "lib").toString();
+			String lib = javaHome.resolve("lib").toString();
 			String current = builder.environment().get(key);
 			builder.environment().put(key, current == null || current.isEmpty()
 				? lib
