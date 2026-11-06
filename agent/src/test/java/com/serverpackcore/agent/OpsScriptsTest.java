@@ -43,6 +43,7 @@ class OpsScriptsTest {
 		assertTrue(watcher.contains("phantom|metamask|rabby|trust|coinbase"),
 			"a browser grace must release the key so reopening emits DETECT");
 		assertTrue(watcher.contains("$previousAlive"), "a live wallet switch is not a close");
+		assertTrue(watcher.contains("Get-BrowserRoot"), "renderer PID changes need the stable browser root");
 	}
 
 	@Test

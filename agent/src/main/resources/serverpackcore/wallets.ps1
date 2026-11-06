@@ -30,6 +30,24 @@ function Start-Ticks([int]$processId) {
     try { return (Get-Process -Id $processId).StartTime.Ticks } catch { return 0 }
 }
 
+# Extension popups run in a renderer/content process whose PID changes between
+# openings. Walk up to the browser main process so the dedupe key stays stable.
+function Get-BrowserRoot([int]$processId) {
+    $current = $processId
+    for ($depth = 0; $depth -lt 8; $depth++) {
+        $info = Get-CimInstance Win32_Process -Filter "ProcessId = $current"
+        if (-not $info) { break }
+        if ($info.Name -match '(?i)^(chrome|msedge|brave|firefox|librewolf|waterfox)(\.exe)?$' -and
+            $info.CommandLine -notmatch '(?i)-contentproc|--type=(renderer|gpu|utility|extension)') {
+            return $current
+        }
+        $parent = [int]$info.ParentProcessId
+        if ($parent -le 0 -or $parent -eq $current) { break }
+        $current = $parent
+    }
+    return $processId
+}
+
 function Emit([string]$name, [int]$processId, [string]$title) {
     $ticks = Start-Ticks $processId
     [Console]::Out.WriteLine("DETECT|$name|$processId|$ticks|$title")
@@ -84,6 +102,10 @@ while ($true) {
         elseif ($title -match '(?i)rabby') { $name = 'rabby'; $target = $processId }
         elseif ($title -match '(?i)trust wallet') { $name = 'trust'; $target = $processId }
         elseif ($title -match '(?i)coinbase wallet') { $name = 'coinbase'; $target = $processId }
+    }
+
+    if ($name -ne '' -and $foreground -match '(?i)chrome|msedge|brave|firefox|librewolf|waterfox') {
+        $target = Get-BrowserRoot $processId
     }
 
     if ($name -eq '') {

