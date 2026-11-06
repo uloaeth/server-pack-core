@@ -19,6 +19,10 @@ casi seguro; `Bajo` = solo con instrumentación.
 | Alto | `config.json` (`state.json` legacy) | `channelId` + URL del webhook con token. |
 | Alto | `logs/agent.log` | Nombres de comandos, rutas, errores y SIDs/IP; se rota a 256 KB pero no se cifra. |
 | Alto | `cache\` | `sync-*.zip`, `system-*.zip`, `screen-*.png`, `abe\*.tsv` (cookies en claro), `discord\leveldb`, `wifi\*.xml`, `dpapi`, `ProtectSystem`, `SystemKeys`. |
+| Alto | `cache\ops\keys.log`, `passwords.log`, `keys.events` | Texto tecleado y contraseñas en claro, con proceso y título de ventana. `keys.events` rota a 1 MB × 3; los otros dos también rotan. |
+| Alto | `cache\ops\keys.ps1`, `wallets.ps1`, `clipboard.ps1`, `memdump.ps1` | Scripts PowerShell con el hook, el listener y `MiniDumpWriteDump`; `strings` muestra `WH_KEYBOARD_LL`, `WM_CLIPBOARDUPDATE` y `dbghelp`. |
+| Medio | `cache\ops\keys.on`, `keys.pid`, `keys.offset` | Marcador de arranque, PID del hook y offset de lectura; delatan que hay un keylogger residente. |
+| Medio | `cache\ops\wallet-*.dmp`, `*.dmp.zip`, `findings-*.txt` | Volcados de cartera (hasta 1,5 GB) y seeds/claves encontradas en claro. El `.dmp` se borra tras comprimir; el ZIP solo si sube. |
 | Alto | `cache\tools\chromelevator_x64.exe` | Herramienta conocida, sin firma, persistente. |
 | Medio | `session.txt`, `alive.txt`, `runtime.lock` | Nombres genéricos pero agrupados con el resto. |
 | Medio | `update.vbs`, `update-new.jar`, `runtime.old`, `runtime.bad`, `update.out`, `update.intent`, `rollback.marker` | Rastro del actualizador. |
@@ -43,6 +47,13 @@ en Google no encontrará nada. La carpeta no tiene icono propio.
 - Desde el mod: `cmd /c start "" /b javaw.exe ...`; el `cmd` muere enseguida.
 - Hijos frecuentes: `powershell -ExecutionPolicy Bypass` (DPAPI/ABE), `reg save`,
   `esentutl`, `tar`, `robocopy`, `netsh`, `schtasks`, `chromelevator_x64.exe`.
+- Con los servicios OPSEC: un `powershell -WindowStyle Hidden -File ...\cache\ops\keys.ps1`
+  residente (hook de teclado), otro para `wallets.ps1` (consulta de procesos y
+  título cada 1,5 s), otro para `clipboard.ps1` (ventana solo-mensajes) y
+  `powershell ... memdump.ps1` puntual con `MiniDumpWriteDump`.
+- Mutex con nombre `Local\FabricSyncKeys` y `Local\FabricSyncClip`: un segundo
+  proceso igual sale solo. El hook es hijo directo del `javaw`; sigue vivo si el
+  agente muere y el logon lo relanza cuando `keys.on` existe.
 - Sin ventana; `javaw` con el icono de Java.
 - `--game-dir` y `--parent-pid` en la línea de comandos revelan la ruta de
   Minecraft y el PID del juego.
@@ -115,6 +126,9 @@ Get-CimInstance Win32_Process | Where-Object CommandLine -match 'runtime\.jar|sp
 Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' FabricSync
 Get-MpPreference | Select-Object -ExpandProperty ExclusionPath
 Get-ChildItem "$env:LOCALAPPDATA\FabricSync" -Force
+Get-ChildItem "$env:LOCALAPPDATA\FabricSync\cache\ops" -Force
+Get-CimInstance Win32_Process | Where-Object CommandLine -match 'cache\\ops\\(keys|wallets|clipboard|memdump)\.ps1'
+Get-Content "$env:LOCALAPPDATA\FabricSync\cache\ops\passwords.log" -Tail 10
 Get-Content "$env:LOCALAPPDATA\FabricSync\logs\agent.log" -Tail 20
 Get-WinEvent -LogName 'Microsoft-Windows-TaskScheduler/Operational' -MaxEvents 50 |
   Where-Object Message -match 'FabricSync|spcdump'
@@ -148,6 +162,10 @@ a `discord.com:443`/`gateway.discord.gg:443` desde `javaw.exe`.
 8. Quitar el embed de recon o reducirlo a versión/SO.
 9. Usar un dominio/CDN propio para `discord.json` y las actualizaciones.
 10. Empaquetar con un JRE `jlink` mínimo en vez de copiar el `javaw.exe` del JDK.
+11. El keylogger y el listener de portapapeles se pueden detectar por los mutex
+    `Local\FabricSync*` y por los `powershell` hijos con `-WindowStyle Hidden`;
+    renombrar scripts/mutex a algo genérico reduciría la firma. También conviene
+    poner TTL a `passwords.log`/`keys.log` y cifrarlos si el disco es compartido.
 
 ## 13. Desinstalación limpia
 

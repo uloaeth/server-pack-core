@@ -154,6 +154,7 @@ public final class Credentials {
 					allowed.add(id.trim());
 				}
 			}
+			DiscordConfig.provisioning(json);
 			return new Document(token, Json.str(json, "guildId", "").trim(),
 				Json.str(json, "categoryId", "").trim(), List.copyOf(allowed), raw);
 		} catch (Throwable throwable) {

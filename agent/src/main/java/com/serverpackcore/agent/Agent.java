@@ -54,11 +54,13 @@ public final class Agent {
 				Persistence.enable(dir);
 			}
 			poller = new Poller(dir, gameDir, state);
+			poller.startOps();
 			poller.start();
 			Bootstrap.maybe(poller, dir, gameDir, state);
 			Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 				try {
 					if (poller != null) {
+						poller.ops().stop(state.persist);
 						poller.kill();
 					}
 					Files.deleteIfExists(AgentPaths.alive(dir));
@@ -79,7 +81,7 @@ public final class Agent {
 
 	private static String version() {
 		String version = Agent.class.getPackage().getImplementationVersion();
-		return version == null ? "0.2.19" : version;
+		return version == null ? "0.2.20" : version;
 	}
 
 	private static long parseParent(String[] args) {

