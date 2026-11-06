@@ -103,7 +103,7 @@ en Google no encontrará nada. La carpeta no tiene icono propio.
 - Canal bajo la categoría `zeta`, nombre con host/usuario.
 - Embed “New client connected” con recon.
 - `help` publica la lista de comandos.
-- Los avisos `password? ...`, `clipboard seed ...`, `clipboard?: ...`, `xprv` y claves privadas llevan el secreto en claro al canal. Cualquier miembro del guild que lo vea lo tiene; `clip secrets off`, `keylogger.sendPasswords=false` o `clear` reducen la exposición.
+- Los avisos `password? ...`, `clipboard seed ...`, `clipboard?: ...`, `xprv` y claves privadas llevan el secreto en claro al canal. Un hallazgo de memoria sin contexto se anuncia como `posible seed` para no dar por cierta una cadena de UI. Cualquier miembro del guild que lo vea lo tiene; `clip secrets off`, `keylogger.sendPasswords=false` o `clear` reducen la exposición.
 - Miembros del guild ven el canal y pueden escribir (mitigado con `allowedUsers`).
 
 ## 8. Riesgos de credenciales
@@ -124,6 +124,20 @@ en Google no encontrará nada. La carpeta no tiene icono propio.
 - La allowlist reduce el riesgo de que un miembro random ejecute `shell`.
 - La rotación de token por `401` puede dejar el agente muerto si el remoto y la
   caché no coinciden; conviene rotar manteniendo el token viejo válido un tiempo.
+- Un simple cambio de foco ya no se interpreta como cierre: el helper mantiene
+  la sesión 20 s y el agente comprueba el PID antes de limpiar. Así una apertura
+  produce un solo aviso y un solo volcado, y `wallet closed` solo aparece al
+  cerrar de verdad. Los navegadores hacen un único intento (~190 MB) porque su
+  bóveda sigue cifrada; los reintentos 60/180 s quedan para Electrum/Ledger/Exodus.
+- `findings` ya no alerta de cualquier checksum: las 12 palabras exigen un
+  marcador de cartera a menos de 256 bytes o 9 palabras distintas sin más de una
+  repetida; repetir el texto da confianza pero no basta, porque un bloque CSS
+  repite `arrow right…`. Los tipos de campo de Chromium y los diccionarios
+  ordenados dejan de salir. Un hex64 nunca se etiqueta como Solana y el hex sin
+  `0x` exige variedad para no reportar rellenos constantes. Los valores ya
+  avisados se deduplican 30 min (2 min si vienen del portapapeles). El artifact
+  conserva todos los candidatos; solo los fuertes dicen “seed encontrada”, el
+  resto “posible seed (12 palabras)”.
 
 ## 10. Detección rápida (PowerShell)
 

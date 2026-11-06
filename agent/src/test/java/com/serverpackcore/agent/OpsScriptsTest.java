@@ -32,6 +32,14 @@ class OpsScriptsTest {
 	}
 
 	@Test
+	void walletWatcherHoldsFocusChanges() throws IOException {
+		String watcher = script("wallets.ps1");
+		assertTrue(watcher.contains("$graceMs"), "a title change needs a grace window");
+		assertTrue(watcher.contains("TickCount64"), "the grace uses a monotonic clock");
+		assertTrue(watcher.contains("$lostReported"), "a held PID must still report a real exit");
+	}
+
+	@Test
 	void dumpListIsBomFreeUtf8() throws IOException {
 		String dump = script("memdump.ps1");
 		assertTrue(dump.contains("[IO.File]::AppendAllText"), "list must not use ANSI Add-Content");

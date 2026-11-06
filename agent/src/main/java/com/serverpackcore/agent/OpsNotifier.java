@@ -50,6 +50,13 @@ final class OpsNotifier {
 		}
 	}
 
+	/** Drains the direct queue; tests do not start the delivery thread. */
+	List<String> queued() {
+		List<String> lines = new ArrayList<>();
+		queue.drainTo(lines);
+		return lines;
+	}
+
 	void clipboard(String line) {
 		synchronized (lock) {
 			if (clipboard.isEmpty()) {

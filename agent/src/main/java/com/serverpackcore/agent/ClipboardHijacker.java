@@ -167,6 +167,7 @@ final class ClipboardHijacker {
 				return;
 			}
 			lastSecret = clean;
+			SecretDetector.alerted(secret.value());
 			notifier.clipboard(SecretDetector.message(secret, process, title));
 		} catch (Throwable throwable) {
 			Log.debug("Clipboard decision failed", throwable);
