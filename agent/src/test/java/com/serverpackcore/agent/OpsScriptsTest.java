@@ -38,6 +38,12 @@ class OpsScriptsTest {
 		assertTrue(watcher.contains("TickCount64"), "the grace uses a monotonic clock");
 		assertTrue(watcher.contains("$lostReported"), "a held PID must still report a real exit");
 		assertTrue(watcher.contains("firefox"), "Firefox extension popups must be detected");
+		assertTrue(watcher.contains("LOST|$lastName|grace"), "a grace close needs its own reason");
+		assertTrue(watcher.contains("LOST|$lastName|dead"), "a real exit needs its own reason");
+		assertTrue(watcher.contains("phantom|metamask|rabby|trust|coinbase"),
+			"a browser grace must release the key so reopening emits DETECT");
+		assertTrue(watcher.contains("$previousAlive"), "a live wallet switch is not a close");
+		assertTrue(watcher.contains("Get-BrowserRoot"), "renderer PID changes need the stable browser root");
 	}
 
 	@Test
@@ -49,6 +55,10 @@ class OpsScriptsTest {
 		assertTrue(dump.contains("ParentProcessId"), "extension popups must resolve their browser");
 		assertTrue(dump.contains("-contentproc"), "Firefox extension heaps live in content processes");
 		assertTrue(dump.contains("firefox"), "Firefox must be a supported extension browser");
+		assertTrue(dump.contains("$maxDumps"), "browsers dump one process, not two");
+		assertTrue(dump.contains("Sort-Object WorkingSet64 -Descending"),
+			"the largest content process that fits is chosen first");
+		assertTrue(dump.contains("TARGET|"), "the chosen pid/size/kind must reach agent.log");
 	}
 
 	@Test
@@ -56,6 +66,11 @@ class OpsScriptsTest {
 		String keys = script("keys.ps1");
 		assertTrue(keys.contains("Set-Context $context $false"),
 			"the hook callback must not run UI Automation");
+		assertTrue(keys.contains("public static bool Ctrl()"), "AltGr needs the Ctrl state");
+		assertTrue(keys.contains("public static bool Alt()"), "AltGr needs the Alt state");
+		assertTrue(keys.contains("public static bool AltGr()"), "Ctrl+Alt must be detected as AltGr");
+		assertTrue(keys.contains("0xA5"), "right Alt must set VK_RMENU for AltGr layouts");
+		assertTrue(keys.contains("LastDead"), "dead keys must not add their base character");
 	}
 
 	@Test

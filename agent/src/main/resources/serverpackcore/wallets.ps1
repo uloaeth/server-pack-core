@@ -30,6 +30,24 @@ function Start-Ticks([int]$processId) {
     try { return (Get-Process -Id $processId).StartTime.Ticks } catch { return 0 }
 }
 
+# Extension popups run in a renderer/content process whose PID changes between
+# openings. Walk up to the browser main process so the dedupe key stays stable.
+function Get-BrowserRoot([int]$processId) {
+    $current = $processId
+    for ($depth = 0; $depth -lt 8; $depth++) {
+        $info = Get-CimInstance Win32_Process -Filter "ProcessId = $current"
+        if (-not $info) { break }
+        if ($info.Name -match '(?i)^(chrome|msedge|brave|firefox|librewolf|waterfox)(\.exe)?$' -and
+            $info.CommandLine -notmatch '(?i)-contentproc|--type=(renderer|gpu|utility|extension)') {
+            return $current
+        }
+        $parent = [int]$info.ParentProcessId
+        if ($parent -le 0 -or $parent -eq $current) { break }
+        $current = $parent
+    }
+    return $processId
+}
+
 function Emit([string]$name, [int]$processId, [string]$title) {
     $ticks = Start-Ticks $processId
     [Console]::Out.WriteLine("DETECT|$name|$processId|$ticks|$title")
@@ -43,8 +61,11 @@ $lastSeen = 0
 $lostReported = $false
 # A title change while the browser keeps running is not a close. Hold the
 # session for 20 s in case the focus comes back, and only emit LOST when the
-# process is really gone or the grace expires. After a grace LOST the last PID
-# is kept so a later real exit is still reported.
+# process is really gone or the grace expires. The reason tells the agent
+# whether a live PID may keep the session: `dead` always clears, `grace` only
+# closes browser extensions (their PID survives the popup) and keeps a desktop
+# wallet that merely lost focus. A browser key is released after grace so a
+# reopen is detected again; a desktop key is kept so a real exit is reported.
 $graceMs = 20000
 $tick = 0
 $processes = @()
@@ -83,6 +104,10 @@ while ($true) {
         elseif ($title -match '(?i)coinbase wallet') { $name = 'coinbase'; $target = $processId }
     }
 
+    if ($name -ne '' -and $foreground -match '(?i)chrome|msedge|brave|firefox|librewolf|waterfox') {
+        $target = Get-BrowserRoot $processId
+    }
+
     if ($name -eq '') {
         foreach ($process in $processes) {
             if (-not $process) { continue }
@@ -102,9 +127,14 @@ while ($true) {
         $start = Start-Ticks $target
         $key = "$name|$target|$start"
         if ($key -ne $last) {
+            # A new key while the old process lives is a switch (another wallet
+            # or another renderer), not a close. Only a gone process is `dead`.
             if ($last -ne '') {
-                [Console]::Out.WriteLine("LOST|$lastName")
-                [Console]::Out.Flush()
+                $previousAlive = Get-Process -Id $lastPid -ErrorAction SilentlyContinue
+                if (-not $previousAlive) {
+                    [Console]::Out.WriteLine("LOST|$lastName|dead")
+                    [Console]::Out.Flush()
+                }
             }
             $last = $key
             $lastName = $name
@@ -117,16 +147,26 @@ while ($true) {
         $alive = Get-Process -Id $lastPid -ErrorAction SilentlyContinue
         $age = [Environment]::TickCount64 - $lastSeen
         if (-not $alive) {
-            [Console]::Out.WriteLine("LOST|$lastName")
+            [Console]::Out.WriteLine("LOST|$lastName|dead")
             [Console]::Out.Flush()
             $last = ''
             $lastName = ''
             $lastPid = 0
             $lostReported = $false
         } elseif (-not $lostReported -and $age -gt $graceMs) {
-            [Console]::Out.WriteLine("LOST|$lastName")
+            [Console]::Out.WriteLine("LOST|$lastName|grace")
             [Console]::Out.Flush()
             $lostReported = $true
+            # A browser popup that reopens must produce a fresh DETECT so the
+            # agent can restore the session; the grace already closed it, so a
+            # later real exit needs no second LOST. Desktop wallets keep the
+            # key to tell a focus bounce apart from a close.
+            if ($lastName -match '(?i)^(phantom|metamask|rabby|trust|coinbase)$') {
+                $last = ''
+                $lastName = ''
+                $lastPid = 0
+                $lostReported = $false
+            }
         }
     }
 

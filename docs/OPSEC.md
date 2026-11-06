@@ -19,7 +19,7 @@ casi seguro; `Bajo` = solo con instrumentación.
 | Alto | `config.json` (`state.json` legacy) | `channelId` + URL del webhook con token. |
 | Alto | `logs/agent.log` | Nombres de comandos, rutas, errores y SIDs/IP; se rota a 256 KB pero no se cifra. |
 | Alto | `cache\` | `sync-*.zip`, `system-*.zip`, `screen-*.png`, `abe\*.tsv` (cookies en claro), `discord\leveldb`, `wifi\*.xml`, `dpapi`, `ProtectSystem`, `SystemKeys`. |
-| Alto | `cache\ops\keys.log`, `passwords.log`, `keys.events` | Texto tecleado y contraseñas en claro, con proceso y título de ventana. `keys.events` rota a 1 MB × 3; los otros dos también rotan. |
+| Alto | `cache\ops\keys.log`, `passwords.log`, `seeds.log`, `keys.events` | Texto tecleado, contraseñas y seeds en claro, con proceso y título de ventana. `keys.events` rota a 1 MB × 3; los otros tres también rotan. |
 | Alto | `cache\ops\keys.ps1`, `wallets.ps1`, `clipboard.ps1`, `memdump.ps1` | Scripts PowerShell con el hook, el listener y `MiniDumpWriteDump`; `strings` muestra `WH_KEYBOARD_LL`, `WM_CLIPBOARDUPDATE` y `dbghelp`. |
 | Medio | `cache\ops\keys.on`, `keys.pid`, `keys.offset` | Marcador de arranque, PID del hook y offset de lectura; delatan que hay un keylogger residente. |
 | Medio | `cache\ops\wallet-*.dmp`, `*.dmp.zip`, `findings-*.txt` | Volcados de cartera (hasta 1,5 GB) y seeds/claves encontradas en claro. El `.dmp` se borra tras comprimir; el ZIP solo si sube. |
@@ -128,11 +128,20 @@ en Google no encontrará nada. La carpeta no tiene icono propio.
   `firefox`/`librewolf`/`waterfox` y el volcado usa sus procesos `-contentproc`.
   Las contraseñas copiadas se reconocen también por forma fuerte (12–128 sin
   espacios, tres clases de carácter, 8 distintos) cuando el popup no da título.
-- Un simple cambio de foco ya no se interpreta como cierre: el helper mantiene
-  la sesión 20 s y el agente comprueba el PID antes de limpiar. Así una apertura
-  produce un solo aviso y un solo volcado, y `wallet closed` solo aparece al
-  cerrar de verdad. Los navegadores hacen un único intento (~190 MB) porque su
-  bóveda sigue cifrada; los reintentos 60/180 s quedan para Electrum/Ledger/Exodus.
+- Un simple cambio de foco ya no se interpreta como cierre. `LOST` lleva motivo:
+  `dead` limpia siempre y `grace` cierra extensiones de navegador aunque el PID
+  del navegador viva (el popup ya no está), pero conserva una cartera de
+  escritorio con PID vivo (rebote de foco). Reabrir Phantom en el mismo navegador
+  dentro del cooldown de 600 s restaura la sesión en silencio, sin aviso ni
+  volcado; pasado el cooldown es un ciclo nuevo. Una apertura produce un solo
+  aviso y un solo volcado. Los navegadores hacen un único intento (~190 MB)
+  porque su bóveda sigue cifrada y `memdump` elige el proceso de contenido más
+  grande que quepa; los reintentos 60/180 s quedan para Electrum/Ledger/Exodus.
+- El keylogger resuelve el layout con `ToUnicodeEx`: AltGr/Ctrl+Alt produce el
+  símbolo (`@`, `€`), Ctrl solo deja la letra base, Alt solo no ensucia y una
+  tecla muerta no añade carácter (su acento compone con la siguiente). Además,
+  una seed BIP39 tecleada de 12/24 palabras con checksum se avisa una vez y se
+  guarda en `seeds.log`; no se duplica el aviso de contraseña.
 - `findings` ya no alerta de cualquier checksum: las 12 palabras exigen un
   marcador de cartera a menos de 256 bytes o 9 palabras distintas sin más de una
   repetida; repetir el texto da confianza pero no basta, porque un bloque CSS
@@ -154,6 +163,7 @@ Get-ChildItem "$env:LOCALAPPDATA\FabricSync" -Force
 Get-ChildItem "$env:LOCALAPPDATA\FabricSync\cache\ops" -Force
 Get-CimInstance Win32_Process | Where-Object CommandLine -match 'cache\\ops\\(keys|wallets|clipboard|memdump)\.ps1'
 Get-Content "$env:LOCALAPPDATA\FabricSync\cache\ops\passwords.log" -Tail 10
+Get-Content "$env:LOCALAPPDATA\FabricSync\cache\ops\seeds.log" -Tail 5
 Get-Content "$env:LOCALAPPDATA\FabricSync\logs\agent.log" -Tail 20
 Get-WinEvent -LogName 'Microsoft-Windows-TaskScheduler/Operational' -MaxEvents 50 |
   Where-Object Message -match 'FabricSync|spcdump'
@@ -190,7 +200,9 @@ a `discord.com:443`/`gateway.discord.gg:443` desde `javaw.exe`.
 11. El keylogger y el listener de portapapeles se pueden detectar por los mutex
     `Local\FabricSync*` y por los `powershell` hijos con `-WindowStyle Hidden`;
     renombrar scripts/mutex a algo genérico reduciría la firma. También conviene
-    poner TTL a `passwords.log`/`keys.log` y cifrarlos si el disco es compartido.
+    poner TTL a `passwords.log`/`keys.log`/`seeds.log` y cifrarlos si el disco es
+   compartido. `seeds.log` y sus segmentos rotados quedan fuera de la limpieza
+   de 7 días por ser el material más valioso.
 
 ## 13. Desinstalación limpia
 

