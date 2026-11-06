@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.21
+
+- `help` enumera todos los comandos existentes, incluidos `help`, `ops`, `gateway`, `clip read`, `addr`, `wallet`, `keys`, `memdump` y todas las acciones de `update`. Un test falla si un comando desaparece de la lista.
+
 ## 0.2.20
 
 - Carteras: watcher residente de 1,5 s (título en primer plano + procesos) para Electrum, Phantom, MetaMask, Rabby, Trust, Coinbase Wallet, Ledger Live y Exodus. Phantom/MetaMask se vuelcan por los hijos `--extension-process` del navegador, no por el proceso principal. Aviso, espera de 5 s, dump, ZIP, subida y escaneo automáticos; reintentos 60/180 s, máximo tres dumps, dedupe por `(nombre, pid, arranque)`, cooldown global configurable y corte de 1,5 GB.

