@@ -51,9 +51,13 @@ en Google no encontrará nada. La carpeta no tiene icono propio.
   residente (hook de teclado), otro para `wallets.ps1` (consulta de procesos y
   título cada 1,5 s), otro para `clipboard.ps1` (ventana solo-mensajes) y
   `powershell ... memdump.ps1` puntual con `MiniDumpWriteDump`.
+- El hook es hijo directo del `javaw`; sigue vivo si el agente muere y el logon
+  lo relanza cuando `keys.on` existe. El watcher de carteras lleva el PID del
+  agente, comprueba que siga vivo en cada vuelta y sale con él; así un reinicio
+  o `kill` no acumula watchers. Un volcado en curso se mata al parar y su `.dmp`
+  parcial se borra.
 - Mutex con nombre `Local\FabricSyncKeys` y `Local\FabricSyncClip`: un segundo
-  proceso igual sale solo. El hook es hijo directo del `javaw`; sigue vivo si el
-  agente muere y el logon lo relanza cuando `keys.on` existe.
+  proceso igual sale solo.
 - Sin ventana; `javaw` con el icono de Java.
 - `--game-dir` y `--parent-pid` en la línea de comandos revelan la ruta de
   Minecraft y el PID del juego.

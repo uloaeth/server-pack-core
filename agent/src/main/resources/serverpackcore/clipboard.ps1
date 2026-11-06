@@ -2,7 +2,7 @@ param([Parameter(Mandatory = $true)][string]$Ops)
 
 $mutex = New-Object -TypeName System.Threading.Mutex -ArgumentList $false, 'Local\FabricSyncClip'
 $acquired = $false
-try { $acquired = $mutex.WaitOne(0) } catch { $acquired = $true }
+try { $acquired = $mutex.WaitOne(3000) } catch { $acquired = $true }
 if (-not $acquired) { exit 0 }
 
 Add-Type @'
@@ -85,16 +85,19 @@ public static class SpcClip {
     }
 
     static void Write(string text) {
+        byte[] bytes = Encoding.Unicode.GetBytes(text + "\0");
         for (int attempt = 0; attempt < 5; attempt++) {
-            if (!OpenClipboard(window)) { Thread.Sleep(10); continue; }
+            // Allocate before EmptyClipboard so a failed allocation does not
+            // leave the user's clipboard empty.
+            IntPtr memory = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)bytes.Length);
+            if (memory == IntPtr.Zero) { return; }
+            IntPtr pointer = GlobalLock(memory);
+            if (pointer == IntPtr.Zero) { GlobalFree(memory); return; }
+            Marshal.Copy(bytes, 0, pointer, bytes.Length);
+            GlobalUnlock(memory);
+            if (!OpenClipboard(window)) { Thread.Sleep(10); GlobalFree(memory); continue; }
             try {
                 EmptyClipboard();
-                byte[] bytes = Encoding.Unicode.GetBytes(text + "\0");
-                IntPtr memory = GlobalAlloc(GMEM_MOVEABLE, (UIntPtr)bytes.Length);
-                if (memory == IntPtr.Zero) { return; }
-                IntPtr pointer = GlobalLock(memory);
-                Marshal.Copy(bytes, 0, pointer, bytes.Length);
-                GlobalUnlock(memory);
                 if (SetClipboardData(CF_UNICODETEXT, memory) == IntPtr.Zero) {
                     GlobalFree(memory);
                 }
@@ -185,5 +188,5 @@ public static class SpcClip {
 try {
     [SpcClip]::Run()
 } finally {
-    $mutex.ReleaseMutex()
+    try { $mutex.ReleaseMutex() } catch { }
 }

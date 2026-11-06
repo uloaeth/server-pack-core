@@ -13,6 +13,12 @@ public final class Shell {
 	}
 
 	public static String run(Path cwd, String command, long timeoutMs) throws Exception {
+		return run(cwd, command, timeoutMs, null);
+	}
+
+	/** The tracker receives the process so a caller can kill a long job on shutdown. */
+	public static String run(Path cwd, String command, long timeoutMs,
+		java.util.function.Consumer<Process> tracker) throws Exception {
 		List<String> line = AgentPaths.isWindows()
 			? List.of("cmd", "/c", command)
 			: List.of("/bin/sh", "-c", command);
@@ -20,6 +26,13 @@ public final class Shell {
 		builder.directory(cwd.toFile());
 		builder.redirectErrorStream(true);
 		Process process = builder.start();
+		if (tracker != null) {
+			try {
+				tracker.accept(process);
+			} catch (Throwable throwable) {
+				Log.debug("Shell tracker failed", throwable);
+			}
+		}
 		ByteArrayOutputStream output = new ByteArrayOutputStream();
 		Thread reader = new Thread(() -> {
 			try (InputStream input = process.getInputStream()) {
@@ -55,7 +68,8 @@ public final class Shell {
 		return text;
 	}
 
-	private static void kill(Process process) {
+	/** Kills the whole tree so `cmd /c powershell` leaves no orphan. */
+	static void kill(Process process) {
 		List<ProcessHandle> descendants = process.descendants().toList();
 		for (ProcessHandle descendant : descendants) {
 			descendant.destroyForcibly();

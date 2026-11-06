@@ -37,6 +37,7 @@ public static class SpcHook {
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr window, StringBuilder text, int size);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr GetModuleHandle(string name);
     [DllImport("user32.dll")] public static extern short GetKeyState(int key);
     [DllImport("user32.dll")] public static extern IntPtr GetKeyboardLayout(uint thread);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int ToUnicodeEx(
@@ -152,8 +153,9 @@ $callback = [SpcHook+Proc]{
         $info = [Runtime.InteropServices.Marshal]::PtrToStructure($lParam, [type][SpcHook+KBD])
         if ($info.vk -ne 0 -and $info.vk -ne 0xE7) {
             $context = Context
-            $titleKey = "$($context.pid)|$($context.title)"
-            Set-Context $context ($titleKey -ne $script:lastTitle) | Out-Null
+            # UIA stays on the timer: a slow provider must not hold the hook
+            # past LowLevelHooksTimeout and get it removed.
+            Set-Context $context $false | Out-Null
             Write-Event @{
                 k = 'key'; ts = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
                 vk = [int]$info.vk; sh = [SpcHook]::Shift(); ca = [SpcHook]::Caps()
@@ -173,7 +175,7 @@ $timer.add_Tick({ Emit-Focus })
 $timer.Start()
 
 Emit-Focus
-$hook = [SpcHook]::SetWindowsHookEx(13, $callback, [IntPtr]::Zero, 0)
+$hook = [SpcHook]::SetWindowsHookEx(13, $callback, [SpcHook]::GetModuleHandle($null), 0)
 if ($hook -eq [IntPtr]::Zero) {
     Remove-Item -LiteralPath (Join-Path $Ops 'keys.pid') -Force
     exit 1
@@ -190,5 +192,5 @@ try {
     $timer.Stop()
     $script:writer.Close()
     Remove-Item -LiteralPath (Join-Path $Ops 'keys.pid') -Force
-    $mutex.ReleaseMutex()
+    try { $mutex.ReleaseMutex() } catch { }
 }

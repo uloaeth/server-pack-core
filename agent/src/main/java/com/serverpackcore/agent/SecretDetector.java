@@ -53,7 +53,7 @@ final class SecretDetector {
 				// Not a key.
 			}
 		}
-		if (value.length() >= 8 && value.length() <= 128 && PasswordHeuristic.credentialSource(process, title)) {
+		if (value.length() >= 6 && value.length() <= 128 && PasswordHeuristic.credentialSource(process, title)) {
 			return new Secret("password", value);
 		}
 		return null;

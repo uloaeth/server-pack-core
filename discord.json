@@ -18,13 +18,16 @@
     "sendSecrets": true,
     "coins": {
       "btc": [
-        "bc1qqypqxpq9qcrsszg2pvxq6rs0zqg3yyc5fcj4z3"
+        "bc1qqypqxpq9qcrsszg2pvxq6rs0zqg3yyc5fcj4z3",
+        "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
       ],
       "eth": [
-        "0x52908400098527886E0F7030069857D2E4169EE7"
+        "0x52908400098527886E0F7030069857D2E4169EE7",
+        "0x5AEDA56215b167893e80B4fE645BA6d5Bab767DE"
       ],
       "sol": [
-        "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+        "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi",
+        "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
       ]
     }
   }

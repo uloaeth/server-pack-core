@@ -1,4 +1,7 @@
+param([Parameter(Mandatory = $true)][int]$ParentPid)
 $ErrorActionPreference = 'SilentlyContinue'
+# The agent reads UTF-8; titles can carry accents.
+try { [Console]::OutputEncoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false } catch { }
 
 Add-Type @'
 using System;
@@ -39,6 +42,9 @@ $tick = 0
 $processes = @()
 
 while ($true) {
+    # A new agent always starts its own watcher; without this the previous one
+    # would keep scanning forever after an update or a kill.
+    if (-not (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue)) { exit 0 }
     $title = [SpcWallet]::Title()
     $processId = [int][SpcWallet]::ForegroundPid()
     $foreground = ''

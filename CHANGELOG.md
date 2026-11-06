@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.24
+
+- El watcher de carteras recibe el PID del agente y termina cuando este muere: un reinicio o `kill` ya no deja un `powershell` escaneando en paralelo ni multiplica watchers. `wallet watch off` cancela también el volcado en curso y borra los `.dmp` parciales de ese intento. `memdump` mata el árbol `cmd`/`powershell` al parar.
+- El keylogger ya no consulta UI Automation dentro del callback del hook (solo en el temporizador de 400 ms), para no superar `LowLevelHooksTimeout` en aplicaciones bloqueadas y perder el hook en silencio. El arranque ya no borra `keys.pid`: un hook lanzado desde `startup.vbs` conserva PID, `keys status` y la supervisión.
+- La lista de volcados se escribe en UTF-8 sin BOM y el agente tolera un BOM: un perfil con tilde o espacio ya no rompe la resolución de `wallet-*.dmp`. Un popup de extensión resuelve su proceso navegador padre antes de elegir renderers `--extension-process`, de modo que el ZIP no cae en el renderer del popup ni en el proceso principal.
+- El portapapeles espera hasta 3 s el mutex antes de rendirse en un reinicio y asigna memoria antes de `EmptyClipboard`, así un fallo no deja el portapapeles vacío. Los avisos de contraseña copiada aceptan 6 caracteres (antes 8), en línea con el mínimo del keylogger.
+- El apagado solo conserva el hook si `persist` está activo y lo mata cuando no; se mantiene el comportamiento documentado de supervivencia en `kill`/update. Las alertas de secretos y el listado de `help` no cambian.
+
 ## 0.2.23
 
 - Los avisos de secretos copiados quedan explícitamente activados por defecto en estado y configuración, aunque `clipboard.sendSecrets` no exista; solo `clip secrets off` o un `false` explícito los desactivan. Tests cubren el default y el override.

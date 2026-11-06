@@ -28,6 +28,7 @@ class SecretDetectorTest {
 	@Test
 	void passwordsOnlyFromCredentialSources() {
 		assertEquals("password", SecretDetector.detect("s3cret-pass", "KeePassXC.exe", "").kind());
+		assertEquals("password", SecretDetector.detect("abc123", "KeePassXC.exe", "").kind());
 		assertNotNull(SecretDetector.detect("s3cret-pass", "chrome.exe", "Passwords - Google Chrome"));
 		assertNull(SecretDetector.detect("s3cret-pass", "notepad.exe", "Sin titulo"));
 		assertNull(SecretDetector.detect("corta", "KeePassXC.exe", ""));

