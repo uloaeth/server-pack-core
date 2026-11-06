@@ -57,6 +57,7 @@ final class MemoryScanner {
 	private static final class Seed {
 		final String value;
 		final long offset;
+		final List<Long> occurrences = new ArrayList<>();
 		final int distinct;
 		final int repeats;
 		int count;
@@ -64,6 +65,7 @@ final class MemoryScanner {
 		Seed(String value, long offset, int distinct, int repeats) {
 			this.value = value;
 			this.offset = offset;
+			this.occurrences.add(offset);
 			this.distinct = distinct;
 			this.repeats = repeats;
 			this.count = 1;
@@ -120,7 +122,13 @@ final class MemoryScanner {
 			// Repetition alone is not enough: a UI phrase repeated twice (CSS
 			// variables) also passes the 4-bit checksum. It must still look random.
 			boolean random = seed.distinct >= 9 && seed.repeats <= 1;
-			boolean marker = nearMarker(input, seed.offset);
+			boolean marker = false;
+			for (long occurrence : seed.occurrences) {
+				if (nearMarker(input, occurrence)) {
+					marker = true;
+					break;
+				}
+			}
 			if (!marker && !random) {
 				continue;
 			}
@@ -326,6 +334,9 @@ final class MemoryScanner {
 		Seed existing = seeds.get(value);
 		if (existing != null) {
 			existing.count++;
+			if (existing.occurrences.size() < 8) {
+				existing.occurrences.add(offset);
+			}
 			duplicates++;
 			return;
 		}

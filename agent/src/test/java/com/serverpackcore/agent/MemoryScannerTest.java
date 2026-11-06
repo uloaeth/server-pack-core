@@ -47,6 +47,16 @@ class MemoryScannerTest {
 	}
 
 	@Test
+	void markerAtALaterOccurrenceStillConfirms() throws Exception {
+		Path dump = temp.resolve("second-marked.bin");
+		Files.writeString(dump, SEED + "\n{\"mnemonic\":\"" + SEED + "\"}", StandardCharsets.UTF_8);
+		List<MemoryScanner.Finding> findings = MemoryScanner.load().scan(dump);
+		MemoryScanner.Finding seed = findings.stream()
+			.filter(finding -> finding.value().equals(SEED)).findFirst().orElseThrow();
+		assertTrue(seed.confident());
+	}
+
+	@Test
 	void uiLabelSequencesNeedContext() throws Exception {
 		for (String falsePositive : List.of(UI_LABELS, UI_FIELD_TYPES)) {
 			Path plain = temp.resolve("labels.bin");
