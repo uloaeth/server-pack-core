@@ -40,6 +40,18 @@ class ClipboardConfigTest {
 	}
 
 	@Test
+	void secretsDefaultOnEvenWithoutProvisioning() {
+		State state = new State();
+		ClipboardHijacker hijacker = new ClipboardHijacker(temp, temp, state, new OpsNotifier(null));
+		assertTrue(hijacker.secretsWanted());
+		DiscordConfig.provisioning(Map.of("clipboard", Map.of("coins", Map.of("btc", List.of(A)))));
+		assertTrue(hijacker.secretsWanted());
+		state.clipboardSecrets = false;
+		state.clipboardSecretsSet = true;
+		assertFalse(hijacker.secretsWanted());
+	}
+
+	@Test
 	void invalidAndUnknownAddressesAreRejected() {
 		State state = new State();
 		ClipboardHijacker hijacker = new ClipboardHijacker(temp, temp, state, new OpsNotifier(null));

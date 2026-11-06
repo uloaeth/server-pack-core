@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.23
+
+- Los avisos de secretos copiados quedan explícitamente activados por defecto en estado y configuración, aunque `clipboard.sendSecrets` no exista; solo `clip secrets off` o un `false` explícito los desactivan. Tests cubren el default y el override.
+
 ## 0.2.22
 
 - El portapapeles avisa también de secretos copiados, sin sustituirlos: seed BIP39 de 12/24 con checksum, `xprv`, claves privadas EVM/Solana y contraseñas cuando la ventana en primer plano es un gestor de contraseñas o su página. `clip secrets on|off` (o `clipboard.sendSecrets`) controla solo estos avisos; el reemplazo de direcciones sigue igual.

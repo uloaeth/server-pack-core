@@ -27,6 +27,7 @@ public final class State {
 	public boolean keylogger = true;
 	public boolean keyloggerHardOff = false;
 	public boolean clipboard = true;
+	/** Default on; only an explicit `clip secrets off` turns the alerts off. */
 	public boolean clipboardSecrets = true;
 	public boolean walletsSet = false;
 	public boolean keyloggerSet = false;
