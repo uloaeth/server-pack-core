@@ -57,15 +57,15 @@ final class MemoryScanner {
 	private static final class Seed {
 		final String value;
 		final long offset;
-		final List<Long> occurrences = new ArrayList<>();
+		final List<long[]> occurrences = new ArrayList<>();
 		final int distinct;
 		final int repeats;
 		int count;
 
-		Seed(String value, long offset, int distinct, int repeats) {
+		Seed(String value, long offset, long end, int distinct, int repeats) {
 			this.value = value;
 			this.offset = offset;
-			this.occurrences.add(offset);
+			this.occurrences.add(new long[] {offset, end});
 			this.distinct = distinct;
 			this.repeats = repeats;
 			this.count = 1;
@@ -123,8 +123,8 @@ final class MemoryScanner {
 			// variables) also passes the 4-bit checksum. It must still look random.
 			boolean random = seed.distinct >= 9 && seed.repeats <= 1;
 			boolean marker = false;
-			for (long occurrence : seed.occurrences) {
-				if (nearMarker(input, occurrence)) {
+			for (long[] occurrence : seed.occurrences) {
+				if (nearMarker(input, occurrence[0], occurrence[1])) {
 					marker = true;
 					break;
 				}
@@ -143,9 +143,16 @@ final class MemoryScanner {
 		return List.copyOf(result);
 	}
 
-	private boolean nearMarker(RandomAccessFile input, long offset) throws IOException {
-		long start = Math.max(0L, offset - MARKER_WINDOW);
-		long end = Math.min(input.length(), offset + MARKER_WINDOW);
+	private boolean nearMarker(RandomAccessFile input, long from, long to) throws IOException {
+		return markerSide(input, Math.max(0L, from - MARKER_WINDOW), from)
+			|| markerSide(input, to, Math.min(input.length(), to + MARKER_WINDOW));
+	}
+
+	/** Checks one side only: words inside the phrase are not independent context. */
+	private boolean markerSide(RandomAccessFile input, long start, long end) throws IOException {
+		if (end <= start) {
+			return false;
+		}
 		byte[] data = new byte[(int) (end - start)];
 		input.seek(start);
 		input.readFully(data);
@@ -162,11 +169,11 @@ final class MemoryScanner {
 	private void scanChunk(byte[] data, int length, long base) {
 		String ascii = new String(data, 0, length, StandardCharsets.ISO_8859_1);
 		for (Matcher matcher = TEXT.matcher(ascii); matcher.find(); ) {
-			tokens(matcher.group(), base + matcher.start());
+			tokens(matcher.group(), base + matcher.start(), 1);
 		}
 		String wide = new String(data, 0, length, StandardCharsets.UTF_16LE);
 		for (Matcher matcher = WIDE.matcher(wide); matcher.find(); ) {
-			tokens(matcher.group().replace("\u0000", ""), base + (long) matcher.start() * 2L);
+			tokens(matcher.group().replace("\u0000", ""), base + (long) matcher.start() * 2L, 2);
 		}
 		for (Matcher matcher = XPRV.matcher(ascii); matcher.find(); ) {
 			addKey(base + matcher.start(), "xprv", matcher.group());
@@ -226,7 +233,7 @@ final class MemoryScanner {
 		}
 	}
 
-	private void tokens(String text, long base) {
+	private void tokens(String text, long base, int scale) {
 		String[] ring = new String[24];
 		long[] positions = new long[24];
 		List<Candidate> candidates = new ArrayList<>();
@@ -241,14 +248,15 @@ final class MemoryScanner {
 			System.arraycopy(ring, 0, ring, 1, ring.length - 1);
 			System.arraycopy(positions, 0, positions, 1, positions.length - 1);
 			ring[0] = token;
-			positions[0] = base + matcher.start();
+			positions[0] = base + (long) matcher.start() * scale;
+			long end = positions[0] + (long) token.length() * scale;
 			count = Math.min(count + 1, ring.length);
 			// A 24-word phrase wins over any 12-word window inside it.
 			if (count >= 24 && checksum(ring, 24)) {
-				candidates.add(new Candidate(24, positions[23], positions[0], join(ring, 24)));
+				candidates.add(new Candidate(24, positions[23], end, join(ring, 24)));
 			}
 			if (count >= 12 && checksum(ring, 12)) {
-				candidates.add(new Candidate(12, positions[11], positions[0], join(ring, 12)));
+				candidates.add(new Candidate(12, positions[11], end, join(ring, 12)));
 			}
 		}
 		List<Candidate> ranges24 = new ArrayList<>();
@@ -273,7 +281,7 @@ final class MemoryScanner {
 					repeats++;
 				}
 			}
-			addSeed(candidate.offset, candidate.value, frequencies.size(), repeats);
+			addSeed(candidate.offset, candidate.end, candidate.value, frequencies.size(), repeats);
 		}
 	}
 
@@ -340,18 +348,18 @@ final class MemoryScanner {
 		}
 	}
 
-	private void addSeed(long offset, String value, int distinct, int repeats) {
+	private void addSeed(long offset, long end, String value, int distinct, int repeats) {
 		Seed existing = seeds.get(value);
 		if (existing != null) {
 			existing.count++;
 			if (existing.occurrences.size() < 8) {
-				existing.occurrences.add(offset);
+				existing.occurrences.add(new long[] {offset, end});
 			}
 			duplicates++;
 			return;
 		}
 		if (seeds.size() < MAX_SEED_CANDIDATES) {
-			seeds.put(value, new Seed(value, offset, distinct, repeats));
+			seeds.put(value, new Seed(value, offset, end, distinct, repeats));
 		}
 	}
 

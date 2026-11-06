@@ -87,6 +87,15 @@ class MemoryScannerTest {
 	}
 
 	@Test
+	void aSeedWordInsideThePhraseIsNotContext() throws Exception {
+		Path dump = temp.resolve("self-seed.bin");
+		String labels = "edge name arrow right name inner border arrow edge seed arrow name";
+		Files.writeString(dump, labels, StandardCharsets.UTF_8);
+		assertFalse(MemoryScanner.load().scan(dump).stream()
+			.anyMatch(finding -> finding.kind().startsWith("bip39")));
+	}
+
+	@Test
 	void findsTwelveAndTwentyFourWords() throws Exception {
 		Path dump = temp.resolve("both.bin");
 		String seed24 = ("abandon ".repeat(23) + "art");
