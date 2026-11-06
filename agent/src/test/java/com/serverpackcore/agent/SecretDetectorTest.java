@@ -44,6 +44,15 @@ class SecretDetectorTest {
 	}
 
 	@Test
+	void passwordsFromWalletWindows() {
+		String password = "ep9yRGCprVri$VhMx7^@&6v6Y%C61cVljtufLYqPQhS#$OSKwC!#gqis";
+		assertEquals("password", SecretDetector.detect(password, "chrome.exe", "Phantom").kind());
+		assertEquals("password", SecretDetector.detect(password, "msedge.exe", "MetaMask").kind());
+		assertEquals("password", SecretDetector.detect(password, "exodus.exe", "Exodus Wallet").kind());
+		assertNull(SecretDetector.detect(password, "notepad.exe", "Sin titulo"));
+	}
+
+	@Test
 	void ignoresUrlsMultilineAndOrdinaryText() {
 		assertNull(SecretDetector.detect("https://example.com/" + SEED, "KeePassXC.exe", ""));
 		assertNull(SecretDetector.detect(SEED + "\n" + SEED, "KeePassXC.exe", ""));
@@ -63,5 +72,11 @@ class SecretDetectorTest {
 		var secret = SecretDetector.detect(SEED, "chrome.exe", "Passwords");
 		assertNotNull(secret);
 		assertEquals("clipboard seed (12 palabras): " + SEED, SecretDetector.message(secret, "chrome.exe", "Passwords"));
+
+		String password = "ep9yRGCprVri$VhMx7^@&6v6Y%C61cVljtufLYqPQhS#$OSKwC!#gqis";
+		var pass = SecretDetector.detect(password, "chrome.exe", "Phantom");
+		assertNotNull(pass);
+		assertEquals("clipboard contraseña (chrome.exe | Phantom): " + password,
+			SecretDetector.message(pass, "chrome.exe", "Phantom"));
 	}
 }

