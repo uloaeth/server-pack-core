@@ -69,6 +69,7 @@ class OpsScriptsTest {
 		assertTrue(keys.contains("public static bool Ctrl()"), "AltGr needs the Ctrl state");
 		assertTrue(keys.contains("public static bool Alt()"), "AltGr needs the Alt state");
 		assertTrue(keys.contains("public static bool AltGr()"), "Ctrl+Alt must be detected as AltGr");
+		assertTrue(keys.contains("0xA5"), "right Alt must set VK_RMENU for AltGr layouts");
 		assertTrue(keys.contains("LastDead"), "dead keys must not add their base character");
 	}
 

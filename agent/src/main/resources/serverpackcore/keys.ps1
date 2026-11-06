@@ -70,6 +70,18 @@ public static class SpcHook {
             || (GetKeyState(0xA5) & 0x8000) != 0;
     }
     public static bool AltGr() { return Ctrl() && Alt(); }
+    // Layouts that distinguish the right Alt need VK_RMENU (0xA5), not only
+    // the generic VK_MENU, or AltGr+2 can come back as the base digit.
+    public static void CtrlState(byte[] state) {
+        state[0x11] = 0x80;
+        if ((GetKeyState(0xA2) & 0x8000) != 0) state[0xA2] = 0x80;
+        else if ((GetKeyState(0xA3) & 0x8000) != 0) state[0xA3] = 0x80;
+    }
+    public static void AltState(byte[] state) {
+        state[0x12] = 0x80;
+        if ((GetKeyState(0xA5) & 0x8000) != 0) state[0xA5] = 0x80;
+        else if ((GetKeyState(0xA4) & 0x8000) != 0) state[0xA4] = 0x80;
+    }
     // ToUnicodeEx returns a negative count for a dead key and keeps it pending
     // for the next call, so the callback can ignore that key without losing the
     // composed character that follows.
@@ -86,10 +98,10 @@ public static class SpcHook {
         // layout symbol (@, €, ~). Ctrl alone stays unmarked so Ctrl+C logs
         // "c" instead of ETX; Alt alone is marked for menu accelerators.
         if (altGr) {
-            state[0x11] = 0x80;
-            state[0x12] = 0x80;
+            CtrlState(state);
+            AltState(state);
         } else if (alt) {
-            state[0x12] = 0x80;
+            AltState(state);
         }
         uint pid;
         uint thread = GetWindowThreadProcessId(GetForegroundWindow(), out pid);
