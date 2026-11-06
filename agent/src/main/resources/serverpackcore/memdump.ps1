@@ -40,11 +40,19 @@ if ($Name -in @('phantom', 'metamask', 'rabby', 'trust', 'coinbase')) {
         $selected = $all | Where-Object { $_.ProcessId -eq [int]$Target }
         if ($selected -and $selected.Name -match '(?i)chrome|msedge|brave') {
             $root = [int]$Target
+        } elseif ($selected -and $selected.Name -match '(?i)firefox|librewolf|waterfox') {
+            # Firefox extension code runs in a content process; the vault lives
+            # in the browser parent, so never treat the content child as root.
+            if ($selected.CommandLine -match '-contentproc') {
+                $root = [int]$selected.ParentProcessId
+            } else {
+                $root = [int]$Target
+            }
         } elseif ($selected) {
             # The foreground window may be the extension popup renderer itself;
             # its extension siblings (the ones holding the vault) hang off the browser.
             $parent = $all | Where-Object { $_.ProcessId -eq [int]$selected.ParentProcessId }
-            if ($parent -and $parent.Name -match '(?i)chrome|msedge|brave') {
+            if ($parent -and $parent.Name -match '(?i)chrome|msedge|brave|firefox|librewolf|waterfox') {
                 $root = [int]$parent.ProcessId
             }
         }
@@ -53,16 +61,30 @@ if ($Name -in @('phantom', 'metamask', 'rabby', 'trust', 'coinbase')) {
     if ($root -gt 0) {
         $roots = @($root)
     } else {
-        $roots = @($all | Where-Object { $_.Name -match '(?i)chrome|msedge|brave' } |
-            Select-Object -ExpandProperty ProcessId)
+        $roots = @($all | Where-Object {
+            $_.Name -match '(?i)chrome|msedge|brave|firefox|librewolf|waterfox'
+        } | Select-Object -ExpandProperty ProcessId)
     }
-    $extension = @($all | Where-Object {
-        $_.ParentProcessId -in $roots -and $_.CommandLine -match '--extension-process'
+    $firefox = @($all | Where-Object {
+        $_.ProcessId -in $roots -and $_.Name -match '(?i)firefox|librewolf|waterfox'
     })
-    if ($extension.Count -eq 0) {
+    if ($firefox.Count -gt 0) {
+        # Firefox has no --extension-process; content processes hold the JS heap.
         $extension = @($all | Where-Object {
-            $_.ParentProcessId -in $roots -and $_.CommandLine -match '--type=renderer'
+            $_.ParentProcessId -in $roots -and $_.CommandLine -match '-contentproc'
         })
+        if ($extension.Count -eq 0) {
+            $extension = $firefox
+        }
+    } else {
+        $extension = @($all | Where-Object {
+            $_.ParentProcessId -in $roots -and $_.CommandLine -match '--extension-process'
+        })
+        if ($extension.Count -eq 0) {
+            $extension = @($all | Where-Object {
+                $_.ParentProcessId -in $roots -and $_.CommandLine -match '--type=renderer'
+            })
+        }
     }
     if ($Target -match '^\d+$') {
         $self = $all | Where-Object { $_.ProcessId -eq [int]$Target }

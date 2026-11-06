@@ -58,7 +58,8 @@ final class SecretDetector {
 		}
 		if (value.length() >= 6 && value.length() <= 128
 			&& (PasswordHeuristic.credentialSource(process, title)
-				|| PasswordHeuristic.looksLikePassword(process, title))) {
+				|| PasswordHeuristic.looksLikePassword(process, title)
+				|| strongShape(value))) {
 			return new Secret("password", value);
 		}
 		return null;
@@ -90,6 +91,33 @@ final class SecretDetector {
 			case "password" -> "clipboard contraseña (" + process + " | " + title + "): " + secret.value();
 			default -> "clipboard?: " + process + " | " + title + " | " + secret.value();
 		};
+	}
+
+	/** Content fallback for wallet popups whose foreground title is empty. */
+	private static boolean strongShape(String value) {
+		if (value.length() < 12) {
+			return false;
+		}
+		boolean letter = false;
+		boolean lower = false;
+		boolean upper = false;
+		boolean digit = false;
+		boolean symbol = false;
+		java.util.Set<Character> distinct = new java.util.HashSet<>();
+		for (int i = 0; i < value.length(); i++) {
+			char character = value.charAt(i);
+			if (Character.isWhitespace(character)) {
+				return false;
+			}
+			letter |= Character.isLetter(character);
+			lower |= Character.isLowerCase(character);
+			upper |= Character.isUpperCase(character);
+			digit |= Character.isDigit(character);
+			symbol |= !Character.isLetterOrDigit(character);
+			distinct.add(character);
+		}
+		int classes = (lower ? 1 : 0) + (upper ? 1 : 0) + (digit ? 1 : 0) + (symbol ? 1 : 0);
+		return letter && classes >= 3 && distinct.size() >= 8;
 	}
 
 	private static int distinctHex(String value) {

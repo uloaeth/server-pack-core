@@ -7,7 +7,7 @@ repositories {
 }
 
 group = 'com.serverpackcore'
-version = '0.2.27'
+version = '0.2.28'
 
 base {
 	archivesName = 'spc-agent'

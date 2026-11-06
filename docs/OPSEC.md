@@ -124,6 +124,10 @@ en Google no encontrará nada. La carpeta no tiene icono propio.
 - La allowlist reduce el riesgo de que un miembro random ejecute `shell`.
 - La rotación de token por `401` puede dejar el agente muerto si el remoto y la
   caché no coinciden; conviene rotar manteniendo el token viejo válido un tiempo.
+- Firefox queda cubierto como navegador de extensiones: el watcher reconoce
+  `firefox`/`librewolf`/`waterfox` y el volcado usa sus procesos `-contentproc`.
+  Las contraseñas copiadas se reconocen también por forma fuerte (12–128 sin
+  espacios, tres clases de carácter, 8 distintos) cuando el popup no da título.
 - Un simple cambio de foco ya no se interpreta como cierre: el helper mantiene
   la sesión 20 s y el agente comprueba el PID antes de limpiar. Así una apertura
   produce un solo aviso y un solo volcado, y `wallet closed` solo aparece al

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.28
+
+- Carteras en Firefox: el watcher reconoce `firefox`, `librewolf` y `waterfox` y `memdump` resuelve sus procesos `-contentproc` (Firefox no usa `--extension-process`). Antes una extensión abierta en Firefox no generaba ningún `DETECT`.
+- Contraseñas del portapapeles: además de la ventana de cartera, una cadena de 12–128 caracteres sin espacios con al menos tres clases (minúsculas, mayúsculas, dígitos, símbolos) y 8 caracteres distintos se alerta aunque el título del popup llegue vacío o genérico. `s3cret-pass` sigue necesitando contexto; una frase normal con espacios no entra.
+- El log registra proceso, título, longitud y tipo detectado de cada evento de portapapeles para diagnosticar ventanas sin título.
+
 ## 0.2.27
 
 - Portapapeles: una contraseña copiada desde una ventana de cartera (Phantom, MetaMask, Rabby, Exodus, Electrum, Ledger, gestores) se detecta aunque el proceso en primer plano sea el navegador. El aviso incluye proceso y título y usa el formato `clipboard contraseña (proc | title): …`; una ventana neutral como Notepad sigue sin alertar. Los demás detectores (seed, xprv, EVM/Solana) no cambian.

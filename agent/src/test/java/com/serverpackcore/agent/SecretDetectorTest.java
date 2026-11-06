@@ -49,7 +49,10 @@ class SecretDetectorTest {
 		assertEquals("password", SecretDetector.detect(password, "chrome.exe", "Phantom").kind());
 		assertEquals("password", SecretDetector.detect(password, "msedge.exe", "MetaMask").kind());
 		assertEquals("password", SecretDetector.detect(password, "exodus.exe", "Exodus Wallet").kind());
-		assertNull(SecretDetector.detect(password, "notepad.exe", "Sin titulo"));
+		// Firefox popups can expose an empty/generic title: the strong shape wins.
+		assertEquals("password", SecretDetector.detect(password, "firefox.exe", "").kind());
+		assertEquals("password", SecretDetector.detect(password, "notepad.exe", "Sin titulo").kind());
+		assertNull(SecretDetector.detect("s3cret-pass", "notepad.exe", "Sin titulo"));
 	}
 
 	@Test
