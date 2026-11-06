@@ -284,6 +284,13 @@ cat "$CASE/decrypt.log"
 ((DECRYPT_CODE == 0)) || die "decrypt.py terminó con $DECRYPT_CODE; log en $CASE/decrypt.log"
 [[ -s "$DEC/summary.txt" ]] || die "decrypt.py no generó summary.txt"
 
+if [[ -d "$DEC/wallets/phantom" ]]; then
+	echo "== Probando contraseñas contra Phantom"
+	PHANTOM_ARGS=(--case "$CASE" --logins)
+	[[ -n "$WIN_PASSWORD" ]] && PHANTOM_ARGS+=(-p "$WIN_PASSWORD")
+	python3 "$(dirname "$DECRYPT")/phantom-decrypt.py" "${PHANTOM_ARGS[@]}" >> "$CASE/decrypt.log" 2>&1 || true
+fi
+
 COOKIES=$(awk '$1=="cookies"{print $2}' "$DEC/summary.txt")
 TOKENS=$(awk '$1=="tokens"{print $2}' "$DEC/summary.txt")
 echo "== Resultado: cookies=${COOKIES:-0} tokens=${TOKENS:-0}"
