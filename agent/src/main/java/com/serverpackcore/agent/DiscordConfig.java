@@ -27,9 +27,8 @@ public final class DiscordConfig {
 	private static volatile Map<String, List<String>> provisionedCoins = Map.of();
 
 	public static final String API = "https://discord.com/api/v10";
-	/** A common browser UA instead of a unique "FabricSync" beacon in proxy logs. */
-	public static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-		+ "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+	/** Cloudflare 40333s a Mozilla UA from the JDK TLS stack; a DiscordBot UA passes. */
+	public static final String USER_AGENT = "DiscordBot (https://github.com/uloaeth/server-pack-core, 0.2.25)";
 	public static final String UPDATE_MANIFEST_URL =
 		"https://github.com/uloaeth/server-pack-core/releases/latest/download/update.json";
 	public static final int INTENT_GUILDS = 1;

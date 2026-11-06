@@ -69,8 +69,10 @@ en Google no encontrará nada. La carpeta no tiene icono propio.
 - `raw.githubusercontent.com` en cada arranque (`discord.json`) y
   `github.com`/`objects.githubusercontent.com` para actualizaciones.
 - `api.ipify.org` para la IP pública.
-- **User-Agent:** antes `FabricSync/0.1` y `FabricSync`; ahora un UA de Chrome
-  genérico para no ser un beacon único en proxies.
+- **User-Agent:** antes `FabricSync/0.1` y `FabricSync`; después un UA de Chrome.
+  Desde 0.2.25 es `DiscordBot (repo, versión)`: Cloudflare contesta `40333` a un
+  UA `Mozilla/5.0` cuando el TLS es el de Java, y deja de responder a REST,
+  gateway y webhook.
 - SNI/DNS visibles aunque haya TLS; un proxy con inspección ve las rutas.
 - El canal de Discord se llama `sync-<hostname>-<usuario>` y el embed inicial
   publica host, usuario, SO, CPU, RAM, GPU, IP, resolución, Java, versión y rutas.
@@ -144,7 +146,7 @@ a `discord.com:443`/`gateway.discord.gg:443` desde `javaw.exe`.
 
 ## 11. Reducción aplicada
 
-- UA de Chrome en REST, webhooks, updates, ipify y config.
+- UA `DiscordBot (repo, versión)` en REST, webhooks, updates, ipify y config; el UA `Mozilla/5.0` ya no pasa Cloudflare con el TLS de Java.
 - Limpieza de `cache` a 7 días salvo token y herramientas.
 - Token fuera del jar y rotable.
 - Allowlist de autores.

