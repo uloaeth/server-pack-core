@@ -532,7 +532,7 @@ public final class Poller implements Runnable {
 		}
 		String name = path.getFileName().toString();
 		return name.endsWith(".ps1") || name.equals("keys.on") || name.equals("keys.pid")
-			|| name.equals("keys.offset") || name.equals("keys.events");
+			|| name.equals("keys.offset") || name.equals("keys.events") || name.equals("seeds.log");
 	}
 
 	private boolean poll() throws Exception {
