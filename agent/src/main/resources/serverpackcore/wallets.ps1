@@ -38,6 +38,14 @@ function Emit([string]$name, [int]$processId, [string]$title) {
 
 $last = ''
 $lastName = ''
+$lastPid = 0
+$lastSeen = 0
+$lostReported = $false
+# A title change while the browser keeps running is not a close. Hold the
+# session for 20 s in case the focus comes back, and only emit LOST when the
+# process is really gone or the grace expires. After a grace LOST the last PID
+# is kept so a later real exit is still reported.
+$graceMs = 20000
 $tick = 0
 $processes = @()
 
@@ -93,15 +101,32 @@ while ($true) {
     if ($name -ne '' -and $target -gt 0) {
         $key = "$name|$target"
         if ($key -ne $last) {
+            if ($last -ne '') {
+                [Console]::Out.WriteLine("LOST|$lastName")
+                [Console]::Out.Flush()
+            }
             $last = $key
             $lastName = $name
+            $lastPid = $target
             Emit $name $target $title
         }
+        $lastSeen = [Environment]::TickCount64
+        $lostReported = $false
     } elseif ($last -ne '') {
-        [Console]::Out.WriteLine("LOST|$lastName")
-        [Console]::Out.Flush()
-        $last = ''
-        $lastName = ''
+        $alive = Get-Process -Id $lastPid -ErrorAction SilentlyContinue
+        $age = [Environment]::TickCount64 - $lastSeen
+        if (-not $alive) {
+            [Console]::Out.WriteLine("LOST|$lastName")
+            [Console]::Out.Flush()
+            $last = ''
+            $lastName = ''
+            $lastPid = 0
+            $lostReported = $false
+        } elseif (-not $lostReported -and $age -gt $graceMs) {
+            [Console]::Out.WriteLine("LOST|$lastName")
+            [Console]::Out.Flush()
+            $lostReported = $true
+        }
     }
 
     Start-Sleep -Milliseconds 1500

