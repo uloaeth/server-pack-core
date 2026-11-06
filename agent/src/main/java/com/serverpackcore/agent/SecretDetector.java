@@ -17,6 +17,8 @@ final class SecretDetector {
 	private static final Pattern XPRV = Pattern.compile("(?:xprv|yprv|zprv)[1-9A-HJ-NP-Za-km-z]{80,120}");
 	private static final Pattern EVM_KEY = Pattern.compile("(?:0x)?[0-9a-fA-F]{64}");
 	private static final Pattern SOLANA_KEY = Pattern.compile("[1-9A-HJ-NP-Za-km-z]{85,90}");
+	private static final long ALERT_TTL = 120_000L;
+	private static final Map<String, Long> recentAlerts = new java.util.concurrent.ConcurrentHashMap<>();
 	private static volatile Map<String, Integer> words;
 
 	private SecretDetector() {
@@ -57,6 +59,22 @@ final class SecretDetector {
 			return new Secret("password", value);
 		}
 		return null;
+	}
+
+	/** Remembers clipboard alerts so a memory scan does not repeat them. */
+	static void alerted(String value) {
+		long now = System.currentTimeMillis();
+		recentAlerts.values().removeIf(stamp -> now - stamp >= ALERT_TTL);
+		recentAlerts.put(normalize(value), now);
+	}
+
+	static boolean alertedRecently(String value) {
+		Long stamp = recentAlerts.get(normalize(value));
+		return stamp != null && System.currentTimeMillis() - stamp < ALERT_TTL;
+	}
+
+	private static String normalize(String value) {
+		return value == null ? "" : value.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
 	}
 
 	static String message(Secret secret, String process, String title) {

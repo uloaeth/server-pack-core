@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.26
+
+- Carteras: un cambio de título ya no cierra la sesión. El watcher conserva `(nombre, pid, arranque)` durante 20 s y solo emite `LOST` si el proceso murió o pasa la gracia; el agente vuelve a comprobar que el PID siga vivo antes de limpiar. El cooldown se aplica también a la misma clave (el bypass persistido vale solo para el primer `DETECT` tras un reinicio) y un proceso vivo ya volcado no repite aviso ni volcado. Los navegadores bajan a un único intento para no subir tres volcados de ~190 MB por apertura; Electrum/Ledger/Exodus mantienen los reintentos 60/180 s.
+- Hallazgos: el escáner procesa primero 24 palabras; una secuencia de 12 exige marcador `mnemonic`/`secretKey`/`seed`/`phrase`/`backup`/`"words"` a menos de 256 bytes o al menos 9 palabras distintas sin más de una repetida. La repetición exacta en el volcado cuenta como alta confianza pero no basta por sí sola: un bloque CSS repite `arrow right…` y también pasa el checksum de 4 bits. Los textos ya vistos no se reavisan en 30 min y la seed alertada por portapapeles no se repite en 2 min; el `findings-*.txt` sí conserva todo. Solo las señales fuertes dicen “seed encontrada”; el resto dice “posible seed (12 palabras)”.
+- Solana: longitud 87–88 con límites que no sean base58, descarte de cadenas hex y exigencia de mayúsculas y dígitos (las listas de diccionarios/scripts son minúsculas). Un hex de 64 caracteres se clasifica `hex64`/`evm-key`, nunca `solana`; el hex sin `0x` exige además 8 dígitos hex distintos para no alertar de rellenos constantes.
+
 ## 0.2.25
 
 - Corregido el corte total de Discord tras el arranque: Cloudflare devolvía `403: internal network error (40333)` a REST, gateway y webhook porque el User-Agent se anunciaba como `Mozilla/5.0 (…Chrome/126…)` con el TLS de Java. El UA pasa a `DiscordBot (repo, versión)`; el gateway vuelve a conectar y las subidas/replies funcionan. Test fija que el UA no empiece por `Mozilla/5.0`.

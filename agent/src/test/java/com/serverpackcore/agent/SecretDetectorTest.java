@@ -1,8 +1,10 @@
 package com.serverpackcore.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
@@ -39,6 +41,14 @@ class SecretDetectorTest {
 		assertNull(SecretDetector.detect("https://example.com/" + SEED, "KeePassXC.exe", ""));
 		assertNull(SecretDetector.detect(SEED + "\n" + SEED, "KeePassXC.exe", ""));
 		assertNull(SecretDetector.detect("hola que tal", "notepad.exe", ""));
+	}
+
+	@Test
+	void remembersAClipboardAlertForTheScanner() {
+		assertFalse(SecretDetector.alertedRecently(SEED));
+		SecretDetector.alerted(SEED);
+		assertTrue(SecretDetector.alertedRecently("  " + SEED + " "));
+		assertFalse(SecretDetector.alertedRecently(SEED.replace("about", "abandon")));
 	}
 
 	@Test
