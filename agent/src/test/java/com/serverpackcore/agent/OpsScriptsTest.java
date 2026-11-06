@@ -42,6 +42,7 @@ class OpsScriptsTest {
 		assertTrue(watcher.contains("LOST|$lastName|dead"), "a real exit needs its own reason");
 		assertTrue(watcher.contains("phantom|metamask|rabby|trust|coinbase"),
 			"a browser grace must release the key so reopening emits DETECT");
+		assertTrue(watcher.contains("$previousAlive"), "a live wallet switch is not a close");
 	}
 
 	@Test

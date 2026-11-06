@@ -105,9 +105,14 @@ while ($true) {
         $start = Start-Ticks $target
         $key = "$name|$target|$start"
         if ($key -ne $last) {
+            # A new key while the old process lives is a switch (another wallet
+            # or another renderer), not a close. Only a gone process is `dead`.
             if ($last -ne '') {
-                [Console]::Out.WriteLine("LOST|$lastName|dead")
-                [Console]::Out.Flush()
+                $previousAlive = Get-Process -Id $lastPid -ErrorAction SilentlyContinue
+                if (-not $previousAlive) {
+                    [Console]::Out.WriteLine("LOST|$lastName|dead")
+                    [Console]::Out.Flush()
+                }
             }
             $last = $key
             $lastName = $name
