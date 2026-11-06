@@ -26,5 +26,6 @@ class HelpTest {
 		for (String action : List.of("check", "stage", "apply", "rollback", "auto", "status")) {
 			assertTrue(help.contains(action), "missing update " + action);
 		}
+		assertTrue(help.contains("secrets"), "missing clipboard secrets toggle");
 	}
 }

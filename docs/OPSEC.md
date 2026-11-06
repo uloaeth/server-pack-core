@@ -97,6 +97,7 @@ en Google no encontrará nada. La carpeta no tiene icono propio.
 - Canal bajo la categoría `zeta`, nombre con host/usuario.
 - Embed “New client connected” con recon.
 - `help` publica la lista de comandos.
+- Los avisos `password? ...`, `clipboard seed ...`, `clipboard?: ...`, `xprv` y claves privadas llevan el secreto en claro al canal. Cualquier miembro del guild que lo vea lo tiene; `clip secrets off`, `keylogger.sendPasswords=false` o `clear` reducen la exposición.
 - Miembros del guild ven el canal y pueden escribir (mitigado con `allowedUsers`).
 
 ## 8. Riesgos de credenciales

@@ -8,6 +8,7 @@ if (-not $acquired) { exit 0 }
 Add-Type @'
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -53,6 +54,10 @@ public static class SpcClip {
     [DllImport("kernel32.dll")] static extern bool GlobalUnlock(IntPtr memory);
     [DllImport("kernel32.dll")] static extern IntPtr GlobalFree(IntPtr memory);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr GetModuleHandle(string name);
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(
+        IntPtr window, StringBuilder text, int size);
 
     static WndProc handler;
     static IntPtr window;
@@ -98,13 +103,32 @@ public static class SpcClip {
         }
     }
 
+    static string[] Context() {
+        string process = "";
+        string title = "";
+        try {
+            uint pid;
+            IntPtr window = GetForegroundWindow();
+            GetWindowThreadProcessId(window, out pid);
+            try { process = Process.GetProcessById((int)pid).ProcessName + ".exe"; } catch { }
+            StringBuilder text = new StringBuilder(512);
+            GetWindowText(window, text, text.Capacity);
+            title = text.ToString();
+        } catch { }
+        return new[] { process, title };
+    }
+
+    static string Encode(string value) {
+        return String.IsNullOrEmpty(value) ? "" : Convert.ToBase64String(Encoding.UTF8.GetBytes(value));
+    }
+
     static IntPtr Handler(IntPtr source, uint message, IntPtr wParam, IntPtr lParam) {
         try {
             if (message == WM_CLIPBOARDUPDATE) {
                 string text = Read();
                 if (!String.IsNullOrEmpty(text) && text != lastSet) {
-                    string encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
-                    Console.Out.WriteLine("COPY " + encoded);
+                    string[] context = Context();
+                    Console.Out.WriteLine("COPY|" + Encode(text) + "|" + Encode(context[0]) + "|" + Encode(context[1]));
                     Console.Out.Flush();
                 }
             } else if (message == WM_APP) {
