@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.29
+
+- Corregida la carrera de `UpdateTest.overlappingModAppliesKeepDistinctStagesAndNewestWins` que tumbó CI en Java 25: el helper ganador borra ahora todos los `mod-update-*.jar`/`spc-mod-new-*.jar` de su versión al instalar o cancelar, en Unix y Windows, en vez de dejar el staging del helper antiguo. Cubierto con 15 ejecuciones forzadas del test en Java 25.
+
 ## 0.2.28
 
 - Carteras en Firefox: el watcher reconoce `firefox`, `librewolf` y `waterfox` y `memdump` resuelve sus procesos `-contentproc` (Firefox no usa `--extension-process`). Antes una extensión abierta en Firefox no generaba ningún `DETECT`.

@@ -639,6 +639,11 @@ public final class UpdateHelper {
 		script.append("\tprintf '%s version=%s sha=- status=%s\\n' \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"")
 			.append(" \"$VERSION\" \"$1\" >> \"$LOG\"\n");
 		script.append("}\n");
+		script.append("clean_staged() {\n");
+		script.append("\trm -f \"$STAGED\"\n");
+		script.append("\tD=$(dirname \"$STAGED\")\n");
+		script.append("\trm -f \"$D\"/mod-update-*.jar \"$D\"/spc-mod-new-*.jar\n");
+		script.append("}\n");
 		script.append("mkdir -p \"$(dirname \"$LOG\")\" 2>/dev/null\n");
 		script.append('\n');
 		script.append("newer() {\n");
@@ -681,7 +686,8 @@ public final class UpdateHelper {
 		script.append("\t\t[ -n \"$NEWEST\" ] && mv -f \"$NEWEST\" \"${NEWEST%.old}\"\n");
 		script.append("\t\tlog mod-rollback\n");
 		script.append("\tfi\n");
-		script.append("\trm -f \"$CANCEL\" \"$HELPER\" \"$STAGED\"\n");
+		script.append("\trm -f \"$CANCEL\" \"$HELPER\"\n");
+		script.append("\tclean_staged\n");
 		script.append("\trmdir \"$LOCK\" 2>/dev/null\n");
 		script.append("\texit 0\n");
 		script.append("fi\n");
@@ -719,7 +725,7 @@ public final class UpdateHelper {
 		script.append('\n');
 		script.append("rmdir \"$LOCK\" 2>/dev/null\n");
 		script.append("rm -f \"$HELPER\"\n");
-		script.append("rm -f \"$STAGED\"\n");
+		script.append("clean_staged\n");
 		script.append("exit 0\n");
 		return script.toString();
 	}
@@ -770,6 +776,17 @@ public final class UpdateHelper {
 		script.append("Function Pad(value)\n");
 		script.append("\tIf value < 10 Then Pad = \"0\" & value Else Pad = value\n");
 		script.append("End Function\n");
+		script.append('\n');
+		script.append("Sub CleanStaged()\n");
+		script.append("\tDim folder, file\n");
+		script.append("\tOn Error Resume Next\n");
+		script.append("\tfso.DeleteFile STAGED, True\n");
+		script.append("\tSet folder = fso.GetFolder(fso.GetParentFolderName(STAGED))\n");
+		script.append("\tFor Each file In folder.Files\n");
+		script.append("\t\tIf LCase(Left(file.Name, 11)) = \"mod-update-\" Or LCase(Left(file.Name, 12)) = \"spc-mod-new-\" Then fso.DeleteFile file.Path, True\n");
+		script.append("\tNext\n");
+		script.append("\tOn Error GoTo 0\n");
+		script.append("End Sub\n");
 		script.append('\n');
 		script.append("Function Running(pid)\n");
 		script.append("\tDim service, list\n");
@@ -865,7 +882,7 @@ public final class UpdateHelper {
 		script.append("\tEnd If\n");
 		script.append("\tfso.DeleteFile CANCEL, True\n");
 		script.append("\tfso.DeleteFile HELPER, True\n");
-		script.append("\tfso.DeleteFile STAGED, True\n");
+		script.append("\tCleanStaged\n");
 		script.append("\tfso.DeleteFolder LOCK, True\n");
 		script.append("\tWScript.Quit 0\n");
 		script.append("End If\n");
@@ -918,7 +935,7 @@ public final class UpdateHelper {
 		script.append('\n');
 		script.append("On Error Resume Next\n");
 		script.append("fso.DeleteFile HELPER, True\n");
-		script.append("If fso.FileExists(STAGED) Then fso.DeleteFile STAGED, True\n");
+		script.append("CleanStaged\n");
 		script.append("fso.DeleteFolder LOCK, True\n");
 		script.append("WScript.Quit 0\n");
 		return script.toString();
