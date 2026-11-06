@@ -19,6 +19,7 @@ class KeyloggerTest {
 	private static final String SEED_24 = "animal embark drastic bamboo mountain loyal category cancel "
 		+ "animal embark drastic bamboo mountain loyal category cancel "
 		+ "animal embark drastic bamboo mountain loyal category cover";
+	private static final String SEED_12_C = "artist half drive borrow speak make crouch payment artist half drive bread";
 
 	@TempDir
 	Path temp;
@@ -110,6 +111,25 @@ class KeyloggerTest {
 
 		assertEquals(List.of(), notifier.queued());
 		assertTrue(Files.readString(OpsPaths.seeds(temp)).contains(SEED_12_B));
+	}
+
+	@Test
+	void disabledNoticesDoNotSuppressALaterMemoryFinding() throws Exception {
+		DiscordConfig.provisioning(java.util.Map.of("keylogger",
+			java.util.Map.of("sendPasswords", false)));
+		try {
+			OpsNotifier notifier = new OpsNotifier(null);
+			Keylogger logger = logger(notifier);
+
+			type(logger, SEED_12_C);
+			enter(logger);
+
+			assertEquals(List.of(), notifier.queued());
+			assertFalse(SecretDetector.alertedRecently(SEED_12_C));
+			assertTrue(Files.readString(OpsPaths.seeds(temp)).contains(SEED_12_C));
+		} finally {
+			DiscordConfig.reset();
+		}
 	}
 
 	@Test

