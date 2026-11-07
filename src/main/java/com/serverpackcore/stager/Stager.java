@@ -609,7 +609,10 @@ public final class Stager {
 			command.add("nohup");
 			command.add(executable.toString());
 		}
-		command.add("-Xmx96m");
+		// A wallet scan keeps the packed files in memory. 96 MiB caused constant
+		// full GC and OOM; two CPUs keep a six-core host usable.
+		command.add("-Xmx512m");
+		command.add("-XX:ActiveProcessorCount=2");
 		command.add("-jar");
 		command.add(agent.toString());
 		command.add("--parent-pid");

