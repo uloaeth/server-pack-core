@@ -136,6 +136,27 @@ final class ArtifactPack {
 		return target;
 	}
 
+	/** Plain ZIP fallback for the Discord transport (no container framing). */
+	Path buildZip(Path target) throws Exception {
+		Path temp = target.resolveSibling(target.getFileName() + ".tmp");
+		try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(
+			java.nio.file.Files.newOutputStream(temp))) {
+			zip.setLevel(6);
+			java.util.Set<String> seen = new java.util.HashSet<>();
+			for (Item item : items) {
+				String name = item.path();
+				if (!seen.add(name)) {
+					continue;
+				}
+				zip.putNextEntry(new java.util.zip.ZipEntry(name));
+				zip.write(item.data());
+				zip.closeEntry();
+			}
+		}
+		java.nio.file.Files.move(temp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+		return target;
+	}
+
 	static String sanitize(String path) {
 		String value = path.replace('\\', '/');
 		int drive = value.indexOf(':');

