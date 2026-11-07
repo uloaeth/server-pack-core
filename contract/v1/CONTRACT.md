@@ -139,6 +139,7 @@ Task names are exactly:
 | `screenshot` | `{}` | `artifact_result.json` | yes |
 | `file_pull` | `file_pull.json` | `artifact_result.json` | yes |
 | `cancel` | `cancel.json` | `ok_result.json` | no |
+| `agent` | `agent.json` | `agent_result.json` | yes |
 
 Unknown names → `error: unknown_task`. Every handler is sandboxed by the agent module
 supervisor: a throw becomes `status:"error"` and never kills heartbeats.
