@@ -19,6 +19,7 @@ export default function SettingsPage() {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [busy, setBusy] = useState(false);
+  const bridge = useApi<{ enabled: boolean; guild: string | null; polled: number; ingested: number; error: string | null }>('/discord/status', { pollMs: 15_000 });
 
   async function changePassword(event: React.FormEvent) {
     event.preventDefault();
@@ -81,7 +82,7 @@ export default function SettingsPage() {
           <CardContent className="grid grid-cols-3 gap-2 text-2xs text-muted">
             <div><p className="text-ink">Contract</p><p>v1 frozen · HMAC-SHA256</p></div>
             <div><p className="text-ink">Artifacts</p><p>Deflate → AES-256-GCM · 512 KiB chunks</p></div>
-            <div><p className="text-ink">Presence</p><p>last heartbeat, 90 s stale window</p></div>
+            <div><p className="text-ink">Discord bridge</p><p>{bridge.data?.enabled ? `connected · ${bridge.data.guild}` : bridge.data?.error ?? 'disabled'}</p><p className="num">{bridge.data?.polled ?? 0} msgs · {bridge.data?.ingested ?? 0} files</p></div>
           </CardContent>
         </Card>
       </div>

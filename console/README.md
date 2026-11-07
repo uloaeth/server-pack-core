@@ -4,7 +4,8 @@ Target: Debian 12 or Ubuntu 22.04, 2 vCPU / 4 GB RAM / 40 GB disk, Docker 27+ an
 compose plugin. DNS `A`/`AAAA` for `c2.spc-cloud.net` must point at the VPS **before**
 starting Caddy; Caddy requests the certificate on first boot and retries on failure.
 
-No service other than Cloudflare DNS and an optional webhook is used.
+No service other than Cloudflare DNS and an optional webhook is used. For running
+without a VPS, see [`docs/DISCORD_BRIDGE.md`](../docs/DISCORD_BRIDGE.md).
 
 ## 1. Host preparation
 

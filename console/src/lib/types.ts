@@ -26,6 +26,7 @@ export type Victim = {
   wallets?: number;
   artifacts?: number;
   build?: { id: string; name: string; version: string; buildId: string };
+  discordChannel?: string | null;
   _count?: Record<string, number>;
   balances?: number;
 };

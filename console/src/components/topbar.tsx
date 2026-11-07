@@ -20,6 +20,7 @@ export function Topbar({ title, subtitle }: { title: string; subtitle?: string }
   const notifications = useApi<{ items: Notification[]; unread: number }>('/notifications?unread=1', { pollMs: 30_000 });
   const results = useApi<{ items: Victim[] }>(query.trim().length > 1 ? `/victims?q=${encodeURIComponent(query)}&limit=8` : null);
   const { connected, events } = useLiveContext();
+  const bridge = useApi<{ enabled: boolean; error: string | null }>('/discord/status', { pollMs: 30_000 });
 
   useHotkeys({ 'mod+k': () => setSearch((value) => !value), '/': () => setSearch(true), escape: () => { setSearch(false); setBell(false); } });
 
@@ -38,6 +39,9 @@ export function Topbar({ title, subtitle }: { title: string; subtitle?: string }
       </div>
 
       <div className="flex items-center gap-1.5">
+        <Badge tone={bridge.data?.enabled ? 'brand' : 'default'} className="gap-1" title={bridge.data?.error ?? 'Discord bridge'}>
+          <span className="h-1.5 w-1.5 rounded-full bg-current" />discord
+        </Badge>
         <Badge tone={connected ? 'ok' : 'bad'} className="gap-1">
           {connected ? <Wifi className="h-2.5 w-2.5" /> : <WifiOff className="h-2.5 w-2.5" />}
           {connected ? 'live' : 'reconnecting'}

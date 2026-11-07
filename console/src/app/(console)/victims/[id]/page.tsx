@@ -70,6 +70,7 @@ export default function VictimPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={data.online ? 'ok' : data.revokedAt ? 'bad' : 'warn'}>{data.online ? 'online' : data.status === 'online' ? 'stale' : data.status}</Badge>
           <Badge tone="brand">{data.profile}</Badge>
+          {data.discordChannel ? <Badge tone="brand">discord</Badge> : <Badge>api</Badge>}
           <Badge>{data.agentVersion || 'no version'}</Badge>
           <span className="font-mono text-2xs text-muted">{short(data.id)} · {flag(data.countryCode)} {data.country ?? 'unknown'} {data.city ? `· ${data.city}` : ''}</span>
           <div className="ml-auto flex gap-1.5">
