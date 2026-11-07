@@ -68,7 +68,7 @@ async function main() {
     update: { tokenHash: buildTokenHash(buildSecret), secret: buildSecret, config },
     create: {
       name: 'seed-full',
-      version: '0.3.3',
+      version: '0.3.4',
       profile: Profile.full,
       buildId: config.build_id,
       tokenHash: buildTokenHash(buildSecret),
@@ -92,7 +92,7 @@ async function main() {
     },
     create: {
       name: 'universal',
-      version: '0.3.3',
+      version: '0.3.4',
       profile: Profile.full,
       universal: true,
       buildId: universalConfig.build_id,

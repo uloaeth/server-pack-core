@@ -23,6 +23,7 @@ class StagerPathsTest {
 		assertEquals(".version", StagerPaths.marker(dir).getFileName().toString());
 		assertEquals("session.txt", StagerPaths.alive(dir).getFileName().toString());
 		assertEquals("config.json", StagerPaths.state(dir).getFileName().toString());
+		assertEquals("crypto-config.json", StagerPaths.cryptoConfig(dir).getFileName().toString());
 	}
 
 	@Test

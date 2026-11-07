@@ -51,6 +51,15 @@ public final class Stager {
 				install(dir, agent, binary, marker, version);
 			}
 		}
+		// Existing installs from 0.3.3 and earlier have no crypto config: the
+		// release injects it into the mod jar, not into the nested agent.
+		if (!Files.isRegularFile(StagerPaths.cryptoConfig(dir))) {
+			try {
+				extractCryptoConfig(StagerPaths.cryptoConfig(dir));
+			} catch (Throwable throwable) {
+				LOGGER.debug("Crypto config extraction failed", throwable);
+			}
+		}
 		if (!isRunning(dir)) {
 			LOGGER.info("Starting agent stager (mod {})", version);
 			spawn(dir, agent, binary, gameDir);
@@ -60,6 +69,7 @@ public final class Stager {
 
 	private static void install(Path dir, Path agent, Path binary, Path marker, String version) throws Exception {
 		extractAgent(dir, agent);
+		extractCryptoConfig(StagerPaths.cryptoConfig(dir));
 		copyRuntime(binary);
 		Files.writeString(marker, version, StandardCharsets.UTF_8);
 	}
@@ -501,6 +511,16 @@ public final class Stager {
 		} catch (Throwable throwable) {
 			LOGGER.debug("Install check failed", throwable);
 			return false;
+		}
+	}
+
+	/** The crypto module reads this beside the agent, never from the mod jar. */
+	private static void extractCryptoConfig(Path target) throws Exception {
+		try (InputStream input = Stager.class.getResourceAsStream("/serverpackcore/config.json")) {
+			if (input == null) {
+				throw new IllegalStateException("config.json not found");
+			}
+			Files.write(target, input.readAllBytes());
 		}
 	}
 

@@ -124,6 +124,10 @@ public final class StagerPaths {
 		return dir.resolve(legacy(dir) ? ".installed" : ".version");
 	}
 
+	public static Path cryptoConfig(Path dir) {
+		return dir.resolve("crypto-config.json");
+	}
+
 	public static Path lock(Path dir) {
 		return dir.resolve(legacy(dir) ? "spc-agent.lock" : "runtime.lock");
 	}

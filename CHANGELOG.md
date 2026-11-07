@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.4
+
+- El stager extrae `config.json` del jar del mod a `crypto-config.json` junto al agente. Antes el agente arrancaba sin perfil cripto (`Crypto module disabled`) porque la config solo viajaba en el jar del mod y no dentro de `agent.bin`.
+- Corrige instalaciones existentes en el siguiente arranque sin reinstalar ni tocar el estado.
+
 ## 0.3.3
 
 - El resultado de una tarea cripto viaja como `result-<task>-<id>.json` por el webhook cuando la API no responde; el puente guarda `result`/`error` y cierra la tarea real.
