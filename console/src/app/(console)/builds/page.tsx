@@ -165,6 +165,9 @@ export default function BuildsPage() {
             <p className="text-xs text-muted">
               {reassignFor?.name} v{reassignFor?.version} has {reassignFor?.victims} victim(s). Move them to another live build.
             </p>
+            <p className="text-2xs text-muted">
+              Installed agents keep their current jar config until redeployed; artifacts they upload after the move are keyed to the old build secret.
+            </p>
             <div>
               <Label>Target build</Label>
               <Select value={reassignTarget} onChange={(event) => setReassignTarget(event.target.value)} className="w-full">

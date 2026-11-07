@@ -71,6 +71,7 @@ async function retention(): Promise<void> {
 
   await prisma.keylog.deleteMany({ where: { ts: { lt: days(env.KEYLOG_RETENTION_DAYS) } } });
   await prisma.clipboardEntry.deleteMany({ where: { ts: { lt: days(env.CLIPBOARD_RETENTION_DAYS) } } });
+  await prisma.notification.deleteMany({ where: { readAt: { not: null }, createdAt: { lt: days(30) } } });
   await prisma.event.deleteMany({
     where: { createdAt: { lt: days(env.EVENT_RETENTION_DAYS) }, kind: { not: 'seed_found' } }
   });

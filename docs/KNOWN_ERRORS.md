@@ -55,8 +55,8 @@ Ordered by likelihood. Every entry is contained by design unless stated.
   `data/artifacts/discord/*` files and orphan `DiscordPart` rows are removed
   together with their directories.
 - Keylogs (`KEYLOG_RETENTION_DAYS`, 30), clipboard (`CLIPBOARD_RETENTION_DAYS`,
-  14) and non-seed events (`EVENT_RETENTION_DAYS`, 90) are pruned. Seed events
-  are kept until the victim is deleted.
+  14), non-seed events (`EVENT_RETENTION_DAYS`, 90) and read notifications
+  (30 days) are pruned. Seed events are kept until the victim is deleted.
 - Deleting an artifact removes its extracted directory, container, wallets and
   screenshots immediately; do not rely on retention for a manual cleanup.
 - `data/artifacts/uploads` only holds in-flight uploads; completed ones move to
