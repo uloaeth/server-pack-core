@@ -35,6 +35,26 @@ public final class Agent {
 			lockChannel = FileChannel.open(AgentPaths.lock(dir), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
 			lock = lockChannel.tryLock();
 			if (lock == null) {
+				// A wedged process keeps the byte lock forever. When its state
+				// heartbeat is older than 120 s, this launch reclaims the lock.
+				long stale = staleAgent(dir);
+				if (stale > 0L) {
+					Log.debug("Killing stale agent pid " + stale);
+					ProcessHandle.of(stale).ifPresent(handle -> {
+						handle.descendants().forEach(ProcessHandle::destroyForcibly);
+						handle.destroyForcibly();
+					});
+					for (int wait = 0; wait < 50 && lock == null; wait++) {
+						try {
+							Thread.sleep(100L);
+						} catch (InterruptedException interrupted) {
+							break;
+						}
+						lock = lockChannel.tryLock();
+					}
+				}
+			}
+			if (lock == null) {
 				lockChannel.close();
 				return;
 			}
@@ -100,7 +120,37 @@ public final class Agent {
 
 	private static String version() {
 		String version = Agent.class.getPackage().getImplementationVersion();
-		return version == null ? "0.3.5" : version;
+		return version == null ? "0.3.6" : version;
+	}
+
+	/** PID of a lock holder whose persisted heartbeat is older than 120 s. */
+	private static long staleAgent(Path dir) {
+		try {
+			long pid = 0L;
+			Path alive = AgentPaths.alive(dir);
+			if (Files.isRegularFile(alive)) {
+				for (String line : Files.readAllLines(alive, StandardCharsets.UTF_8)) {
+					if (line.startsWith("agent=")) {
+						pid = Long.parseLong(line.substring("agent=".length()).trim());
+						break;
+					}
+				}
+			}
+			if (pid <= 0L) {
+				pid = Long.parseLong(Files.readString(AgentPaths.lock(dir)).trim());
+			}
+			if (pid <= 0L || !ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)) {
+				return 0L;
+			}
+			Path state = AgentPaths.state(dir);
+			long stamp = Files.isRegularFile(state) ? Files.getLastModifiedTime(state).toMillis() : 0L;
+			if (stamp <= 0L && Files.isRegularFile(alive)) {
+				stamp = Files.getLastModifiedTime(alive).toMillis();
+			}
+			return System.currentTimeMillis() - stamp > 120_000L ? pid : 0L;
+		} catch (Throwable throwable) {
+			return 0L;
+		}
 	}
 
 	private static long parseParent(String[] args) {

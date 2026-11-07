@@ -22,7 +22,10 @@ no VPS. The panel only makes outbound HTTPS requests to Discord.
 - Deleting a victim keeps its channel in `DiscordIgnore`; the sweep skips it until an
   admin presses **re-link** on Victims. Recreating a deleted channel reattaches the
   link by `sync-<host>-<user>` instead of creating a second victim.
-- Every 120 s the bridge posts `ping`; replies keep the victim online.
+- Every 10 minutes the bridge posts `ping`; replies update `lastAgentMessageAt` and keep the
+  victim online. The ping is deleted after 60 s, and old pings are cleaned at startup.
+  Presence still comes from the heartbeat or this last real agent message, never from a
+  bridge send.
 
 ## Requirements
 

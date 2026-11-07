@@ -29,6 +29,10 @@ const schema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().default(''),
   TELEGRAM_CHAT_ID: z.string().default(''),
   GEOIP_DB: z.string().default(''),
+  KEYLOG_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
+  CLIPBOARD_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(14),
+  EVENT_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
+  FAILED_ARTIFACT_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(7),
   LOG_LEVEL: z.string().default('info')
 });
 

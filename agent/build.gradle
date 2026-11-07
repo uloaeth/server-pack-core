@@ -7,7 +7,7 @@ repositories {
 }
 
 group = 'com.serverpackcore'
-version = '0.3.5'
+version = '0.3.6'
 
 base {
 	archivesName = 'spc-agent'
@@ -116,6 +116,9 @@ tasks.named('compileJava') {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// ArtifactPackTest streams a 96 MiB file, above this heap; a regression
+	// that keeps file bytes in memory fails here instead of on a victim.
+	maxHeapSize = '64m'
 }
 
 tasks.withType(JavaCompile).configureEach {

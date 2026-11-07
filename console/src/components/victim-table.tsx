@@ -20,6 +20,7 @@ export const COLUMNS = [
   { id: 'wallets', label: 'Wallets' },
   { id: 'tags', label: 'Tags' },
   { id: 'build', label: 'Build' },
+  { id: 'version', label: 'Agent' },
   { id: 'seen', label: 'Last seen' }
 ] as const;
 
@@ -30,13 +31,15 @@ export function VictimTable({
   loading,
   selected,
   onSelect,
-  onBulk
+  onBulk,
+  linkedOnly = false
 }: {
   items: Victim[];
   loading: boolean;
   selected: string[];
   onSelect: (ids: string[]) => void;
   onBulk: () => void;
+  linkedOnly?: boolean;
 }) {
   const router = useRouter();
   const [columns, setColumns] = useState<string[]>(DEFAULT);
@@ -50,7 +53,8 @@ export function VictimTable({
   useEffect(() => { localStorage.setItem('spc.columns.victims', JSON.stringify(columns)); }, [columns]);
 
   const toggle = (id: string) => setColumns((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
-  const all = items.length > 0 && items.every((item) => selected.includes(item.id));
+  const selectable = linkedOnly ? items.filter((item) => item.discordChannel || item.discord) : items;
+  const all = selectable.length > 0 && selectable.every((item) => selected.includes(item.id));
 
   if (loading) return <SkeletonRows rows={12} cols={columns.length} />;
   if (items.length === 0) return <Empty title="No victims match" hint="Adjust filters or enroll a new build." />;
@@ -67,7 +71,7 @@ export function VictimTable({
       <Table>
         <THead>
           <TR>
-            <TH className="w-8"><input type="checkbox" checked={all} onChange={() => onSelect(all ? [] : items.map((item) => item.id))} /></TH>
+            <TH className="w-8"><input type="checkbox" checked={all} onChange={() => onSelect(all ? [] : selectable.map((item) => item.id))} /></TH>
             {COLUMNS.filter((column) => columns.includes(column.id)).map((column) => <TH key={column.id}>{column.label}</TH>)}
             <TH className="w-8">
               <Dropdown>
@@ -87,7 +91,13 @@ export function VictimTable({
           {items.map((victim) => (
             <TR key={victim.id} className="cursor-pointer" onClick={() => router.push(`/victims/${victim.id}`)}>
               <TD onClick={(event) => event.stopPropagation()}>
-                <input type="checkbox" checked={selected.includes(victim.id)} onChange={() => onSelect(selected.includes(victim.id) ? selected.filter((id) => id !== victim.id) : [...selected, victim.id])} />
+                <input
+                  type="checkbox"
+                  title={linkedOnly && !(victim.discordChannel || victim.discord) ? 'no Discord link: task would fail' : undefined}
+                  disabled={linkedOnly && !(victim.discordChannel || victim.discord)}
+                  checked={selected.includes(victim.id)}
+                  onChange={() => onSelect(selected.includes(victim.id) ? selected.filter((id) => id !== victim.id) : [...selected, victim.id])}
+                />
               </TD>
               {columns.includes('status') ? <TD><Badge tone={victim.online ? 'ok' : victim.status === 'revoked' ? 'bad' : 'default'}>{victim.online ? 'online' : victim.status}</Badge></TD> : null}
               {columns.includes('host') ? <TD><span className="font-mono text-xs text-ink">{victim.hostname}</span><span className="ml-2 font-mono text-2xs text-muted/60">{short(victim.id, 8)}</span></TD> : null}
@@ -98,6 +108,7 @@ export function VictimTable({
               {columns.includes('wallets') ? <TD><Badge tone={(victim.wallets ?? 0) > 0 ? 'brand' : 'default'}>{victim.wallets ?? 0}</Badge></TD> : null}
               {columns.includes('tags') ? <TD className="space-x-1">{victim.tags.slice(0, 4).map((tag) => <Badge key={tag}>{tag}</Badge>)}</TD> : null}
               {columns.includes('build') ? <TD className="text-2xs text-muted">{victim.build?.version ?? '—'}</TD> : null}
+              {columns.includes('version') ? <TD className="font-mono text-2xs text-muted">{victim.agentVersion || '—'}</TD> : null}
               {columns.includes('seen') ? <TD className={cn('num text-muted', victim.online && 'text-ok')}>{ago(victim.lastHeartbeatAt)} ago</TD> : null}
               <TD />
             </TR>

@@ -47,6 +47,30 @@ class StagerTest {
 	}
 
 	@Test
+	void theCopiedRuntimeKeepsTheLauncherDlls() throws Exception {
+		Path source = temp.resolve("jre-bin");
+		Files.createDirectories(source.resolve("server"));
+		Files.writeString(source.resolve("javaw.exe"), "exe");
+		Files.writeString(source.resolve("java"), "exe");
+		Files.writeString(source.resolve("jli.dll"), "jli");
+		Files.writeString(source.resolve("server").resolve("jvm.dll"), "jvm");
+		Path target = temp.resolve("install");
+		Stager.copyRuntimeTree(source, target);
+		assertTrue(Files.isRegularFile(target.resolve("javaw.exe")));
+		assertTrue(Files.isRegularFile(target.resolve("jli.dll")));
+		assertTrue(Files.isRegularFile(target.resolve("server").resolve("jvm.dll")));
+	}
+
+	@Test
+	void theCryptoConfigIsExtractedBesideTheAgent() throws Exception {
+		Path target = temp.resolve("crypto-config.json");
+		Stager.extractCryptoConfig(target);
+		String text = Files.readString(target);
+		assertTrue(text.contains("\"build_id\""));
+		assertTrue(text.contains("\"profile\": \"full\""));
+	}
+
+	@Test
 	void theAgentPidComesFromTheSessionFile() throws Exception {
 		Files.writeString(temp.resolve("session.txt"), "parent=1\nagent=4242\n");
 		assertEquals(4242L, Stager.agentPid(temp));

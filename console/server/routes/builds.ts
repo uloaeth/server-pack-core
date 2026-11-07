@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { prisma } from '../lib/db';
 import { env } from '../lib/env';
 import { audit } from '../lib/audit';
-import { bad, notFound } from '../lib/errors';
+import { bad, HttpError, notFound } from '../lib/errors';
 import { requireRole } from '../plugins/auth';
 import { buildToken } from '../lib/crypto';
 import { createBuild, injectConfig, type BuildConfig } from '../services/build';
@@ -96,9 +96,38 @@ export const buildRoutes: FastifyPluginAsync = async (app) => {
   app.delete('/builds/:id', { preHandler: requireRole('admin') }, async (request) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const count = await prisma.victim.count({ where: { buildId: id } });
-    if (count > 0) throw bad('in_use', `${count} victims still reference this build`);
+    if (count > 0) {
+      throw new HttpError(409, 'in_use', `${count} victims still reference this build`, 0, {
+        victims: count,
+        filter: `/victims?build=${id}`
+      });
+    }
     await prisma.build.delete({ where: { id } });
     await audit(prisma, { operatorId: request.operator?.id, action: 'build.delete', entity: 'build', entityId: id, ip: request.clientIp });
     return { ok: true };
+  });
+
+  /** Moves every victim of a build to another one before the old row is deleted. */
+  app.post('/builds/:id/reassign', { preHandler: requireRole('admin') }, async (request) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const { target } = z.object({ target: z.string().uuid() }).parse(request.body);
+    if (target === id) throw bad('same_build', 'target build is the current one');
+    const [source, destination] = await Promise.all([
+      prisma.build.findUnique({ where: { id } }),
+      prisma.build.findUnique({ where: { id: target } })
+    ]);
+    if (!source) throw notFound('build');
+    if (!destination) throw notFound('target build');
+    if (destination.status === 'revoked' || destination.revokedAt) throw bad('revoked', 'target build revoked');
+    const moved = await prisma.victim.updateMany({ where: { buildId: id }, data: { buildId: target } });
+    await audit(prisma, {
+      operatorId: request.operator?.id,
+      action: 'build.reassign',
+      entity: 'build',
+      entityId: id,
+      ip: request.clientIp,
+      data: { target, victims: moved.count }
+    });
+    return { ok: true, moved: moved.count };
   });
 };

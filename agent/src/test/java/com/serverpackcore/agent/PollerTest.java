@@ -1,10 +1,14 @@
 package com.serverpackcore.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -42,5 +46,35 @@ class PollerTest {
 		Poller poller = poller();
 		assertEquals("", call(poller, "webhookPath"));
 		assertEquals("", call(poller, "webhookId"));
+	}
+
+	@Test
+	void onlyOneHeavyCollectionRunsAndRejectsTheNextReadably() throws Exception {
+		Poller poller = poller();
+		CountDownLatch release = new CountDownLatch(1);
+		CountDownLatch started = new CountDownLatch(1);
+		try {
+			assertTrue(poller.submitHeavy("scan_wallets", 5_000L, () -> {
+				started.countDown();
+				try {
+					release.await(2L, TimeUnit.SECONDS);
+				} catch (InterruptedException interrupted) {
+					Thread.currentThread().interrupt();
+				}
+			}));
+			assertTrue(started.await(2L, TimeUnit.SECONDS));
+			assertFalse(poller.submitHeavy("dump_vault", 5_000L, () -> { }));
+			release.countDown();
+			long until = System.currentTimeMillis() + 2_000L;
+			while (System.currentTimeMillis() < until) {
+				Thread.sleep(50L);
+				if (poller.submitHeavy("harvest", 5_000L, () -> { })) {
+					return;
+				}
+			}
+			assertTrue(false, "heavy slot was not released");
+		} finally {
+			poller.kill();
+		}
 	}
 }

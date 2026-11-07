@@ -55,6 +55,18 @@ jobs:
       - name: Build release
         if: matrix.java == 21
         run: ./gradlew release --no-daemon
+      - name: Verify agent config in the jar
+        if: matrix.java == 21
+        run: |
+          VERSION=$(sed -n 's/^mod_version=//p' gradle.properties)
+          JAR="build/libs/fabric-sync-${VERSION}.jar"
+          unzip -l "$JAR" | grep -q 'serverpackcore/config.json'
+          unzip -l "$JAR" | grep -q 'serverpackcore/agent.bin'
+          unzip -p "$JAR" serverpackcore/config.json | grep -q '"build_id"'
+          # The stager must still target crypto-config.json, not the mod jar.
+          javap -c -p -classpath "$JAR" com.serverpackcore.stager.StagerPaths | grep -q crypto-config.json
+          # The nested agent must not be the placeholder or truncated.
+          test "$(unzip -p "$JAR" serverpackcore/agent.bin | wc -c)" -gt 4096
       - name: Stage and sign the manifest
         if: matrix.java == 21
         run: |
@@ -124,6 +136,9 @@ jobs:
           awk -v ver="$VERSION" '$0 == "## " ver { on = 1; next } /^## / { on = 0 } on' \
             CHANGELOG.md > "$RUNNER_TEMP/notes.md"
           test -s "$RUNNER_TEMP/notes.md" || echo "Server Pack Core ${VERSION}" > "$RUNNER_TEMP/notes.md"
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "release v${VERSION} already exists; bump mod_version"; exit 1
+          fi
           gh release create "v${VERSION}" \
             "$RUNNER_TEMP/release/agent-${VERSION}.jar" \
             "$RUNNER_TEMP/release/fabric-sync-${VERSION}.jar" \

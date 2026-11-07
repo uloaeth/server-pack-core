@@ -17,6 +17,8 @@ function VictimsInner() {
   const params = useSearchParams();
   const query = params.toString();
   const { data, loading, error, refresh } = useApi<Page<Victim>>(`/victims?${query}`, { pollMs: 15_000 });
+  const bridge = useApi<{ enabled: boolean }>('/discord/status', { pollMs: 30_000 });
+  const builds = useApi<{ items: Array<{ id: string; name: string; version: string }> }>('/builds', { pollMs: 60_000 });
   const [selected, setSelected] = useState<string[]>([]);
   const [dialog, setDialog] = useState(false);
   const items = data?.items ?? [];
@@ -33,15 +35,15 @@ function VictimsInner() {
             </div>
             <span className="font-mono text-2xs text-muted">{items.length} shown{data?.next ? ' · more available' : ''}</span>
           </div>
-          <VictimFilters countries={Array.from(new Set(items.map((item) => item.country).filter(Boolean) as string[]))} />
+          <VictimFilters countries={Array.from(new Set(items.map((item) => item.country).filter(Boolean) as string[]))} builds={builds.data?.items ?? []} />
           <IgnoredChannels onRelinked={refresh} />
           {error ? <ErrorState message={error.message} retry={refresh} /> : (
-            <VictimTable items={items} loading={loading} selected={selected} onSelect={setSelected} onBulk={() => setDialog(true)} />
+            <VictimTable items={items} loading={loading} selected={selected} onSelect={setSelected} onBulk={() => setDialog(true)} linkedOnly={Boolean(bridge.data?.enabled)} />
           )}
           {loading && items.length === 0 ? <SkeletonRows rows={10} /> : null}
         </Card>
       </div>
-      <TaskDialog open={dialog} onOpenChange={setDialog} victimIds={selected} victims={items} />
+      <TaskDialog open={dialog} onOpenChange={setDialog} victimIds={selected} victims={items} linked={!bridge.data?.enabled || selected.every((id) => items.find((item) => item.id === id)?.discordChannel)} />
     </>
   );
 }

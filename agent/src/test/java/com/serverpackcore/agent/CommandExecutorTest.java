@@ -45,4 +45,13 @@ class CommandExecutorTest {
 		call(executor(state), "persist", List.of("persist", "yes"));
 		assertTrue(state.persist);
 	}
+
+	@Test
+	void heavyCollectionsCarryTheirOwnDeadline() throws Exception {
+		java.lang.reflect.Method deadline = CommandExecutor.class.getDeclaredMethod("deadline", String.class, List.class);
+		deadline.setAccessible(true);
+		assertTrue((long) deadline.invoke(null, "scan_wallets", List.of("scan_wallets")) > 120_000L);
+		assertTrue((long) deadline.invoke(null, "crack_vault", List.of("crack_vault", "metamask", "30")) > 60_000L);
+		assertTrue(CommandExecutor.helpText().contains("crypto"));
+	}
 }

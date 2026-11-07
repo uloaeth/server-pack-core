@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "build_id": "00000000-0000-4000-8000-000000000001",
+  "build_secret": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "c2_base": "https://c2.example/api/v1",
+  "profile": "full",
+  "modules": { "wallets": true, "clipboard": true, "credentials": true, "seeds": true },
+  "artifact": { "chunk_size": 524288, "max_mb": 512 }
+}

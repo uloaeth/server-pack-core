@@ -50,7 +50,13 @@ function TasksInner() {
           <TaskList status={status || undefined} />
         </Card>
       </div>
-      <TaskDialog open={dialog} onOpenChange={setDialog} victimIds={selected} victims={victims.data?.items} />
+      <TaskDialog
+        open={dialog}
+        onOpenChange={setDialog}
+        victimIds={selected}
+        victims={victims.data?.items}
+        linked={selected.every((id) => !victims.data?.items.find((victim) => victim.id === id)?.discordMissingAt)}
+      />
     </>
   );
 }

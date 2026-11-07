@@ -32,9 +32,12 @@ Ordered by likelihood. Every entry is contained by design unless stated.
 | 26 | `Screenshot` headless | lock screen | black PNG | Retried on the next task; `screenshot` is not part of bootstrap |
 | 26b | `Screen Capture in the selected area was not allowed` | Linux without a display/lock screen | `screenshot` ends as `error` | Expected in headless sessions; it is not retried in a loop. Retry once an X/Wayland session is active |
 | 27 | Clipboard reverts | Windows clipboard manager | replacement lost | The monitor re-applies only when the user copies the original address again; history keeps both |
-| 28 | Memory spike on 512 MiB artifact | low-RAM victim | OOM risk | Container built on disk, deflate streamed per file; per-file reads capped by profile |
+| 28 | Memory spike on a large artifact | low-RAM victim | OOM risk | Container built on disk from per-file temporaries; deflate/AES streamed, per-scan byte budget and profile cap |
 | 29 | `crypto` disabled | jar without `config.json` | no panel transport | Discord path stays fully functional; `crypto` command says so |
 | 30 | Duplicate enrollment | cloned disk | two rows | Unique `(build_id, hostname, username)`; token rotated, old token stops working |
+| 31 | `circuit_open` | agent without API | no HTTPS uploads | Breaker closes after 3 failures for 10 min; Discord sink keeps carrying scans/results |
+| 32 | Wedged gateway/REST | agent | silence | 90 s watchdog recreates client + loops; exit 21 after 3 failures so the stager relaunches |
+| 33 | Wedged agent holds the lock | restart | no second instance | State heartbeat older than 120 s lets the next launch kill the PID and reclaim the lock |
 
 ## Delete and channel lifecycle
 
@@ -44,6 +47,20 @@ Ordered by likelihood. Every entry is contained by design unless stated.
   same channel name or delete the victim and re-link.
 - Deleting an artifact removes the extracted directory, the container file, its
   wallets and screenshots, and writes an audit row.
+
+## Retention and disk space
+
+- The worker runs a retention pass every 10 minutes. Expired uploads, failed
+  artifacts older than `FAILED_ARTIFACT_RETENTION_DAYS` (7), orphan
+  `data/artifacts/discord/*` files and orphan `DiscordPart` rows are removed
+  together with their directories.
+- Keylogs (`KEYLOG_RETENTION_DAYS`, 30), clipboard (`CLIPBOARD_RETENTION_DAYS`,
+  14) and non-seed events (`EVENT_RETENTION_DAYS`, 90) are pruned. Seed events
+  are kept until the victim is deleted.
+- Deleting an artifact removes its extracted directory, container, wallets and
+  screenshots immediately; do not rely on retention for a manual cleanup.
+- `data/artifacts/uploads` only holds in-flight uploads; completed ones move to
+  the artifact directory.
 
 ## Deliberately not retried
 

