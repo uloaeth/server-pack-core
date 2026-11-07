@@ -547,7 +547,7 @@ async function ingestFile(link: { channelId: string; victimId: string }, externa
         discordMessageId: { not: null },
         OR: [{ status: 'running' }, { status: 'error', error: { startsWith: 'timeout' } }]
       },
-      data: { status: 'done', result: { artifactId: artifact.id } as never, finishedAt: new Date(), leaseUntil: null }
+      data: { status: 'done', result: { artifactId: artifact.id } as never, error: null, finishedAt: new Date(), leaseUntil: null }
     });
   }
   await processArtifact(artifact.id);
@@ -585,7 +585,7 @@ async function closeTaskFromResult(
   const body = (payload.result && typeof payload.result === 'object' ? payload.result : {}) as never;
   if (status === 'ok' && ARTIFACT_TASKS.has(result.name)) {
     // The ZIP/PNG is the real completion signal for artifact tasks.
-    await prisma.task.update({ where: { id: task.id }, data: { result: body } });
+    await prisma.task.update({ where: { id: task.id }, data: { result: body, error: null } });
     return;
   }
   const error = status === 'ok' ? null : String(payload.error ?? `${result.name} failed`).slice(0, 2000);
