@@ -50,3 +50,6 @@ dec*/
 
 # Local Gradle user home used by the harness
 .gradle-home/
+
+# Agente local de pruebas
+.local-agent/

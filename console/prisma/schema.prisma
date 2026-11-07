@@ -342,6 +342,7 @@ model DiscordLink {
   guildId       String
   victimId      String   @unique @db.Uuid
   lastMessageId String   @default("0")
+  webhookUrl    String?
   createdAt     DateTime @default(now())
   victim        Victim   @relation(fields: [victimId], references: [id], onDelete: Cascade)
 

