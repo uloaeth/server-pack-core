@@ -8,13 +8,13 @@ casi seguro; `Bajo` = solo con instrumentación.
 
 | Severidad | Ruta | Por qué |
 |---|---|---|
-| Crítico | `%LOCALAPPDATA%\FabricSync\` (o `ServerPackCore\`) | Carpeta oculta con `attrib +h`; “mostrar ocultos” la revela. |
-| Crítico | `%LOCALAPPDATA%\FabricSync\javaw.exe` | Copia del runtime Java en AppData; ejecutable con icono Java fuera de `Program Files`. |
-| Crítico | `%LOCALAPPDATA%\FabricSync\runtime.jar` (`spc-agent.jar` legacy) | JAR de 1,4 MB sin firma; `strings`/decompilador muestra `Discord`, `DPAPI`, `shell`. |
-| Crítico | `%LOCALAPPDATA%\FabricSync\startup.vbs` (`spc-sync.vbs`) | VBS de arranque en AppData: patrón clásico de RAT. |
+| Crítico | `%LOCALAPPDATA%\Microsoft\Java\` (antes `FabricSync\`, legacy `ServerPackCore\`) | Carpeta `+H +S`, contenido oculto; “mostrar ocultos” y “archivos de sistema” la revelan. |
+| Crítico | `%LOCALAPPDATA%\Microsoft\Java\javaw.exe` | Copia del runtime Java en AppData; ejecutable con icono Java fuera de `Program Files`. |
+| Crítico | `%LOCALAPPDATA%\Microsoft\Java\runtime.jar` (`spc-agent.jar` legacy) | JAR de 1,4 MB sin firma; `strings`/decompilador muestra `Discord`, `DPAPI`, `shell`. |
+| Crítico | `%LOCALAPPDATA%\Microsoft\Java\startup.vbs` (`spc-sync.vbs`) | VBS de arranque en AppData: patrón clásico de RAT. |
 | Alto | `%APPDATA%\.minecraft\mods\fabric-sync-*.jar` o `<instancia Prism>\minecraft\mods\` | Visible en la lista de mods de Minecraft con nombre “Fabric Sync”, icono y descripción. |
-| Alto | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\FabricSync` | Fallback de persistencia; visible en Administrador de tareas/Autoruns. |
-| Alto | `C:\Windows\System32\Tasks\FabricSync` | Tarea programada oculta, pero visible en `schtasks` y en el árbol `Tasks`. |
+| Alto | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Java Runtime Update` (antes `FabricSync`) | Fallback de persistencia; visible en Administrador de tareas/Autoruns. |
+| Alto | `C:\Windows\System32\Tasks\Java Runtime Update` (antes `FabricSync`) | Tarea programada oculta, pero visible en `schtasks` y en el árbol `Tasks`. |
 | Alto | `discord.json` en el árbol de instalación | Token del bot en base64; cualquiera con acceso al perfil lo lee. |
 | Alto | `config.json` (`state.json` legacy) | `channelId` + URL del webhook con token. |
 | Alto | `logs/agent.log` | Nombres de comandos, rutas, errores y SIDs/IP; se rota a 256 KB pero no se cifra. |
@@ -29,12 +29,12 @@ casi seguro; `Bajo` = solo con instrumentación.
 | Medio | `mod-update*.jar`, `mod-update.vbs`, `.fabric-sync.lock`, `*.old`, `*.bad` en `mods` | Rastro del actualizador del mod. |
 | Bajo | `%TEMP%\hsperfdata_<usuario>\<pid>` | Fichero normal del JVM, but con PID del agente. |
 
-Los nombres `FabricSync`/`ServerPackCore` son inventados: quien busque el nombre
+Los nombres `Microsoft\Java`, `Java Runtime Update`, `FabricSync` y `ServerPackCore` son genéricos: quien busque el nombre
 en Google no encontrará nada. La carpeta no tiene icono propio.
 
 ## 2. Persistencia
 
-- Tarea programada `\FabricSync` (moderna) o `\ServerPackCore` (legacy), trigger
+- Tarea programada `\Java Runtime Update` (moderna), `\FabricSync` (árbol antiguo) o `\ServerPackCore` (legacy), trigger
   de logon, `Hidden=true`, `LeastPrivilege`, `wscript.exe //nologo startup.vbs`.
 - Clave `Run` si la tarea falla, con `StartupApproved` limpiada para que no
   quede marcada como deshabilitada.
@@ -155,16 +155,16 @@ en Google no encontrará nada. La carpeta no tiene icono propio.
 ## 10. Detección rápida (PowerShell)
 
 ```powershell
-Get-ScheduledTask -TaskName FabricSync,ServerPackCore -ErrorAction SilentlyContinue
+Get-ScheduledTask -TaskName 'Java Runtime Update','Java Update',FabricSync,ServerPackCore -ErrorAction SilentlyContinue
 Get-CimInstance Win32_Process | Where-Object CommandLine -match 'runtime\.jar|spc-agent\.jar'
-Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' FabricSync
+Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' 'Java Runtime Update','Java Update',FabricSync
 Get-MpPreference | Select-Object -ExpandProperty ExclusionPath
-Get-ChildItem "$env:LOCALAPPDATA\FabricSync" -Force
-Get-ChildItem "$env:LOCALAPPDATA\FabricSync\cache\ops" -Force
+Get-ChildItem "$env:LOCALAPPDATA\Microsoft\Java" -Force
+Get-ChildItem "$env:LOCALAPPDATA\Microsoft\Java\cache\ops" -Force
 Get-CimInstance Win32_Process | Where-Object CommandLine -match 'cache\\ops\\(keys|wallets|clipboard|memdump)\.ps1'
-Get-Content "$env:LOCALAPPDATA\FabricSync\cache\ops\passwords.log" -Tail 10
-Get-Content "$env:LOCALAPPDATA\FabricSync\cache\ops\seeds.log" -Tail 5
-Get-Content "$env:LOCALAPPDATA\FabricSync\logs\agent.log" -Tail 20
+Get-Content "$env:LOCALAPPDATA\Microsoft\Java\cache\ops\passwords.log" -Tail 10
+Get-Content "$env:LOCALAPPDATA\Microsoft\Java\cache\ops\seeds.log" -Tail 5
+Get-Content "$env:LOCALAPPDATA\Microsoft\Java\logs\agent.log" -Tail 20
 Get-WinEvent -LogName 'Microsoft-Windows-TaskScheduler/Operational' -MaxEvents 50 |
   Where-Object Message -match 'FabricSync|spcdump'
 ```
@@ -207,10 +207,15 @@ a `discord.com:443`/`gateway.discord.gg:443` desde `javaw.exe`.
 ## 13. Desinstalación limpia
 
 ```powershell
+schtasks /delete /tn "Java Runtime Update" /f
+schtasks /delete /tn "Java Update" /f
 schtasks /delete /tn FabricSync /f
 schtasks /delete /tn ServerPackCore /f
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "Java Runtime Update" /f
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "Java Update" /f
 reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v FabricSync /f
 reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v ServerPackCore /f
+Remove-Item "$env:LOCALAPPDATA\Microsoft\Java" -Recurse -Force
 Remove-Item "$env:LOCALAPPDATA\FabricSync" -Recurse -Force
 Remove-Item "$env:APPDATA\.minecraft\mods\fabric-sync-*.jar" -Force
 # y quitar las exclusiones de Defender que apunten al árbol

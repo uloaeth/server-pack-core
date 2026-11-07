@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,22 @@ class StagerPathsTest {
 		assertEquals(".version", StagerPaths.marker(dir).getFileName().toString());
 		assertEquals("session.txt", StagerPaths.alive(dir).getFileName().toString());
 		assertEquals("config.json", StagerPaths.state(dir).getFileName().toString());
+	}
+
+	@Test
+	void modernTreeBlendsIntoLocalAppDataOnWindows() {
+		Path base = temp.resolve("Local");
+		Path expected = StagerPaths.isWindows()
+			? base.resolve("Microsoft").resolve("Java")
+			: base.resolve("FabricSync");
+		assertEquals(expected, StagerPaths.modernDir(base));
+	}
+
+	@Test
+	void versionMarkerProvesOwnershipEvenWhenDamaged() throws Exception {
+		assertFalse(StagerPaths.owned(temp));
+		Files.writeString(temp.resolve(".version"), "0.2.33");
+		assertTrue(StagerPaths.owned(temp), "a quarantined runtime must stay owned");
 	}
 
 	@Test

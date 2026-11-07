@@ -17,7 +17,7 @@ class AgentPathsTest {
 
 	@Test
 	void modernNamesArePlausible() {
-		Path dir = temp.resolve("FabricSync");
+		Path dir = temp.resolve("Microsoft").resolve("Java");
 		assertFalse(AgentPaths.legacy(dir));
 		assertEquals("runtime.lock", AgentPaths.lock(dir).getFileName().toString());
 		assertEquals("config.json", AgentPaths.state(dir).getFileName().toString());
@@ -26,7 +26,7 @@ class AgentPathsTest {
 		assertEquals("update-new.jar", AgentPaths.agentStaged(dir).getFileName().toString());
 		assertEquals("update.intent", AgentPaths.intent(dir).getFileName().toString());
 		assertEquals("logs/update.log", dir.relativize(AgentPaths.log(dir)).toString());
-		assertEquals("FabricSync", AgentPaths.task(dir));
+		assertEquals("Java Runtime Update", AgentPaths.task(dir));
 		assertEquals("startup.vbs", AgentPaths.launcher(dir).getFileName().toString());
 	}
 
@@ -47,7 +47,7 @@ class AgentPathsTest {
 
 	@Test
 	void modernTreeHasNoOldNames() throws Exception {
-		Path dir = temp.resolve("FabricSync");
+		Path dir = temp.resolve("Microsoft").resolve("Java");
 		Files.createDirectories(dir);
 		List<Path> names = List.of(
 			AgentPaths.lock(dir), AgentPaths.state(dir), AgentPaths.alive(dir), AgentPaths.marker(dir),

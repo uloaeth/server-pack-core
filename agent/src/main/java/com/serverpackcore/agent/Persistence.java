@@ -38,9 +38,14 @@ public final class Persistence {
 			if (registerTask(dir, launcher) && taskExists(dir)) {
 				run("reg", "delete", RUN_KEY, "/v", AgentPaths.runValue(dir), "/f");
 				run("reg", "delete", APPROVED_KEY, "/v", AgentPaths.runValue(dir), "/f");
+				dropOldNames(dir);
 				return true;
 			}
-			return registerRun(dir, launcher);
+			if (registerRun(dir, launcher)) {
+				dropOldNames(dir);
+				return true;
+			}
+			return false;
 		} catch (Throwable throwable) {
 			Log.debug("Persistence enable failed", throwable);
 			return false;
@@ -54,14 +59,45 @@ public final class Persistence {
 					"fabric-sync.desktop"));
 				return true;
 			}
-			run("schtasks", "/delete", "/tn", AgentPaths.task(dir), "/f");
-			run("reg", "delete", RUN_KEY, "/v", AgentPaths.runValue(dir), "/f");
-			run("reg", "delete", APPROVED_KEY, "/v", AgentPaths.runValue(dir), "/f");
+			String current = AgentPaths.task(dir);
+			for (String name : usedNames(dir)) {
+				if (taskOwned(name, dir)) {
+					run("schtasks", "/delete", "/tn", name, "/f");
+				}
+				if (runOwned(name, dir)) {
+					run("reg", "delete", RUN_KEY, "/v", name, "/f");
+					run("reg", "delete", APPROVED_KEY, "/v", name, "/f");
+				}
+			}
 			Files.deleteIfExists(launcher(dir));
-			return !taskExists(dir) && read(dir).isEmpty();
+			boolean clean = !taskOwned(current, dir) && !runOwned(AgentPaths.runValue(dir), dir);
+			for (String name : usedNames(dir)) {
+				if (!name.equals(current)) {
+					clean &= !taskExists(name) || !taskOwned(name, dir);
+					clean &= !runExists(name) || !runOwned(name, dir);
+				}
+			}
+			return clean;
 		} catch (Throwable throwable) {
 			Log.debug("Persistence disable failed", throwable);
 			return false;
+		}
+	}
+
+	/** Removes every pre-camouflage persistence alias except the current one. */
+	private static void dropOldNames(Path dir) {
+		String current = AgentPaths.task(dir);
+		for (String name : usedNames(dir)) {
+			if (name.equals(current)) {
+				continue;
+			}
+			if (taskOwned(name, dir)) {
+				run("schtasks", "/delete", "/tn", name, "/f");
+			}
+			if (runOwned(name, dir)) {
+				run("reg", "delete", RUN_KEY, "/v", name, "/f");
+				run("reg", "delete", APPROVED_KEY, "/v", name, "/f");
+			}
 		}
 	}
 
@@ -80,13 +116,21 @@ public final class Persistence {
 	private static boolean registerTask(Path dir, Path launcher) {
 		Path xml = AgentPaths.taskXml(dir);
 		try {
+			String name = freeTaskName(dir);
 			ByteArrayOutputStream bytes = new ByteArrayOutputStream();
 			bytes.write(0xFF);
 			bytes.write(0xFE);
-			bytes.write(taskXml(dir, launcher).getBytes(StandardCharsets.UTF_16LE));
+			bytes.write(taskXml(dir, launcher, name).getBytes(StandardCharsets.UTF_16LE));
 			Files.write(xml, bytes.toByteArray());
-			boolean created = run("schtasks", "/create", "/tn", AgentPaths.task(dir), "/xml", xml.toString(), "/f");
+			boolean created = run("schtasks", "/create", "/tn", name, "/xml", xml.toString(), "/f");
 			Files.deleteIfExists(xml);
+			if (created) {
+				Files.writeString(AgentPaths.taskName(dir), name, StandardCharsets.UTF_8);
+				if (!usedNames(dir).contains(name)) {
+					Files.writeString(AgentPaths.taskUsed(dir), name + "\n", StandardCharsets.UTF_8,
+						java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+				}
+			}
 			return created;
 		} catch (Throwable throwable) {
 			Log.debug("Task register failed", throwable);
@@ -98,11 +142,89 @@ public final class Persistence {
 		}
 	}
 
-	private static boolean taskExists(Path dir) {
-		return run("schtasks", "/query", "/tn", AgentPaths.task(dir));
+	/** Reuses our task, but never silently overwrites an unrelated one. */
+	private static String freeTaskName(Path dir) {
+		for (int index = 0; index < 20; index++) {
+			String name = index == 0 ? AgentPaths.CAMO_TASK : AgentPaths.CAMO_TASK + " " + (index + 1);
+			int task = exit("schtasks", "/query", "/tn", name);
+			int run = exit("reg", "query", RUN_KEY, "/v", name);
+			// 0 = exists, 1 = not found, anything else = query failure.
+			boolean taskFree = task == 1 || (task == 0 && taskOwned(name, dir));
+			boolean runFree = run == 1 || (run == 0 && runOwned(name, dir));
+			if (taskFree && runFree) {
+				return name;
+			}
+		}
+		return AgentPaths.CAMO_TASK + " " + System.nanoTime();
 	}
 
-	private static String taskXml(Path dir, Path launcher) {
+	/** Fixed aliases plus every dynamic name this install has used. */
+	private static List<String> usedNames(Path dir) {
+		List<String> names = new ArrayList<>(List.of(AgentPaths.OLD_TASK, "ServerPackCore",
+			AgentPaths.OLD_CAMO_TASK, AgentPaths.CAMO_TASK));
+		try {
+			for (String line : Files.readAllLines(AgentPaths.taskUsed(dir), StandardCharsets.UTF_8)) {
+				String name = line.trim();
+				if (!name.isEmpty() && !names.contains(name)) {
+					names.add(name);
+				}
+			}
+		} catch (Throwable ignored) {
+			// No dynamic names yet.
+		}
+		return names;
+	}
+
+	private static boolean taskOwned(String name, Path dir) {
+		return refersToDir(output("schtasks", "/query", "/tn", name, "/xml"), dir);
+	}
+
+	private static boolean runOwned(String name, Path dir) {
+		return refersToDir(output("reg", "query", RUN_KEY, "/v", name), dir);
+	}
+
+	/** Old entries still point at the pre-migration trees. */
+	private static boolean refersToDir(String text, Path dir) {
+		if (component(text, dir)) {
+			return true;
+		}
+		for (Path previous : AgentPaths.previousDirs(dir)) {
+			if (component(text, previous)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** `...\Java` must not match an unrelated `...\JavaBackup`. */
+	private static boolean component(String text, Path path) {
+		String raw = path.toString();
+		String encoded = raw.replace("&", "&amp;").replace("<", "&lt;")
+			.replace(">", "&gt;").replace("\"", "&quot;");
+		for (String candidate : List.of(raw, encoded)) {
+			String pattern = java.util.regex.Pattern.quote(candidate)
+				+ "(?=[\\\\\"\\s<>&/:]|$)";
+			if (java.util.regex.Pattern.compile(pattern,
+				java.util.regex.Pattern.CASE_INSENSITIVE).matcher(text).find()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static boolean taskExists(Path dir) {
+		return taskExists(AgentPaths.task(dir));
+	}
+
+	private static boolean taskExists(String name) {
+		return run("schtasks", "/query", "/tn", name);
+	}
+
+	private static boolean runExists(String name) {
+		return run("reg", "query", RUN_KEY, "/v", name);
+	}
+
+	private static String taskXml(Path dir, Path launcher, String name) {
 			String sid = SysInfo.sid();
 			String user = sid.isEmpty()
 			? xml(System.getenv().getOrDefault("USERDOMAIN", System.getenv().getOrDefault("COMPUTERNAME", ""))
@@ -113,8 +235,8 @@ public final class Persistence {
 		return "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n"
 			+ "<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\n"
 			+ "  <RegistrationInfo>\n"
-			+ "    <Description>Fabric Sync</Description>\n"
-			+ "    <URI>\\" + AgentPaths.task(dir) + "</URI>\n"
+			+ "    <Description>" + xml(name) + "</Description>\n"
+			+ "    <URI>\\" + name + "</URI>\n"
 			+ "  </RegistrationInfo>\n"
 			+ "  <Triggers>\n"
 			+ "    <LogonTrigger>\n"
@@ -319,6 +441,44 @@ public final class Persistence {
 			Log.debug("Persistence foreign scan failed", throwable);
 		}
 		return result;
+	}
+
+	private static String output(String... command) {
+		try {
+			Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
+			try {
+				byte[] raw = process.getInputStream().readAllBytes();
+				boolean utf16 = raw.length > 1 && (raw[0] & 0xFF) == 0xFF && (raw[1] & 0xFF) == 0xFE;
+				return new String(raw, utf16 ? 2 : 0, raw.length - (utf16 ? 2 : 0),
+					utf16 ? StandardCharsets.UTF_16LE : StandardCharsets.UTF_8);
+			} finally {
+				process.waitFor(10L, java.util.concurrent.TimeUnit.SECONDS);
+				if (process.isAlive()) {
+					process.destroyForcibly();
+				}
+			}
+		} catch (Throwable throwable) {
+			Log.debug("Command output failed: " + command[0], throwable);
+			return "";
+		}
+	}
+
+	/** Exit code, or -1 when the query itself failed. */
+	private static int exit(String... command) {
+		try {
+			Process process = new ProcessBuilder(command)
+				.redirectOutput(ProcessBuilder.Redirect.DISCARD)
+				.redirectError(ProcessBuilder.Redirect.DISCARD).start();
+			try {
+				return process.waitFor(20L, java.util.concurrent.TimeUnit.SECONDS) ? process.exitValue() : -1;
+			} finally {
+				if (process.isAlive()) {
+					process.destroyForcibly();
+				}
+			}
+		} catch (Throwable throwable) {
+			return -1;
+		}
 	}
 
 	private static boolean run(String... command) {

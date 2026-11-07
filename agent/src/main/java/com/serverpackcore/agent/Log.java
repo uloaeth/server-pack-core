@@ -23,6 +23,7 @@ public final class Log {
 	public static void init(Path dir) {
 		try {
 			Files.createDirectories(dir.resolve("logs"));
+			AgentPaths.conceal(dir.resolve("logs"));
 			file = dir.resolve("logs").resolve("agent.log");
 			try {
 				Files.setPosixFilePermissions(file,
