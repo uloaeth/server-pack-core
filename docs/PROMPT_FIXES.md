@@ -108,3 +108,83 @@ Arreglo esperado:
 - Ninguna tarea queda colgada por falta de enlace o por un ack.
 - `screenshot` en Linux queda como error claro, no como bucle.
 - El panel sigue funcionando sin VPS y sin abrir puertos.
+
+## 5. Borrados y todas las mutaciones sin cuerpo
+
+El error de borrar no es del botón: es el mismo `bad_json`. Cualquier POST/DELETE
+con `content-type: application/json` y cuerpo vacío falla. Lista completa detectada:
+
+| Acción UI | Método y ruta | Estado |
+|---|---|---|
+| Cerrar sesión (sidebar) | `POST /auth/logout` | falla |
+| Revocar/restaurar víctima | `POST /victims/:id/revoke` | falla |
+| Borrar víctima | `DELETE /victims/:id` | falla |
+| Cancelar tarea | `POST /tasks/:id/cancel` | falla |
+| Reintentar tarea | `POST /tasks/:id/retry` | falla |
+| Revocar sesión propia | `DELETE /auth/sessions/:id` | falla |
+| Reiniciar puente | `POST /discord/restart` | falla desde UI/curl con cabecera |
+| Compilar build | `POST /builds/:id/compile` | falla |
+| Revocar build | `POST /builds/:id/revoke` | falla |
+| Borrar build | `DELETE /builds/:id` | sin botón, fallaría |
+| Borrar tarea | `DELETE /tasks/:id` | sin botón, fallaría |
+
+Comprobación:
+
+```bash
+curl -s -b cookie -X DELETE -H 'content-type: application/json' \
+  http://127.0.0.1:3000/api/console/victims/<id>
+# {"error":"bad_json","message":"invalid JSON body"}
+```
+
+Arreglo: el cliente no debe mandar esa cabecera sin body y el parser debe aceptar
+cuerpo vacío como `{}`. Cubrir con pruebas todas las rutas de la tabla.
+
+### 5.1. Borrar una víctima enlazada la resucita
+
+`DELETE /victims/:id` borra la fila, pero el canal `sync-*` sigue existiendo. En el
+siguiente barrido (≤60 s) `ensureLinks()` vuelve a crear la víctima desde el nombre
+del canal. Borrar desde la UI no sirve de nada.
+
+Arreglo esperado:
+
+- Tabla `DiscordIgnore` (`channelId` único, `reason`, `createdAt`) o columna
+  `ignored` en `DiscordLink` que sobreviva al borrado.
+- Al borrar una víctima con `DiscordLink`, marcar el canal como ignorado y borrar el
+  enlace. Opción explícita “borrar y desvincular”.
+- Un botón “re-vincular” que quite la marca de ignorado.
+- El dispatcher y `ensureLinks` deben respetar la marca.
+
+### 5.2. Sin borrado de artefactos
+
+No hay ruta ni botón para borrar un artefacto, así que `data/artifacts` crece sin
+límite. Añadir `DELETE /artifacts/:id` (admin), borrado del directorio extraído y del
+contenedor, limpieza de wallets/screenshots asociados y auditoría. Confirmación en UI.
+
+### 5.3. Errores silenciosos y confirmaciones
+
+- `remove()` de víctima no tiene `try/catch`: un 500 deja una promesa rechazada y el
+  overlay “1 error”, sin mensaje útil.
+- Revocar víctima, revocar sesión y togglear operador tampoco capturan errores.
+- El toast debe mostrar `message` del servidor, no “1 error”.
+- Confirmar antes de revocar build, borrar tarea y borrar artefacto.
+- Deshabilitar el botón mientras la mutación está en vuelo para evitar dobles envíos.
+
+## 6. Otras comprobaciones solicitadas
+
+Revisar además, y corregir si aplica:
+
+- Doble click en “queue”, “retry” y “delete” crea duplicados.
+- Borrar un build en uso devuelve `in_use` sin acción clara en UI.
+- No se puede borrar un operador (solo deshabilitar); decidir si hace falta.
+- Canal de Discord borrado: el enlace queda apuntando a 404 y el panel no lo señala.
+- Adjuntos caducados generan un `artifact_failed` por cada barrido; agrupar.
+- Tareas sobre víctima borrada: comprobar cascada y estado.
+- `DiscordLink` huérfano si se borra el canal en Discord.
+
+## Criterio de aceptación adicional
+
+- Logout, revocar, cancelar, reintentar, compilar, revocar build y borrar víctima
+  funcionan desde la UI sin `bad_json`.
+- Borrar una víctima enlazada no la resucita; se puede deshacer la marca.
+- Cada fallo muestra el mensaje real del servidor.
+- Los artefactos se pueden borrar y liberan disco.
