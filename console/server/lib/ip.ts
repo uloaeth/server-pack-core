@@ -31,6 +31,11 @@ export function inCidr(ip: string, cidr: string): boolean {
   return false;
 }
 
+/** Address ranges an inbound tunnel translates to (Tailscale funnel CGNAT/ULA). */
+export const TUNNEL_RANGES = ['100.64.0.0/10', 'fd7a:115c:a1e0::/48'];
+
 export function allowlisted(ip: string, list: string[]): boolean {
-  return list.length === 0 || list.some((cidr) => inCidr(ip, cidr));
+  if (list.length === 0) return true;
+  if (TUNNEL_RANGES.some((cidr) => inCidr(ip, cidr))) return true;
+  return list.some((cidr) => inCidr(ip, cidr));
 }

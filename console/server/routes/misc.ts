@@ -213,15 +213,24 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
 
 };
 
-export const wsGuard = async (request: import('fastify').FastifyRequest) => {
+export const wsGuard = async (socket: import('ws').WebSocket, request: import('fastify').FastifyRequest): Promise<boolean> => {
   const { verifySession, COOKIE } = await import('../lib/jwt');
   const { allowlisted, clientIp } = await import('../lib/ip');
+  const deny = (reason: string): boolean => {
+    try {
+      socket.close(4401, reason);
+    } catch {
+      // already closing
+    }
+    return false;
+  };
   const ip = clientIp(request.headers, request.socket.remoteAddress ?? '', env.TRUST_PROXY);
-  if (!allowlisted(ip, env.allowlist)) return;
+  if (!allowlisted(ip, env.allowlist)) return deny('ip_not_allowlisted');
   const token = request.cookies[COOKIE];
-  if (!token) return;
-  const claims = await verifySession(token);
-  if (!claims) return;
+  if (!token) return deny('no_session');
+  const claims = await verifySession(token).catch(() => null);
+  if (!claims) return deny('bad_session');
   const session = await prisma.session.findUnique({ where: { id: claims.sid } });
-  if (!session || session.revokedAt || session.expiresAt < new Date()) return;
+  if (!session || session.revokedAt || session.expiresAt < new Date()) return deny('expired_session');
+  return true;
 };

