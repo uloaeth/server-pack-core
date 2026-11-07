@@ -81,6 +81,60 @@ components:
         total_size: {type: integer, maximum: 536870912}
         chunk_count: {type: integer, minimum: 1}
         sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+    WsTicketResponse:
+      type: object
+      required: [ticket, expires_in, handshake_nonce, device_id]
+      description: Single-use ticket for the control WebSocket. See ws.md §2.
+      properties:
+        ticket: {type: string, pattern: '^[A-Za-z0-9_-]{43}$'}
+        expires_in: {type: integer, const: 30}
+        handshake_nonce: {type: string, pattern: '^[A-Za-z0-9_-]{22}$'}
+        device_id: {type: string, format: uuid}
+    WsCloseCode:
+      type: integer
+      enum: [1000, 4400, 4401, 4403, 4408, 4409, 4429, 4500]
+      description: Control-channel close codes. See ws.md §7.1.
+    WsFrame:
+      type: object
+      description: One signed UTF-8 control frame. Type fields are top-level; the full schema is contract/v1/ws-schemas.json.
+      required: [v, id, seq, ts, type, nonce, data, sig]
+      properties:
+        v: {type: integer, const: 1}
+        id: {type: string, format: uuid}
+        seq: {type: integer, minimum: 1, maximum: 9007199254740991}
+        ts: {type: integer, description: Unix seconds}
+        type: {type: string, enum: [hello, hello_ok, cmd, result, event, ack, ping, pong, bye]}
+        nonce: {type: string, pattern: '^[A-Za-z0-9_-]{22}$'}
+        reply_to: {type: string, format: uuid}
+        name: {type: string}
+        args: {type: object}
+        task_id: {type: string, format: uuid}
+        timeout_ms: {type: integer, minimum: 1, maximum: 300000, default: 30000}
+        body:
+          type: object
+          description: Literal CryptoModule result body.
+          required: [status, result]
+          properties:
+            status: {type: string, enum: [ok, error, cancelled]}
+            error: {type: [string, "null"]}
+            result: {type: object}
+            artifacts: {type: array, items: {type: object}}
+        kind: {type: string}
+        data: {type: object}
+        legacy: {type: string}
+        hostname: {type: string}
+        user: {type: string}
+        os: {type: string}
+        agent: {type: string}
+        public_ip: {type: string}
+        path: {type: string}
+        first: {type: boolean}
+        expect_seq_in: {type: integer, minimum: 0}
+        expect_seq_out: {type: integer, minimum: 0}
+        server_time: {type: integer}
+        code: {type: integer}
+        reason: {type: string}
+        sig: {type: string, pattern: '^[A-Za-z0-9_-]{43}$'}
 paths:
   /enroll:
     post:
@@ -172,3 +226,40 @@ paths:
       responses:
         "200": {description: Queued for processing}
         "409": {description: hash_or_offset_mismatch}
+  /ws-ticket:
+    post:
+      summary: Issue a single-use control WebSocket ticket
+      description: >
+        Signed with the normal VictimHmac scheme over an empty body. The ticket is
+        single-use, expires in 30 s, is bound to the authenticated device and is
+        exempt from the global 600/min limit (12/min per device). See ws.md §2.
+      security: [{VictimHmac: []}]
+      responses:
+        "201":
+          description: Ticket issued
+          content: {application/json: {schema: {$ref: '#/components/schemas/WsTicketResponse'}}}
+        "401": {description: bad_signature, clock_skew or replay, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        "403": {description: revoked, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        "429": {description: rate_limited, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /ws:
+    get:
+      summary: Upgrade to the control WebSocket
+      description: >
+        WebSocket upgrade (RFC 6455). The ticket travels in the query and is consumed
+        during the upgrade; the panel then sends `hello_ok` or closes with 4401.
+        Frames are UTF-8 JSON following ws.md; artifacts stay on the HTTP endpoints.
+        The response body after 101 is not modelled by OpenAPI.
+      parameters:
+        - {name: ticket, in: query, required: true, schema: {type: string, pattern: '^[A-Za-z0-9_-]{43}$'}}
+        - {name: device_id, in: query, required: true, schema: {type: string, format: uuid}}
+        - {name: expect_seq_in, in: query, required: false, schema: {type: integer, minimum: 0, maximum: 9007199254740991, default: 0}}
+        - {name: Sec-WebSocket-Protocol, in: header, required: false, schema: {type: string, example: spc-ws.v1}}
+      responses:
+        "101":
+          description: >
+            Switching protocols. First server frame is a signed `hello_ok`; unusable,
+            expired, reused or foreign ticket closes with 4401, revoked devices with 4403,
+            a newer connection for the same device closes the old one with 4409.
+            `expect_seq_in` absent means 0.
+        "401": {description: Request is not a valid WebSocket upgrade}
+        "426": {description: Upgrade required; not a close code and does not trigger backoff}
