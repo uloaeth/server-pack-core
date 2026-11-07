@@ -45,7 +45,14 @@ public final class AgentPaths {
 		}
 		Path legacy = base.resolve(LEGACY_DIR);
 		if (!os.contains("win")) {
-			return base.resolve(OLD_TASK);
+			Path modern = base.resolve(OLD_TASK);
+			if (owned(modern)) {
+				return modern;
+			}
+			if (owned(legacy)) {
+				return legacy;
+			}
+			return Files.isDirectory(modern) ? modern : legacy;
 		}
 		Path modern = base.resolve(CAMO_PARENT).resolve(CAMO_DIR);
 		if (Files.isDirectory(legacy) && owned(legacy)) {
