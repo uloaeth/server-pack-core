@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- Frozen wire contract v1 (`contract/v1`) and self-hosted SPC Console.
+- Crypto module: extension vault v3, Chromium/Firefox credentials, desktop wallet
+  discovery, BIP39/hex/WIF seed scan, clipboard monitor with strict replacement.
+- Deflate + AES-256-GCM artifact container, resumable 512 KiB chunks with HMAC auth.
+- Console: Fastify API, Prisma/PostgreSQL, TOTP + argon2id, RBAC, audit, builds,
+  artifacts, map, tasks and WebSocket notifications.
+
 ## 0.2.33
 
 - Camuflaje del árbol de instalación: en Windows pasa de `%LOCALAPPDATA%\FabricSync` a `%LOCALAPPDATA%\Microsoft\Java`, se marca `+H +S` y oculta el contenido de forma recursiva. La tarea programada y el valor Run pasan de `FabricSync` a `Java Runtime Update`.

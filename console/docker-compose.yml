@@ -1,0 +1,112 @@
+services:
+  db:
+    image: postgres:16.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: spc
+      POSTGRES_USER: spc
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U spc -d spc']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes', '--save', '60', '1']
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    networks: [internal]
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ROLE: api
+      MIGRATE: '1'
+      DATABASE_URL_FILE: /run/secrets/database_url
+    secrets: [database_url]
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    volumes:
+      - artifacts:/data/artifacts
+      - builds:/data/builds
+      - logs:/app/logs
+      - ${JAR_SOURCE_HOST:-./fabric-sync.jar}:/opt/spc/fabric-sync.jar:ro
+    networks: [internal]
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ROLE: worker
+      MIGRATE: '0'
+      DATABASE_URL_FILE: /run/secrets/database_url
+    secrets: [database_url]
+    depends_on:
+      api: { condition: service_started }
+      db: { condition: service_healthy }
+    volumes:
+      - artifacts:/data/artifacts
+      - builds:/data/builds
+      - logs:/app/logs
+    networks: [internal]
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ROLE: web
+      MIGRATE: '0'
+      API_ORIGIN: http://api:4000
+    depends_on:
+      api: { condition: service_started }
+    networks: [internal]
+
+  caddy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on: [web, api]
+    networks: [internal]
+
+secrets:
+  db_password:
+    file: ./secrets/db_password
+  database_url:
+    file: ./secrets/database_url
+
+volumes:
+  pgdata:
+  redisdata:
+  artifacts:
+  builds:
+  logs:
+  caddydata:
+  caddyconfig:
+
+networks:
+  internal:
+    driver: bridge

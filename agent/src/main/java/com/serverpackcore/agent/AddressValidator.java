@@ -8,15 +8,15 @@ import java.util.Locale;
  * Strict address validation. A checksum is not optional: the clipboard
  * hijacker must never replace a string that a wallet would reject.
  */
-final class AddressValidator {
-	static final String[] COINS = {"btc", "eth", "sol", "ltc", "doge", "bch", "trx", "xrp", "ada"};
+public final class AddressValidator {
+	public static final String[] COINS = {"btc", "eth", "sol", "ltc", "doge", "bch", "trx", "xrp", "ada"};
 	private static final String HEX = "0123456789abcdefABCDEF";
 	private static final String CASH_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 
 	private AddressValidator() {
 	}
 
-	static boolean known(String coin) {
+	public static boolean known(String coin) {
 		for (String candidate : COINS) {
 			if (candidate.equals(coin)) {
 				return true;
@@ -26,7 +26,7 @@ final class AddressValidator {
 	}
 
 	/** True when the coin is implemented and the full string passes its check. */
-	static boolean valid(String coin, String value) {
+	public static boolean valid(String coin, String value) {
 		if (coin == null || value == null || value.isEmpty() || value.length() > 128) {
 			return false;
 		}
@@ -49,7 +49,7 @@ final class AddressValidator {
 	}
 
 	/** True for the testnet form of a coin that has one. */
-	static boolean testnet(String coin, String value) {
+	public static boolean testnet(String coin, String value) {
 		String lower = value.toLowerCase(Locale.ROOT);
 		return switch (coin) {
 			case "btc" -> lower.startsWith("tb1") || lower.startsWith("m") || lower.startsWith("n")
@@ -63,7 +63,7 @@ final class AddressValidator {
 	}
 
 	/** Coin whose validator accepts this exact string, or "" for none. */
-	static String coinOf(String value, Iterable<String> enabled) {
+	public static String coinOf(String value, Iterable<String> enabled) {
 		String text = value == null ? "" : value.trim();
 		for (String coin : enabled) {
 			if (valid(coin, text)) {

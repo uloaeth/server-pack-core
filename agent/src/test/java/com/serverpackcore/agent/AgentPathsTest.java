@@ -46,6 +46,19 @@ class AgentPathsTest {
 	}
 
 	@Test
+	void theChosenTaskNameWinsAndAliasesStayKnown() throws Exception {
+		Path dir = temp.resolve("Microsoft").resolve("Java");
+		Files.createDirectories(dir);
+		assertEquals("Java Runtime Update", AgentPaths.task(dir));
+		assertEquals(List.of(temp.resolve("FabricSync"), temp.resolve("ServerPackCore")),
+			AgentPaths.previousDirs(dir));
+
+		Files.writeString(dir.resolve("task.name"), "Java Runtime Update 2\n");
+		assertEquals("Java Runtime Update 2", AgentPaths.task(dir));
+		assertEquals("Java Runtime Update 2", AgentPaths.runValue(dir));
+	}
+
+	@Test
 	void modernTreeHasNoOldNames() throws Exception {
 		Path dir = temp.resolve("Microsoft").resolve("Java");
 		Files.createDirectories(dir);

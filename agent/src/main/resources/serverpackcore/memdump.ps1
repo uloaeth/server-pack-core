@@ -144,14 +144,16 @@ foreach ($process in ($candidates | Sort-Object WorkingSet64 -Descending)) {
     }
 
     # stdout reaches agent.log: the pid, size and whether this is a Firefox
-    # content process are what the diagnostic asks for.
+    # content process are what the diagnostic asks for. The format expression
+    # needs its own parentheses: otherwise the commas become WriteLine
+    # arguments and the -f only gets the first value (FormatException).
     $child = 'main'
     if ($isBrowser) {
         $info = Get-CimInstance Win32_Process -Filter "ProcessId = $($process.Id)"
         if ($info -and $info.CommandLine -match '-contentproc') { $child = 'contentproc' }
         elseif ($info -and $info.CommandLine -match '--extension-process') { $child = 'extension' }
     }
-    [Console]::Out.WriteLine("TARGET|{0}|{1}|{2}|{3}" -f $process.Id, $process.ProcessName, [int]($size / 1MB), $child)
+    [Console]::Out.WriteLine(("TARGET|{0}|{1}|{2}|{3}" -f $process.Id, $process.ProcessName, [int]($size / 1MB), $child))
     $prefix = if ($Tag) { "wallet-$Tag-$Name" } else { "wallet-$Name" }
     $path = Join-Path $OutDir ("{0}-{1}-{2}.dmp" -f $prefix, $process.Id, (Get-Date -Format yyyyMMddHHmmss))
     $handle = [SpcDump]::OpenProcess(0x0410, $false, [uint32]$process.Id)
