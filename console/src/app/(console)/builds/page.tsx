@@ -69,7 +69,7 @@ export default function BuildsPage() {
               <tbody>
                 {data!.items.map((build) => (
                   <TR key={build.id}>
-                    <TD className="text-xs">{build.name}</TD>
+                    <TD className="text-xs">{build.name}{build.universal ? <Badge tone="ok" className="ml-1">universal</Badge> : null}</TD>
                     <TD className="num">{build.version}</TD>
                     <TD><Badge tone={build.profile === 'lite' ? 'warn' : 'brand'}>{build.profile}</Badge></TD>
                     <TD className="font-mono text-2xs">{short(build.buildId)}</TD>

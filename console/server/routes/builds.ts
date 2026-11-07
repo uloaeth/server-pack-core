@@ -30,6 +30,7 @@ export const buildRoutes: FastifyPluginAsync = async (app) => {
         name: build.name,
         version: build.version,
         profile: build.profile,
+        universal: build.universal,
         buildId: build.buildId,
         token: buildToken(build.secret),
         status: build.status,

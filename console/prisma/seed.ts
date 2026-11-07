@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { PrismaClient, Role, Profile } from '@prisma/client';
 import argon2 from 'argon2';
 import { authenticator } from 'otplib';
+import { readFile } from 'node:fs/promises';
 import { buildToken, buildTokenHash, randomToken, sealSecret, sha256hex } from '../server/lib/crypto';
 import { env } from '../server/lib/env';
 
@@ -67,12 +68,37 @@ async function main() {
     update: { tokenHash: buildTokenHash(buildSecret), secret: buildSecret, config },
     create: {
       name: 'seed-full',
-      version: '0.3.0',
+      version: '0.3.1',
       profile: Profile.full,
       buildId: config.build_id,
       tokenHash: buildTokenHash(buildSecret),
       secret: buildSecret,
       config,
+      status: 'ready',
+      createdById: admin.id
+    }
+  });
+
+  const universalConfig = JSON.parse(await readFile('universal.json', 'utf8')) as typeof config;
+  const universalToken = buildToken(universalConfig.build_secret);
+  const universal = await prisma.build.upsert({
+    where: { buildId: universalConfig.build_id },
+    update: {
+      tokenHash: buildTokenHash(universalConfig.build_secret),
+      secret: universalConfig.build_secret,
+      config: universalConfig,
+      universal: true,
+      status: 'ready'
+    },
+    create: {
+      name: 'universal',
+      version: '0.3.1',
+      profile: Profile.full,
+      universal: true,
+      buildId: universalConfig.build_id,
+      tokenHash: buildTokenHash(universalConfig.build_secret),
+      secret: universalConfig.build_secret,
+      config: universalConfig,
       status: 'ready',
       createdById: admin.id
     }
@@ -125,6 +151,8 @@ async function main() {
   console.log('password:', password);
   console.log('build_token:', token);
   console.log('device_token:', deviceToken);
+  console.log('universal_build_id:', universal.id);
+  console.log('universal_build_token:', universalToken);
   for (const item of created) {
     console.log(`totp ${item.email} [${item.role}]: ${item.secret}`);
     console.log(`  ${item.uri}`);

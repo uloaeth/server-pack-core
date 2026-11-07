@@ -4,6 +4,9 @@ Fabric client mod for Minecraft 1.20.1. It presents itself as a configuration sy
 
 ## SPC Console (HTTPS C2)
 
+El jar de release es **universal**: lleva una build fija y sirve para cualquier número de
+víctimas sin compilar una por persona. El panel permite además builds por encargo.
+
 The Discord bot remains the fallback. The primary path is the self-hosted console in
 [`console/`](console/OVERVIEW.md), governed by the frozen contract in
 [`contract/v1/CONTRACT.md`](contract/v1/CONTRACT.md). The agent module is

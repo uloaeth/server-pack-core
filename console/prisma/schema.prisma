@@ -103,6 +103,7 @@ model Build {
   name        String
   version     String
   profile     Profile     @default(full)
+  universal   Boolean     @default(false)
   buildId     String      @unique @db.Uuid
   tokenHash   String      @unique
   secret      String
@@ -116,6 +117,7 @@ model Build {
   victims     Victim[]
 
   @@index([status, createdAt])
+  @@index([universal])
 }
 
 model Victim {

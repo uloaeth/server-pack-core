@@ -59,6 +59,10 @@ jobs:
         if: matrix.java == 21
         run: |
           VERSION=$(sed -n 's/^mod_version=//p' gradle.properties)
+          mkdir -p config-stage/serverpackcore
+          cp console/universal.json config-stage/serverpackcore/config.json
+          jar uf "build/libs/fabric-sync-${VERSION}.jar" -C config-stage serverpackcore/config.json
+          unzip -p "build/libs/fabric-sync-${VERSION}.jar" serverpackcore/config.json | grep -q '"build_id"'
           BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}"
           mkdir -p staging
           cp agent/build/libs/agent.jar "staging/agent-${VERSION}.jar"

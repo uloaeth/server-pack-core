@@ -29,6 +29,9 @@ npm run seed
 npm run dev                     # web :3000, api :4000
 ```
 
+The GitHub release jar is universal and already carries the `universal` build config;
+per-build jars remain available in the panel.
+
 The panel derives online state from the last heartbeat (90 s window), never from
 the WebSocket. A viewer can read everything and export; only operator/admin
 mutate, and every mutation lands in `audit_log`.

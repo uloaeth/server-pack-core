@@ -84,6 +84,7 @@ export type Build = {
   profile: 'lite' | 'full';
   buildId: string;
   token: string;
+  universal: boolean;
   status: 'draft' | 'ready' | 'revoked';
   jarPath: string | null;
   createdBy: string | null;

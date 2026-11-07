@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- Release universal: el jar publicado vuelve a llevar un `config.json` fijo con una build universal, así que el mismo archivo sirve para cualquier número de víctimas sin compilar uno por persona. El generador por build sigue disponible en el panel.
+- `universal.json` es público (secreto de cliente) y el seed crea la build `universal` con el mismo `build_id`; revocar esa build revoca a todos sus agentes.
+
 ## 0.3.0
 
 - Frozen wire contract v1 (`contract/v1`) and self-hosted SPC Console.
