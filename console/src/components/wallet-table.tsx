@@ -12,7 +12,7 @@ import { useCanWrite } from '@/components/live-provider';
 
 const tone = (state: string) => state === 'decrypted' ? 'ok' : state === 'locked' ? 'warn' : state === 'corrupt' ? 'bad' : 'default';
 
-export function WalletTable({ victimId, items, loading, refresh }: { victimId: string; items: Wallet[]; loading: boolean; refresh: () => void }) {
+export function WalletTable({ victimId, items, loading, refresh, linked = true }: { victimId: string; items: Wallet[]; loading: boolean; refresh: () => void; linked?: boolean }) {
   const [busy, setBusy] = useState('');
   const canWrite = useCanWrite();
   if (loading) return <SkeletonRows rows={6} cols={6} />;
@@ -45,7 +45,7 @@ export function WalletTable({ victimId, items, loading, refresh }: { victimId: s
             <TD className="num text-2xs text-muted">{dateTime(wallet.createdAt)}</TD>
             <TD>
               {wallet.state === 'locked' ? (
-                <Button size="sm" variant="secondary" loading={busy === wallet.id} disabled={!canWrite} onClick={() => crack(wallet)}><KeyRound className="h-3 w-3" /> crack</Button>
+                <Button size="sm" variant="secondary" title={linked ? undefined : 'Victim has no Discord channel'} loading={busy === wallet.id} disabled={!canWrite || !linked} onClick={() => crack(wallet)}><KeyRound className="h-3 w-3" /> crack</Button>
               ) : <Button size="icon" variant="ghost" onClick={refresh}><RefreshCw className="h-3 w-3" /></Button>}
             </TD>
           </TR>

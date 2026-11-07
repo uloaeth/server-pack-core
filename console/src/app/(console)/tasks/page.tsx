@@ -16,7 +16,7 @@ function TasksInner() {
   const params = useSearchParams();
   const status = params.get('status') ?? '';
   const [dialog, setDialog] = useState(false);
-  const victims = useApi<Page<Victim>>('/victims?status=online&limit=200');
+  const victims = useApi<Page<Victim>>('/victims?linked=1&limit=200');
   const [selected, setSelected] = useState<string[]>([]);
   const canWrite = useCanWrite();
 
@@ -33,7 +33,7 @@ function TasksInner() {
         </div>
         <Card>
           <div className="border-b border-line p-2">
-            <p className="mb-1 text-2xs uppercase tracking-wide text-muted">Online victims</p>
+            <p className="mb-1 text-2xs uppercase tracking-wide text-muted">Linked victims</p>
             <div className="flex max-h-24 flex-wrap gap-1 overflow-y-auto">
               {(victims.data?.items ?? []).map((victim) => (
                 <button
@@ -44,7 +44,7 @@ function TasksInner() {
                   {victim.hostname}
                 </button>
               ))}
-              {(victims.data?.items ?? []).length === 0 ? <span className="text-2xs text-muted">No online victims</span> : null}
+              {(victims.data?.items ?? []).length === 0 ? <span className="text-2xs text-muted">No Discord-linked victims</span> : null}
             </div>
           </div>
           <TaskList status={status || undefined} />

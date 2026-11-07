@@ -5,6 +5,7 @@ import { Download, RefreshCw } from 'lucide-react';
 import { useApi } from '@/hooks/useApi';
 import { Topbar } from '@/components/topbar';
 import { VictimFilters } from '@/components/victim-filters';
+import { IgnoredChannels } from '@/components/ignored-channels';
 import { VictimTable } from '@/components/victim-table';
 import { TaskDialog } from '@/components/task-dialog';
 import { Button } from '@/components/ui/button';
@@ -33,6 +34,7 @@ function VictimsInner() {
             <span className="font-mono text-2xs text-muted">{items.length} shown{data?.next ? ' · more available' : ''}</span>
           </div>
           <VictimFilters countries={Array.from(new Set(items.map((item) => item.country).filter(Boolean) as string[]))} />
+          <IgnoredChannels onRelinked={refresh} />
           {error ? <ErrorState message={error.message} retry={refresh} /> : (
             <VictimTable items={items} loading={loading} selected={selected} onSelect={setSelected} onBulk={() => setDialog(true)} />
           )}

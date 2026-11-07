@@ -19,6 +19,7 @@ export default function SettingsPage() {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sessionBusy, setSessionBusy] = useState('');
   const bridge = useApi<{ enabled: boolean; guild: string | null; polled: number; ingested: number; error: string | null }>('/discord/status', { pollMs: 15_000 });
 
   async function changePassword(event: React.FormEvent) {
@@ -36,8 +37,16 @@ export default function SettingsPage() {
   }
 
   async function revoke(id: string) {
-    await mutate(`/auth/sessions/${id}`, 'DELETE');
-    sessions.refresh();
+    setSessionBusy(id);
+    try {
+      await mutate(`/auth/sessions/${id}`, 'DELETE');
+      toast.success('Session revoked');
+      sessions.refresh();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 'revoke failed');
+    } finally {
+      setSessionBusy('');
+    }
   }
 
   return (
@@ -72,7 +81,7 @@ export default function SettingsPage() {
                 <span className="truncate text-muted">{session.userAgent ?? 'unknown client'}</span>
                 {session.current ? <Badge tone="ok">current</Badge> : null}
                 <span className="ml-auto text-2xs text-muted">until {dateTime(session.expiresAt)}</span>
-                <Button size="icon" variant="ghost" onClick={() => revoke(session.id)}><LogOut className="h-3 w-3" /></Button>
+                <Button size="icon" variant="ghost" title="revoke session" loading={sessionBusy === session.id} disabled={sessionBusy === session.id} onClick={() => revoke(session.id)}><LogOut className="h-3 w-3" /></Button>
               </div>
             ))}
           </CardContent>

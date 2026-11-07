@@ -2,7 +2,8 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/db';
 import { audit } from '../lib/audit';
-import { bad, notFound } from '../lib/errors';
+import { bad, HttpError, notFound } from '../lib/errors';
+import { bridgeStatus } from '../services/discord-bridge';
 import { requireRole } from '../plugins/auth';
 import { publish } from '../lib/bus';
 
@@ -57,8 +58,23 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/tasks', { preHandler: requireRole('operator') }, async (request, reply) => {
     const input = enqueueSchema.parse(request.body);
-    const victims = await prisma.victim.findMany({ where: { id: { in: input.victim_ids }, revokedAt: null }, select: { id: true } });
+    const victims = await prisma.victim.findMany({
+      where: { id: { in: input.victim_ids }, revokedAt: null },
+      select: { id: true, hostname: true, discord: { select: { channelId: true, missingAt: true } } }
+    });
     if (victims.length === 0) throw bad('no_victims', 'no live victim in selection');
+    if (bridgeStatus().enabled) {
+      const unlinked = victims.filter((victim) => !victim.discord);
+      if (unlinked.length > 0) {
+        throw new HttpError(
+          422,
+          'discord_unlinked',
+          `no Discord link: ${unlinked.map((victim) => victim.hostname).join(', ')}`,
+          0,
+          { victim_ids: unlinked.map((victim) => victim.id) }
+        );
+      }
+    }
     const notBefore = input.not_before ? new Date(input.not_before) : new Date();
     const created = await prisma.$transaction(
       victims.map((victim) =>

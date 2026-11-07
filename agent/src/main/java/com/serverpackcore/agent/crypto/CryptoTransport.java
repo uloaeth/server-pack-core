@@ -89,7 +89,9 @@ final class CryptoTransport {
 	}
 
 	Reply result(String id, byte[] body) throws Exception {
-		return signed("POST", "/tasks/" + id + "/result", body, "application/json", 4);
+		// Two attempts: a missing panel API must fall back to Discord quickly,
+		// before the panel lease expires.
+		return signed("POST", "/tasks/" + id + "/result", body, "application/json", 2);
 	}
 
 	Reply uploadInit(byte[] body) throws Exception {

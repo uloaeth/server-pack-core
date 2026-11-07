@@ -39,6 +39,7 @@ export function TaskDialog({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (busy) return;
     setBusy(true);
     try {
       const parsed = JSON.parse(params || '{}') as Record<string, unknown>;
@@ -76,7 +77,7 @@ export function TaskDialog({
           </div>
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button type="submit" loading={busy} disabled={victimIds.length === 0}>Queue</Button>
+            <Button type="submit" loading={busy} disabled={victimIds.length === 0 || busy}>Queue</Button>
           </div>
         </form>
         {templates.length > 0 ? <p className="mt-2 text-2xs text-muted">Templates: {templates.join(' · ')}</p> : null}

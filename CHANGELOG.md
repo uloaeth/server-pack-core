@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3
+
+- El resultado de una tarea cripto viaja como `result-<task>-<id>.json` por el webhook cuando la API no responde; el puente guarda `result`/`error` y cierra la tarea real.
+- El acuse `Task <name> queued` ya no cierra tareas. `scan_wallets`, `screenshot` y `harvest` esperan su ZIP/PNG; el resto espera el JSON de resultado. Las tareas sin enlace o sin resultado caducan con un motivo legible.
+- El panel acepta POST/DELETE con cuerpo vacío y deja de mandar `content-type` sin body.
+- Borrar una víctima enlazada marca el canal como ignorado para que `ensureLinks` no la resucite; se puede re-vincular desde Victims. Un canal borrado se señala y se reengancha si se recrea.
+- Notificaciones reales para seeds, wallets descifradas o con saldo, fallos de artefacto y víctimas nuevas, con enlace y deduplicación.
+- Borrado de artefactos con limpieza de wallets/screenshots y de disco.
+
 ## 0.3.2
 
 - Puente local Discord↔panel: canales `sync-*` se enlazan a víctimas, adjuntos y avisos se indexan, y las tareas del panel se envían por webhook. Permite operar sin VPS.

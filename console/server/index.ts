@@ -13,6 +13,7 @@ import { env } from './lib/env';
 import { HttpError } from './lib/errors';
 import { authenticate, sameOrigin } from './plugins/auth';
 import { allowlisted, clientIp } from './lib/ip';
+import { parseJsonBody } from './lib/http';
 import { authRoutes } from './routes/auth';
 import { agentRoutes } from './routes/agent';
 import { victimRoutes } from './routes/victims';
@@ -45,7 +46,7 @@ async function main() {
   app.addContentTypeParser('application/json', { parseAs: 'buffer', bodyLimit: 2 * 1024 * 1024 }, (request, body, done) => {
     (request as typeof request & { rawBody: Buffer }).rawBody = body as Buffer;
     try {
-      done(null, JSON.parse((body as Buffer).toString('utf8')));
+      done(null, parseJsonBody(body as Buffer));
     } catch {
       done(new HttpError(400, 'bad_json', 'invalid JSON body'), undefined);
     }

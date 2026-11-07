@@ -231,7 +231,7 @@ public final class CryptoModule {
 							String name = Json.str(map, "name", "");
 							if (id.isEmpty() || !SUPPORTED.contains(name)) {
 								if (!id.isEmpty()) {
-									postResult(id, "error", "unknown_task", Map.of());
+									postResult(new Task(id, name, Map.of(), 30), "error", "unknown_task", Map.of());
 								}
 								continue;
 							}
@@ -339,13 +339,13 @@ public final class CryptoModule {
 			try {
 				Map<String, Object> result = handle(task, cancel);
 				if (cancel.get()) {
-					postResult(task.id(), "cancelled", null, result);
+					postResult(task, "cancelled", null, result);
 				} else {
-					postResult(task.id(), "ok", null, result);
+					postResult(task, "ok", null, result);
 				}
 			} catch (Throwable throwable) {
 				warn("task " + task.name() + " failed", throwable);
-				postResult(task.id(), "error", throwable.getClass().getSimpleName() + ":" + shortMessage(throwable), Map.of());
+				postResult(task, "error", throwable.getClass().getSimpleName() + ":" + shortMessage(throwable), Map.of());
 			} finally {
 				active.remove(task.id());
 				cancels.remove(task.id());
@@ -1103,16 +1103,45 @@ public final class CryptoModule {
 		return null;
 	}
 
-	private void postResult(String id, String status, String error, Map<String, Object> result) {
+	private void postResult(Task task, String status, String error, Map<String, Object> result) {
+		Map<String, Object> body = new LinkedHashMap<>();
+		body.put("status", status);
+		body.put("error", error);
+		body.put("result", result);
+		body.put("artifacts", List.of());
+		byte[] json = CryptoUtil.utf8(Json.stringify(body));
 		try {
-			Map<String, Object> body = new LinkedHashMap<>();
-			body.put("status", status);
-			body.put("error", error);
-			body.put("result", result);
-			body.put("artifacts", List.of());
-			transport.result(id, CryptoUtil.utf8(Json.stringify(body)));
+			CryptoTransport.Reply reply = transport.result(task.id(), json);
+			if (reply.status() >= 200 && reply.status() < 300) {
+				return;
+			}
+			warn("result post rejected: " + reply.status(), null);
 		} catch (Throwable throwable) {
 			warn("result post failed", throwable);
+		}
+		postResultFallback(task, json);
+	}
+
+	/**
+	 * The panel task carries its own id, so an API result addressed to the local
+	 * task id is not enough in Discord mode. Upload the same JSON through the
+	 * channel webhook; the bridge closes the real task from it.
+	 */
+	private void postResultFallback(Task task, byte[] json) {
+		if (sink == null) {
+			return;
+		}
+		try {
+			Path dir = work.resolve("results");
+			Files.createDirectories(dir);
+			String name = task.name().replaceAll("[^a-z0-9_]", "_");
+			String id = task.id().replaceAll("[^A-Za-z0-9-]", "_");
+			Path file = dir.resolve("result-" + name + "-" + id + ".json");
+			Files.write(file, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+			sink.send("result", file);
+			log("result fallback sent: " + file.getFileName());
+		} catch (Throwable throwable) {
+			warn("result fallback failed", throwable);
 		}
 	}
 

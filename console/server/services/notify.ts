@@ -8,6 +8,9 @@ type NotifyInput = {
   body: string;
   victimId?: string | null;
   link?: string | null;
+  /** Collapses identical events (same seed, same failed attachment, …). */
+  dedupeKey?: string | null;
+  dedupeMs?: number;
 };
 
 let lastSent = 0;
@@ -18,13 +21,27 @@ function throttleKey(input: NotifyInput): string {
 }
 
 export async function notify(input: NotifyInput): Promise<void> {
+  if (input.dedupeKey) {
+    const since = new Date(Date.now() - (input.dedupeMs ?? 24 * 60 * 60 * 1000));
+    const existing = await prisma.notification.findFirst({
+      where: { dedupeKey: input.dedupeKey, createdAt: { gte: since } },
+      select: { id: true, readAt: true }
+    });
+    if (existing) {
+      if (existing.readAt) return;
+      // An unread duplicate still refreshes the badge for live viewers.
+      void publish({ type: 'notification', victimId: input.victimId ?? undefined, at: Date.now(), data: { id: existing.id, kind: input.kind, title: input.title } });
+      return;
+    }
+  }
   const notification = await prisma.notification.create({
     data: {
       kind: input.kind,
       title: input.title,
       body: input.body,
       victimId: input.victimId ?? null,
-      link: input.link ?? null
+      link: input.link ?? null,
+      dedupeKey: input.dedupeKey ?? null
     }
   });
   void publish({

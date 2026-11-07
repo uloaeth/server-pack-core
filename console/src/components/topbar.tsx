@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Bell, Command, Search, WifiOff, Wifi } from 'lucide-react';
 import { useApi, mutate } from '@/hooks/useApi';
 import { useHotkeys } from '@/hooks/useHotkeys';
+import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -25,10 +26,17 @@ export function Topbar({ title, subtitle }: { title: string; subtitle?: string }
   useHotkeys({ 'mod+k': () => setSearch((value) => !value), '/': () => setSearch(true), escape: () => { setSearch(false); setBell(false); } });
 
   useEffect(() => { if (query.trim().length > 1) router.prefetch('/victims'); }, [query, router]);
+  useEffect(() => {
+    if (events[0]?.type === 'notification') notifications.refresh();
+  }, [events[0]?.at]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function readAll() {
-    await mutate('/notifications/read', 'POST', { ids: [] });
-    notifications.refresh();
+    try {
+      await mutate('/notifications/read', 'POST', { ids: [] });
+      notifications.refresh();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 'failed');
+    }
   }
 
   return (

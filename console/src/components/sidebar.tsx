@@ -5,6 +5,7 @@ import {
   Activity, Boxes, Bug, ClipboardList, Cpu, FileClock, LayoutDashboard, LogOut, Network,
   ScrollText, Settings, ShieldCheck, Users, Wallet
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { cn } from '@/lib/cn';
 import { mutate } from '@/hooks/useApi';
 import type { Role } from '@/lib/types';
@@ -27,7 +28,12 @@ export function Sidebar({ email, role, version }: { email: string; role: Role; v
   const router = useRouter();
 
   async function logout() {
-    await mutate('/auth/logout', 'POST').catch(() => undefined);
+    try {
+      await mutate('/auth/logout', 'POST');
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 'logout failed');
+      return;
+    }
     router.push('/login');
     router.refresh();
   }

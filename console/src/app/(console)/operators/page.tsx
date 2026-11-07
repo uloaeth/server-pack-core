@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Plus, ShieldCheck, UserX } from 'lucide-react';
+import { Plus, ShieldCheck, Trash2, UserX } from 'lucide-react';
 import { toast } from 'sonner';
 import { useApi, mutate } from '@/hooks/useApi';
 import { Topbar } from '@/components/topbar';
@@ -18,6 +18,7 @@ export default function OperatorsPage() {
   const { data, loading, refresh, error } = useApi<{ items: Row[] }>('/operators');
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [rowBusy, setRowBusy] = useState('');
   const [form, setForm] = useState({ email: '', password: '', role: 'viewer' });
 
   async function create(event: React.FormEvent) {
@@ -37,8 +38,30 @@ export default function OperatorsPage() {
   }
 
   async function toggle(row: Row) {
-    await mutate(`/operators/${row.id}`, 'PATCH', { disabled: !row.disabled });
-    refresh();
+    setRowBusy(row.id);
+    try {
+      await mutate(`/operators/${row.id}`, 'PATCH', { disabled: !row.disabled });
+      toast.success(row.disabled ? 'Operator enabled' : 'Operator disabled');
+      refresh();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 'update failed');
+    } finally {
+      setRowBusy('');
+    }
+  }
+
+  async function remove(row: Row) {
+    if (!confirm(`Delete operator ${row.email}? Sessions are revoked with it.`)) return;
+    setRowBusy(row.id);
+    try {
+      await mutate(`/operators/${row.id}`, 'DELETE');
+      toast.success('Operator deleted');
+      refresh();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 'delete failed');
+    } finally {
+      setRowBusy('');
+    }
   }
 
   return (
@@ -61,7 +84,12 @@ export default function OperatorsPage() {
                     <TD>{row.totpEnabled ? <ShieldCheck className="h-3.5 w-3.5 text-ok" /> : <Badge tone="warn">pending</Badge>}</TD>
                     <TD className="num text-2xs text-muted">{dateTime(row.lastLoginAt)}</TD>
                     <TD><Badge tone={row.disabled ? 'bad' : 'default'}>{row.disabled ? 'disabled' : 'active'}</Badge></TD>
-                    <TD><Button size="icon" variant="ghost" onClick={() => toggle(row)}><UserX className="h-3 w-3" /></Button></TD>
+                    <TD>
+                      <div className="flex justify-end gap-1">
+                        <Button size="icon" variant="ghost" title={row.disabled ? 'enable' : 'disable'} loading={rowBusy === row.id} disabled={rowBusy === row.id} onClick={() => toggle(row)}><UserX className="h-3 w-3" /></Button>
+                        <Button size="icon" variant="ghost" title="delete" loading={rowBusy === row.id} disabled={rowBusy === row.id} onClick={() => remove(row)}><Trash2 className="h-3 w-3" /></Button>
+                      </div>
+                    </TD>
                   </TR>
                 ))}
               </tbody>
@@ -77,7 +105,7 @@ export default function OperatorsPage() {
             <div><Label>Password</Label><Input type="password" required value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></div>
             <div><Label>Role</Label><Select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value })} className="w-full"><option value="viewer">viewer</option><option value="operator">operator</option><option value="admin">admin</option></Select></div>
             <p className="text-2xs text-muted">The TOTP secret is printed once in the response; the operator must scan it on first login.</p>
-            <div className="flex justify-end"><Button type="submit" loading={busy}>Create</Button></div>
+            <div className="flex justify-end"><Button type="submit" loading={busy} disabled={busy}>Create</Button></div>
           </form>
         </DialogContent>
       </Dialog>

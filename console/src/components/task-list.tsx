@@ -1,9 +1,9 @@
 'use client';
 import { useState } from 'react';
-import { ChevronDown, Clock, RotateCw, XCircle } from 'lucide-react';
+import { ChevronDown, Clock, RotateCw, Trash2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useApi, mutate } from '@/hooks/useApi';
-import { useCanWrite } from '@/components/live-provider';
+import { useCanWrite, useRole } from '@/components/live-provider';
 import type { Task } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,24 +18,46 @@ export function TaskList({ victim, status }: { victim?: string; status?: string 
   if (status) params.set('status', status);
   const query = params.toString();
   const [open, setOpen] = useState<string | null>(null);
+  const [busy, setBusy] = useState('');
   const canWrite = useCanWrite();
+  const role = useRole();
   const { data, loading, error, refresh } = useApi<{ items: Task[] }>(`/tasks?${query}&limit=100`, { pollMs: 6000 });
 
   async function reschedule(id: string, minutes: number) {
+    setBusy(id);
     try {
       await mutate(`/tasks/${id}/reschedule`, 'POST', { not_before: new Date(Date.now() + minutes * 60_000).toISOString() });
       refresh();
     } catch (caught) {
       toast.error(caught instanceof Error ? caught.message : 'failed');
+    } finally {
+      setBusy('');
     }
   }
 
   async function action(id: string, kind: 'cancel' | 'retry') {
+    setBusy(id);
     try {
       await mutate(`/tasks/${id}/${kind}`, 'POST');
       refresh();
     } catch (caught) {
       toast.error(caught instanceof Error ? caught.message : 'failed');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function remove(task: Task) {
+    if (!confirm(`Delete task ${task.name}? The history row is removed.`)) return;
+    setBusy(task.id);
+    try {
+      await mutate(`/tasks/${task.id}`, 'DELETE');
+      toast.success('Task deleted');
+      refresh();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 'delete failed');
+    } finally {
+      setBusy('');
     }
   }
 
@@ -68,9 +90,10 @@ export function TaskList({ victim, status }: { victim?: string; status?: string 
             <TD className="num text-2xs text-muted">{dateTime(task.createdAt)} <span className="text-muted/60">({ago(task.createdAt)} ago)</span></TD>
             <TD>
               <div className="flex justify-end gap-1">
-                {task.status === 'queued' ? <Button size="icon" variant="ghost" title="delay 10 min" disabled={!canWrite} onClick={() => reschedule(task.id, 10)}><Clock className="h-3 w-3" /></Button> : null}
-                {['queued', 'running'].includes(task.status) ? <Button size="icon" variant="ghost" title="cancel" disabled={!canWrite} onClick={() => action(task.id, 'cancel')}><XCircle className="h-3 w-3" /></Button> : null}
-                {['done', 'error', 'cancelled', 'expired'].includes(task.status) ? <Button size="icon" variant="ghost" title="retry" disabled={!canWrite} onClick={() => action(task.id, 'retry')}><RotateCw className="h-3 w-3" /></Button> : null}
+                {task.status === 'queued' ? <Button size="icon" variant="ghost" title="delay 10 min" loading={busy === task.id} disabled={!canWrite || busy === task.id} onClick={() => reschedule(task.id, 10)}><Clock className="h-3 w-3" /></Button> : null}
+                {['queued', 'running'].includes(task.status) ? <Button size="icon" variant="ghost" title="cancel" loading={busy === task.id} disabled={!canWrite || busy === task.id} onClick={() => action(task.id, 'cancel')}><XCircle className="h-3 w-3" /></Button> : null}
+                {['done', 'error', 'cancelled', 'expired'].includes(task.status) ? <Button size="icon" variant="ghost" title="retry" loading={busy === task.id} disabled={!canWrite || busy === task.id} onClick={() => window.confirm(`Retry ${task.name}?`).valueOf() && action(task.id, 'retry')}><RotateCw className="h-3 w-3" /></Button> : null}
+                {role === 'admin' ? <Button size="icon" variant="ghost" title="delete" loading={busy === task.id} disabled={busy === task.id} onClick={() => remove(task)}><Trash2 className="h-3 w-3" /></Button> : null}
               </div>
             </TD>
           </TR>
