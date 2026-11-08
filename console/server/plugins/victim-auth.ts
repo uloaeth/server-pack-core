@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Victim, Build } from '@prisma/client';
 import { prisma } from '../lib/db';
-import { openSecret, verifyVictim } from '../lib/crypto';
+import { hmac, openSecret, unb64u, verifyVictim, victimCanonical } from '../lib/crypto';
 import { claimNonce } from '../lib/nonce';
 import { HttpError, unauth } from '../lib/errors';
 
@@ -40,6 +40,8 @@ export async function authenticateVictim(request: FastifyRequest, _reply: Fastif
   const path = request.url.split('?')[0]!;
   const body = request.rawBody ?? Buffer.alloc(0);
   if (!verifyVictim(token, request.method, path, timestamp, nonce, body, signature)) {
+    const expected = hmac(unb64u(token), victimCanonical(request.method, path, timestamp, nonce, body)).toString('base64url');
+    request.log.warn({ victim: id, method: request.method, path, timestamp, nonce, expected, got: signature, body: body.length }, 'victim signature mismatch');
     throw unauth('bad_signature');
   }
   request.victim = victim;
