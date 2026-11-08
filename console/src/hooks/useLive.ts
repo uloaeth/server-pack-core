@@ -31,7 +31,14 @@ export function useLive(onEvent: (event: LiveEvent) => void, options?: { toast?:
           if (event.type === 'hello') return;
           handler.current(event);
           if (toastEnabled && event.type === 'notification') {
-            toast(String(event.data.title ?? 'notification'), { description: String(event.data.kind ?? '') });
+            const title = String(event.data.title ?? 'notification');
+            const body = String(event.data.body ?? '');
+            const victim = event.data.victim ? String(event.data.victim) : '';
+            const link = typeof event.data.link === 'string' ? event.data.link : '';
+            toast(title, {
+              description: [body, victim].filter(Boolean).join(' · '),
+              action: link ? { label: 'open', onClick: () => { location.href = link; } } : undefined
+            });
           }
         } catch {
           // ignore

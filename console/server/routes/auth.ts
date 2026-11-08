@@ -74,6 +74,17 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     }
 
     if (!input.totp || !verifyTotp(operator.totpSecret, input.totp)) {
+      const fails = operator.failedAttempts + 1;
+      const lock = fails >= env.LOGIN_MAX_FAILS;
+      await prisma.operator.update({
+        where: { id: operator.id },
+        data: {
+          failedAttempts: lock ? 0 : fails,
+          lockedUntil: lock ? new Date(Date.now() + env.LOGIN_LOCK_MIN * 60_000) : null
+        }
+      });
+      await audit(prisma, { action: 'login.totp_fail', entity: 'operator', entityId: operator.id, ip: request.clientIp });
+      if (lock) throw new HttpError(429, 'locked', `too many TOTP failures, locked ${env.LOGIN_LOCK_MIN} min`, env.LOGIN_LOCK_MIN * 60);
       throw unauth('totp_required');
     }
     await prisma.operator.update({ where: { id: operator.id }, data: { failedAttempts: 0, lockedUntil: null, lastLoginAt: new Date(), lastLoginIp: request.clientIp } });
@@ -88,7 +99,19 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     const { code } = codeSchema.parse(request.body);
     const operator = await prisma.operator.findUnique({ where: { id: operatorId } });
     if (!operator) throw unauth('pending_expired');
-    if (!verifyTotp(operator.totpSecret, code)) throw unauth('bad_totp');
+    if (!verifyTotp(operator.totpSecret, code)) {
+      const fails = operator.failedAttempts + 1;
+      const lock = fails >= env.LOGIN_MAX_FAILS;
+      await prisma.operator.update({
+        where: { id: operator.id },
+        data: {
+          failedAttempts: lock ? 0 : fails,
+          lockedUntil: lock ? new Date(Date.now() + env.LOGIN_LOCK_MIN * 60_000) : null
+        }
+      });
+      if (lock) throw new HttpError(429, 'locked', `too many TOTP failures, locked ${env.LOGIN_LOCK_MIN} min`, env.LOGIN_LOCK_MIN * 60);
+      throw unauth('bad_totp');
+    }
     await prisma.operator.update({
       where: { id: operator.id },
       data: { totpEnabled: true, lastLoginAt: new Date(), lastLoginIp: request.clientIp }

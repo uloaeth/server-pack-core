@@ -48,7 +48,7 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
             }
           : {})
       },
-      orderBy: [{ lastHeartbeatAt: 'desc' }, { id: 'asc' }],
+      orderBy: [{ lastAgentMessageAt: 'desc' }, { lastHeartbeatAt: 'desc' }, { id: 'asc' }],
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
       take: query.limit,
       include: {
@@ -253,7 +253,7 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
   app.get('/victims/:id/files', async (request) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const artifacts = await prisma.artifact.findMany({
-      where: { victimId: id, status: 'ready' },
+      where: { victimId: id, status: 'ready', module: { not: 'result' } },
       orderBy: { createdAt: 'desc' },
       take: 50,
       select: { id: true, module: true, bytes: true, manifest: true, createdAt: true }

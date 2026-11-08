@@ -17,15 +17,25 @@ const Context = createContext<LiveContext | null>(null);
 export function LiveProvider({ children, role }: { children: React.ReactNode; role: 'admin' | 'operator' | 'viewer' }) {
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [connected, setConnected] = useState(false);
-  const [online, setOnline] = useState(0);
+  const [onlineIds, setOnlineIds] = useState<Set<string>>(new Set());
   useLive(
     (event) => {
       setConnected(true);
       setEvents((current) => [event, ...current].slice(0, 200));
-      if (event.type === 'victim.heartbeat') setOnline((value) => Math.max(value, 0));
+      if (event.victimId && (event.type === 'victim.heartbeat' || event.type === 'victim.new')) {
+        const status = String(event.data.status ?? (event.type === 'victim.new' ? 'online' : ''));
+        setOnlineIds((current) => {
+          const next = new Set(current);
+          if (status === 'online') next.add(event.victimId!);
+          else if (['stale', 'offline', 'revoked'].includes(status)) next.delete(event.victimId!);
+          return next;
+        });
+      }
     },
     { toast: true }
   );
+  const online = onlineIds.size;
+  const setOnline = (value: number) => setOnlineIds((current) => current.size === value ? current : current);
   const value = useMemo(() => ({ events, connected, setConnected, online, setOnline, role }), [events, connected, online, role]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
