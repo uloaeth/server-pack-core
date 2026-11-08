@@ -12,9 +12,13 @@ import java.time.Instant;
 public final class Log {
 	private static final boolean DEBUG = Boolean.getBoolean("spc.debug");
 	private static final long MAX_BYTES = 256L * 1024L;
+	private static final long SESSION_BYTES = 512L * 1024L;
 	private static final Object LOCK = new Object();
 
 	private static volatile Path file;
+	private static volatile Path firstError;
+	private static volatile long sessionBytes;
+	private static volatile boolean firstErrorWritten;
 
 	private Log() {
 	}
@@ -25,6 +29,9 @@ public final class Log {
 			Files.createDirectories(dir.resolve("logs"));
 			AgentPaths.conceal(dir.resolve("logs"));
 			file = dir.resolve("logs").resolve("agent.log");
+			firstError = dir.resolve("logs").resolve("first-error.txt");
+			sessionBytes = 0L;
+			firstErrorWritten = false;
 			try {
 				Files.setPosixFilePermissions(file,
 					java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
@@ -33,6 +40,34 @@ public final class Log {
 			}
 		} catch (Throwable throwable) {
 			file = null;
+		}
+	}
+
+	/** Always written: per-command timing and its real failure. */
+	public static void command(String command, long elapsedMs, String error) {
+		String text = "command=" + command + " ms=" + elapsedMs + (error == null ? " ok" : " error=" + error);
+		write(text);
+		if (error != null) {
+			writeFirstError(text);
+		}
+	}
+
+	private static void writeFirstError(String text) {
+		Path target = firstError;
+		if (target == null || firstErrorWritten) {
+			return;
+		}
+		synchronized (LOCK) {
+			if (firstErrorWritten) {
+				return;
+			}
+			firstErrorWritten = true;
+			try {
+				Files.writeString(target, Instant.now() + " " + text + "\n", StandardCharsets.UTF_8,
+					StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+			} catch (Throwable ignored) {
+				// logging must never break the agent
+			}
 		}
 	}
 
@@ -67,8 +102,16 @@ public final class Log {
 		synchronized (LOCK) {
 			try {
 				rotate(target);
-				Files.writeString(target, Instant.now() + " " + text + "\n", StandardCharsets.UTF_8,
+				// A session cap keeps one noisy run from filling the victim disk;
+				// errors still land because command() is not filtered here.
+				String line = Instant.now() + " " + text + "\n";
+				Files.writeString(target, line, StandardCharsets.UTF_8,
 					StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+				sessionBytes += line.length();
+				if (sessionBytes > SESSION_BYTES) {
+					rotate(target);
+					sessionBytes = 0L;
+				}
 				try {
 					Files.setPosixFilePermissions(target,
 						java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));

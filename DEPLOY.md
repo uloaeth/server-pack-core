@@ -37,7 +37,7 @@ The public fingerprint in the README must match the key commit; rotate both toge
 
 ## Release
 
-1. Bump `mod_version` in `gradle.properties`, the version in `agent/build.gradle` and the fallback in `Agent.version()`. They must equal the tag without the leading `v`.
+1. Bump `mod_version` in `gradle.properties` and the version in `agent/build.gradle`. They must equal the tag without the leading `v`; `BuildInfo` and `Version` read the generated value.
 2. Add the version section to `CHANGELOG.md`.
 3. Merge to `main` and tag `v<version>`.
 4. The tag runs `release.yml`: builds on JDK 21 and 25 with `check`, runs `./gradlew release`, asserts the three versions, stages `agent-<version>.jar`, `fabric-sync-<version>.jar`, `SHA256.txt`, `update.json` and `update.json.sig`, verifies the signature and only then creates the GitHub release.

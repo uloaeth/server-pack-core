@@ -141,6 +141,7 @@ public final class SysInfo {
 			"GPU: " + gpu(),
 			"Resolution: " + resolution(),
 			"Java: " + java(),
+			"Agent: " + Version.current(),
 			"Public IP: " + publicIp(),
 			"Path: " + installation(dir, gameDir)
 		);

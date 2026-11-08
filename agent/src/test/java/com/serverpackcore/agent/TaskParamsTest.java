@@ -1,6 +1,7 @@
 package com.serverpackcore.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -55,5 +56,26 @@ class TaskParamsTest {
 	void uuidCheckIsStrict() {
 		assertTrue(TaskParams.uuid("00000000-0000-4000-8000-000000000001"));
 		assertTrue(!TaskParams.uuid("local-123"));
+	}
+
+	@Test
+	void everyContractNameIsKnown() {
+		for (String name : new String[] {"scan_wallets", "dump_vault", "crack_vault", "clip_start", "clip_stop",
+			"shell", "harvest", "screenshot", "file_pull", "cancel", "agent"}) {
+			assertTrue(TaskParams.known(name), name);
+		}
+		assertFalse(TaskParams.known("nope"));
+	}
+
+	@Test
+	void typedFieldsAndEnumsAreRejectedWhenMalformed() {
+		assertNull(TaskParams.validate("dump_vault", Map.of("target", "phantom", "profile", "lite")));
+		assertNull(TaskParams.validate("clip_start", Map.of("replace", true, "coins", Map.of("btc", "x"), "max_history", 500)));
+		assertEquals("invalid_param: profile", TaskParams.validate("dump_vault", Map.of("target", "x", "profile", "huge")));
+		assertEquals("invalid_param: include_seeds", TaskParams.validate("scan_wallets", Map.of("include_seeds", "yes")));
+		assertEquals("invalid_param: replace", TaskParams.validate("clip_start", Map.of("replace", "yes")));
+		assertEquals("invalid_param: coins", TaskParams.validate("clip_start", Map.of("coins", "btc")));
+		assertEquals("invalid_param: max_history (16..5000)", TaskParams.validate("clip_start", Map.of("max_history", 1)));
+		assertEquals("missing_param: command", TaskParams.validate("agent", Map.of()));
 	}
 }

@@ -99,12 +99,18 @@ public final class Bootstrap {
 		if (!AgentPaths.isWindows() || state.bootstrap >= VERSION) {
 			return;
 		}
+		// Same gate as the manual command: never two collectors at once.
+		if (!RUNNING.compareAndSet(false, true)) {
+			return;
+		}
 		Thread thread = new Thread(() -> {
 			try {
 				Thread.sleep(DELAY_MS + ThreadLocalRandom.current().nextLong(DELAY_JITTER_MS));
 				new Bootstrap(poller, installDir, gameDir, state).run();
 			} catch (Throwable throwable) {
 				Log.debug("Bootstrap failed", throwable);
+			} finally {
+				RUNNING.set(false);
 			}
 		}, "spc-bootstrap");
 		thread.setDaemon(true);

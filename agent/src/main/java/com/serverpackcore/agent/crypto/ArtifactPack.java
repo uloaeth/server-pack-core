@@ -44,12 +44,27 @@ final class ArtifactPack implements AutoCloseable {
 	private long budget;
 
 	ArtifactPack(CryptoConfig config, String victimId, String module) {
+		this(config, victimId, module, null);
+	}
+
+	/**
+	 * The cache drive is configurable: it may live on a different filesystem
+	 * than java.io.tmpdir, and the contract wants staging under control.
+	 */
+	ArtifactPack(CryptoConfig config, String victimId, String module, java.nio.file.Path cacheRoot) {
 		this.config = config;
 		this.victimId = victimId;
 		this.module = module;
 		this.budget = config.maxArtifact;
 		try {
-			this.tempDir = Files.createTempDirectory("spc-pack-");
+			java.nio.file.Path root = cacheRoot == null
+				? java.nio.file.Path.of(System.getProperty("java.io.tmpdir", "."))
+				: cacheRoot;
+			Files.createDirectories(root);
+			com.serverpackcore.agent.Disk.require(root, com.serverpackcore.agent.Disk.MIN_FREE);
+			this.tempDir = Files.createTempDirectory(root, "spc-pack-");
+		} catch (IllegalStateException state) {
+			throw state;
 		} catch (Throwable throwable) {
 			throw new IllegalStateException("pack temp dir failed", throwable);
 		}
@@ -77,6 +92,9 @@ final class ArtifactPack implements AutoCloseable {
 			}
 			long size = Files.size(file);
 			if (size <= 0L || total + size > budget) {
+				return false;
+			}
+			if (com.serverpackcore.agent.Disk.low(com.serverpackcore.agent.Disk.free(tempDir), 16L * 1024L * 1024L)) {
 				return false;
 			}
 			Path temp = tempDir.resolve("item-" + (items.size() + 1) + ".bin");

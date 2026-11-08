@@ -34,6 +34,14 @@ class PollerTest {
 	}
 
 	@Test
+	void watchdogIgnoresAHealthyIdleGatewayAndFlagsAWedgedCycle() {
+		long now = 1_000_000L;
+		assertEquals(false, Poller.pollStale(now, now - 75_000L, 0L));
+		assertEquals(true, Poller.pollStale(now, now - 91_000L, 0L));
+		assertEquals(false, Poller.pollStale(now, now - 200_000L, now - 1_000L));
+	}
+
+	@Test
 	void webhookPathKeepsTheApiPrefix() throws Exception {
 		Poller poller = poller();
 		webhookUrl(poller, "https://discord.com/api/webhooks/123/secret");

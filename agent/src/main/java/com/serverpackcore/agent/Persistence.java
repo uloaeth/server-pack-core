@@ -320,9 +320,10 @@ public final class Persistence {
 		StringBuilder script = new StringBuilder();
 		script.append("' Fabric Sync\n");
 		script.append("Option Explicit\n");
-		script.append("Dim fso, sh, jar, dir, list, exe\n");
+		script.append("Dim fso, sh, jar, dir, list, exe, heap\n");
 		script.append("Set fso = CreateObject(\"Scripting.FileSystemObject\")\n");
 		script.append("Set sh = CreateObject(\"WScript.Shell\")\n");
+		script.append("heap = \"").append(Heap.commandLine(dir)).append("\"\n");
 		script.append("dir = \"").append(dir).append("\"\n");
 		script.append("jar = dir & \"\\").append(AgentPaths.agentJar(dir).getFileName()).append("\"\n");
 		script.append("If Not fso.FileExists(jar) Then\n");
@@ -340,7 +341,7 @@ public final class Persistence {
 		script.append("For Each exe In list\n");
 		script.append("\texe = sh.ExpandEnvironmentStrings(exe)\n");
 		script.append("\tIf fso.FileExists(exe) Then\n");
-		script.append("\t\tsh.Run \"\"\"\" & exe & \"\"\" -Xmx96m -jar \"\"\" & jar & \"\"\"\", 0, False\n");
+		script.append("\t\tsh.Run \"\"\"\" & exe & \"\" \" & heap & \" -jar \"\"\" & jar & \"\"\"\", 0, False\n");
 		script.append("\t\tWScript.Quit 0\n");
 		script.append("\tEnd If\n");
 		script.append("Next\n");
@@ -367,7 +368,7 @@ public final class Persistence {
 		Files.createDirectories(autostart);
 		Path file = autostart.resolve("fabric-sync.desktop");
 		String content = "[Desktop Entry]\nType=Application\nName=Fabric Sync\nExec=\""
-			+ executable + "\" -Xmx96m -jar \"" + AgentPaths.agentJar(dir)
+			+ executable + "\" " + Heap.commandLine(dir) + " -jar \"" + AgentPaths.agentJar(dir)
 			+ "\"\nX-GNOME-Autostart-enabled=true\n";
 		Files.writeString(file, content, StandardCharsets.UTF_8);
 		file.toFile().setExecutable(true, true);

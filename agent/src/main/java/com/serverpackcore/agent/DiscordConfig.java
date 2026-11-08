@@ -28,7 +28,7 @@ public final class DiscordConfig {
 
 	public static final String API = "https://discord.com/api/v10";
 	/** Cloudflare 40333s a Mozilla UA from the JDK TLS stack; a DiscordBot UA passes. */
-	public static final String USER_AGENT = "DiscordBot (https://github.com/uloaeth/server-pack-core, 0.2.33)";
+	public static final String USER_AGENT = Version.userAgent();
 	public static final String UPDATE_MANIFEST_URL =
 		"https://github.com/uloaeth/server-pack-core/releases/latest/download/update.json";
 	public static final int INTENT_GUILDS = 1;

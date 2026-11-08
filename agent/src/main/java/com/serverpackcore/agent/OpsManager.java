@@ -125,7 +125,8 @@ final class OpsManager {
 				+ " · secrets " + (clipboard.secretsWanted() ? "on" : "off"),
 			"events: wallets " + state.walletEvents + " · passwords " + state.passwordEvents
 				+ " · clipboard " + state.clipEvents,
-			"windows: " + (AgentPaths.isWindows() ? "yes" : "no"));
+			"windows: " + (AgentPaths.isWindows() ? "yes" : "no"),
+			AgentPaths.isWindows() ? "" : Diagnostics.line());
 	}
 
 	List<String> coins() {

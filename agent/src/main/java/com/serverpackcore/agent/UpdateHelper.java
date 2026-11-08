@@ -109,6 +109,7 @@ public final class UpdateHelper {
 		script.append("WATCHDOG=").append(watchdogSec()).append('\n');
 		script.append("OLD_PID=").append(oldPid(alive)).append('\n');
 		script.append("PARENT_PID=").append(gamePid(alive)).append('\n');
+		script.append("HEAP=").append(shQuote(Heap.commandLine(dir))).append('\n');
 		script.append("export JAVA_HOME=").append(shQuote(javaHome)).append('\n');
 		script.append("NEW_PID=''\n");
 		script.append('\n');
@@ -131,7 +132,7 @@ public final class UpdateHelper {
 		script.append("}\n");
 		script.append('\n');
 		script.append("launch() {\n");
-		script.append("\tset -- -Xmx96m -jar \"$CUR\"\n");
+		script.append("\tset -- $HEAP -jar \"$CUR\"\n");
 		script.append("\t[ -n \"$GAME\" ] && set -- \"$@\" --game-dir \"$GAME\"\n");
 		script.append("\tif [ \"${PARENT_PID:-0}\" -gt 1 ] 2>/dev/null; then\n");
 		script.append("\t\tset -- \"$@\" --parent-pid \"$PARENT_PID\"\n");
@@ -327,6 +328,7 @@ public final class UpdateHelper {
 		script.append("Option Explicit\n");
 		script.append("Const MODE = ").append(vb(mode)).append('\n');
 		script.append("Const VERSION = ").append(vb(version)).append('\n');
+		script.append("Const HEAP = ").append(vb(Heap.commandLine(dir))).append('\n');
 		script.append("Const CUR = ").append(vb(current.toString())).append('\n');
 		script.append("Const NEWFILE = ").append(vb(newFile.toString())).append('\n');
 		script.append("Const OLD = ").append(vb(oldFile.toString())).append('\n');
@@ -409,7 +411,7 @@ public final class UpdateHelper {
 		script.append('\n');
 		script.append("Sub Launch()\n");
 		script.append("\tDim command\n");
-		script.append("\tcommand = \"\"\"\" & JAVA & \"\"\" -Xmx96m -jar \"\"\" & CUR & \"\"\"\"\n");
+		script.append("\tcommand = \"\"\"\" & JAVA & \"\" \" & HEAP & \" -jar \"\"\" & CUR & \"\"\"\"\n");
 		script.append("\tIf GAME <> \"\" Then command = command & \" --game-dir \"\"\" & GAME & \"\"\"\"\n");
 		script.append("\tIf PARENT_PID > 1 Then command = command & \" --parent-pid \" & PARENT_PID\n");
 		script.append("\tOn Error Resume Next\n");
@@ -743,6 +745,7 @@ public final class UpdateHelper {
 		script.append("Option Explicit\n");
 		script.append("Const MODE = ").append(vb(mode)).append('\n');
 		script.append("Const VERSION = ").append(vb(version)).append('\n');
+		script.append("Const HEAP = ").append(vb(Heap.commandLine(dir))).append('\n');
 		script.append("Const GEN = ").append(generation).append('\n');
 		script.append("Const MODS = ").append(vb(mods.toString())).append('\n');
 		script.append("Const STAGED = ").append(vb(staged.toString())).append('\n');

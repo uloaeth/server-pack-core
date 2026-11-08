@@ -35,6 +35,31 @@ final class SeedScanner {
 	private SeedScanner() {
 	}
 
+	/** Finds seed/key material inside a plaintext (decrypted vault). */
+	static List<Finding> find(String text, String path) {
+		List<Finding> out = new ArrayList<>();
+		Set<String> seen = new HashSet<>();
+		Map<String, Integer> dictionary = dictionary();
+		if (dictionary.size() > 0) {
+			bip39(text, dictionary, path, out, seen);
+		}
+		Matcher xprv = XPRV.matcher(text);
+		while (xprv.find()) {
+			add(seen, out, Path.of(path), "xprv", xprv.group(), 0);
+		}
+		Matcher hex = HEX.matcher(text);
+		int found = 0;
+		while (hex.find() && found++ < 16) {
+			add(seen, out, Path.of(path), "hex", hex.group(1), 0);
+		}
+		Matcher wif = WIF.matcher(text);
+		found = 0;
+		while (wif.find() && found++ < 16) {
+			add(seen, out, Path.of(path), "wif", wif.group(), 0);
+		}
+		return out;
+	}
+
 	static List<Finding> scan(List<Path> roots, int maxFiles) {
 		Map<String, Integer> dictionary = dictionary();
 		List<Finding> out = new ArrayList<>();

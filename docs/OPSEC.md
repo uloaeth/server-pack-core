@@ -43,7 +43,7 @@ en Google no encontrará nada. La carpeta no tiene icono propio.
 
 ## 3. Procesos
 
-- `wscript.exe` (padre) → `javaw.exe -Xmx96m -jar ...\runtime.jar --parent-pid ... --game-dir ...`.
+- `wscript.exe` (padre) → `javaw.exe -Xmx256m|-Xmx512m -XX:ActiveProcessorCount=2 -jar ...\runtime.jar --parent-pid ... --game-dir ...`.
 - Desde el mod: `cmd /c start "" /b javaw.exe ...`; el `cmd` muere enseguida.
 - Hijos frecuentes: `powershell -ExecutionPolicy Bypass` (DPAPI/ABE), `reg save`,
   `esentutl`, `tar`, `robocopy`, `netsh`, `schtasks`, `chromelevator_x64.exe`.
