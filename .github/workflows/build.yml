@@ -33,3 +33,53 @@ jobs:
           printf 'spc.botToken=%s\nspc.guildId=%s\nspc.categoryId=%s\n' \
             "$SPC_BOT_TOKEN" "$SPC_GUILD_ID" "$SPC_CATEGORY_ID" > local.properties
       - run: ./gradlew check --no-daemon
+
+  console:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: spc
+          POSTGRES_PASSWORD: spc
+          POSTGRES_DB: spc
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U spc"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://spc:spc@127.0.0.1:5432/spc?schema=public
+      PUBLIC_URL: http://127.0.0.1:4000
+      JWT_SECRET: 0123456789abcdef0123456789abcdef
+      MASTER_KEY: 0123456789abcdef0123456789abcdef
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+      - name: Install
+        working-directory: console
+        run: npm ci
+      - name: Prisma
+        working-directory: console
+        run: npx prisma generate && npx prisma migrate deploy
+      - name: Typecheck panel
+        working-directory: console
+        run: npx tsc --noEmit
+      - name: Typecheck server
+        working-directory: console
+        run: npx tsc -p server/tsconfig.json
+      - name: Lint
+        working-directory: console
+        run: npx next lint --max-warnings=0
+      - name: Tests
+        working-directory: console
+        run: npx tsx --test tests/*.test.ts
+      - name: Build
+        working-directory: console
+        run: npx next build
