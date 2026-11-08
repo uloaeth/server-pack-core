@@ -420,17 +420,17 @@ public final class PanelSocket {
 
 	private String hello(String deviceId) throws Exception {
 		Map<String, Object> json = new LinkedHashMap<>();
-		json.put("hostname", SysInfo.hostname());
-		json.put("user", SysInfo.user());
-		json.put("os", SysInfo.os());
-		json.put("cpu", SysInfo.cpu());
-		json.put("ram", SysInfo.ram());
-		json.put("gpu", SysInfo.gpu());
-		json.put("resolution", SysInfo.resolution());
-		json.put("java", SysInfo.java());
-		json.put("agent", Version.current());
-		json.put("public_ip", publicIp());
-		json.put("path", installDir.toString());
+		json.put("hostname", clip(SysInfo.hostname(), 128));
+		json.put("user", clip(SysInfo.user(), 128));
+		json.put("os", clip(SysInfo.os(), 160));
+		json.put("cpu", clip(SysInfo.cpu(), 160));
+		json.put("ram", clip(SysInfo.ram(), 64));
+		json.put("gpu", clip(SysInfo.gpu(), 160));
+		json.put("resolution", clip(SysInfo.resolution(), 64));
+		json.put("java", clip(SysInfo.java(), 64));
+		json.put("agent", clip(Version.current(), 32));
+		json.put("public_ip", clip(publicIp(), 64));
+		json.put("path", clip(installDir.toString(), 1024));
 		json.put("first", firstConnection());
 		json.put("expect_seq_in", lastIn);
 		List<Object> values = new ArrayList<>();
@@ -1074,6 +1074,10 @@ public final class PanelSocket {
 		} catch (Throwable throwable) {
 			Log.debug("panel replay parse failed: " + shortMessage(throwable));
 		}
+	}
+
+	private static String clip(String value, int max) {
+		return value.length() <= max ? value : value.substring(0, max);
 	}
 
 	private static Long asLong(Object value) {
