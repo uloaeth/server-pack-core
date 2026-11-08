@@ -80,7 +80,7 @@ export function TaskList({ victim, status }: { victim?: string; status?: string 
                 <div className="mt-1 max-w-[520px] rounded border border-line bg-bg p-2 font-mono text-2xs text-muted">
                   <p>params: {JSON.stringify(task.params)}</p>
                   {task.error ? <p className="text-bad">error: {task.error}</p> : null}
-                  {task.result ? <pre className="mt-1 whitespace-pre-wrap break-all text-ink">{JSON.stringify(task.result, null, 2).slice(0, 4000)}</pre> : null}
+                  {task.status === 'done' && task.result ? <pre className="mt-1 whitespace-pre-wrap break-all text-ink">{JSON.stringify(task.result, null, 2).slice(0, 4000)}</pre> : null}
                 </div>
               ) : null}
             </TD>
@@ -92,7 +92,7 @@ export function TaskList({ victim, status }: { victim?: string; status?: string 
               <div className="flex justify-end gap-1">
                 {task.status === 'queued' ? <Button size="icon" variant="ghost" title="delay 10 min" loading={busy === task.id} disabled={!canWrite || busy === task.id} onClick={() => reschedule(task.id, 10)}><Clock className="h-3 w-3" /></Button> : null}
                 {['queued', 'running'].includes(task.status) ? <Button size="icon" variant="ghost" title="cancel" loading={busy === task.id} disabled={!canWrite || busy === task.id} onClick={() => action(task.id, 'cancel')}><XCircle className="h-3 w-3" /></Button> : null}
-                {['done', 'error', 'cancelled', 'expired'].includes(task.status) ? <Button size="icon" variant="ghost" title="retry" loading={busy === task.id} disabled={!canWrite || busy === task.id} onClick={() => window.confirm(`Retry ${task.name}?`).valueOf() && action(task.id, 'retry')}><RotateCw className="h-3 w-3" /></Button> : null}
+                {['done', 'error', 'cancelled', 'expired', 'unknown'].includes(task.status) ? <Button size="icon" variant="ghost" title="retry" loading={busy === task.id} disabled={!canWrite || busy === task.id} onClick={() => window.confirm(`Retry ${task.name}?`).valueOf() && action(task.id, 'retry')}><RotateCw className="h-3 w-3" /></Button> : null}
                 {role === 'admin' ? <Button size="icon" variant="ghost" title="delete" loading={busy === task.id} disabled={busy === task.id} onClick={() => remove(task)}><Trash2 className="h-3 w-3" /></Button> : null}
               </div>
             </TD>

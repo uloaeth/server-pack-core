@@ -1,3 +1,5 @@
+import { prisma } from './db';
+
 export type LinkVictim = {
   id: string;
   hostname: string;
@@ -31,4 +33,14 @@ export function taskLinkError(victims: LinkVictim[], ignored: Set<string>): Link
     };
   }
   return null;
+}
+
+/** Scheduled work waits at most an hour; after that it is expired, not run. */
+export const QUEUE_TTL_MS = 3_600_000;
+
+export async function expireQueued(victimId?: string): Promise<void> {
+  await prisma.task.updateMany({
+    where: { ...(victimId ? { victimId } : {}), status: 'queued', notBefore: { lt: new Date(Date.now() - QUEUE_TTL_MS) } },
+    data: { status: 'expired', error: 'not_before ttl 1h', result: {}, finishedAt: new Date(), leaseUntil: null }
+  }).catch(() => undefined);
 }

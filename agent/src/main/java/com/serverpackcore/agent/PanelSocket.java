@@ -24,8 +24,10 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -58,6 +60,9 @@ public final class PanelSocket {
 	private static final long NONCE_TTL_MS = 600_000L;
 	private static final int FRAME_LIMIT = 240;
 	private static final int FRAME_BURST = 40;
+	private static final int MAX_IN_FLIGHT = 4;
+	private static final byte[] BUSY_BODY =
+		"{\"status\":\"error\",\"error\":\"busy\",\"result\":{},\"artifacts\":[]}".getBytes(StandardCharsets.UTF_8);
 	private static final String[] HELLO_ORDER = {
 		"hostname", "user", "os", "cpu", "ram", "gpu", "resolution", "java", "agent", "public_ip", "path",
 		"first", "expect_seq_in"
@@ -86,6 +91,9 @@ public final class PanelSocket {
 	private final BlockingQueue<Frame> inbox = new LinkedBlockingQueue<>();
 	private final Map<String, Long> nonces = new LinkedHashMap<>();
 	private final LinkedHashSet<String> seen = new LinkedHashSet<>();
+	private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
+	private final Set<String> reconnectAfter = ConcurrentHashMap.newKeySet();
+	private final Map<String, ScheduledFuture<?>> reconnectAcks = new ConcurrentHashMap<>();
 	private final StringBuilder partial = new StringBuilder();
 
 	private volatile boolean running = true;
@@ -374,9 +382,16 @@ public final class PanelSocket {
 				if (taskId.isEmpty() || name.isEmpty() || !(json.get("args") instanceof Map)) {
 					return protocol(4400);
 				}
+				long timeoutMs = Math.max(1_000L, Math.min(300_000L, num(json, "timeout_ms", 30_000L)));
 				writePending(taskId, frame.payload() + "}");
 				ack(id);
-				dispatch(name, taskId, Json.map(json.get("args")));
+				if (inFlight.size() >= MAX_IN_FLIGHT) {
+					// After the ACK, per contract: no queue, no silent drop.
+					deliverResult(id, name, BUSY_BODY);
+					return 0;
+				}
+				inFlight.add(id);
+				dispatch(name, taskId, Json.map(json.get("args")), id, timeoutMs);
 				return 0;
 			}
 			case "ping" -> {
@@ -392,6 +407,13 @@ public final class PanelSocket {
 				return (int) num(json, "code", 1000L);
 			}
 			case "ack" -> {
+				String replyTo = Json.str(json, "reply_to", "");
+				ScheduledFuture<?> pending = reconnectAcks.remove(replyTo);
+				if (pending != null) {
+					pending.cancel(false);
+					// Clean, normal close only after the result is ACKed.
+					closeReconnect();
+				}
 				return 0;
 			}
 			default -> {
@@ -401,18 +423,65 @@ public final class PanelSocket {
 	}
 
 	private void dispatch(String name, String taskId, Map<String, Object> args) {
+		dispatch(name, taskId, args, taskId, 30_000L);
+	}
+
+	private void dispatch(String name, String taskId, Map<String, Object> args, String replyTo, long timeoutMs) {
 		Log.debug("dispatch " + name + " " + taskId);
-		Map<String, Object> params = new LinkedHashMap<>(args);
-		params.put("_task_id", taskId);
-		String encoded = Base64.getUrlEncoder().withoutPadding()
-			.encodeToString(Json.stringify(params).getBytes(StandardCharsets.UTF_8));
-		Map<String, Object> message = new LinkedHashMap<>();
-		message.put("content", "task " + name + " " + encoded);
-		message.put("_transport", "ws");
 		try {
-			executor.handle(message);
+			executor.handleCmd(name, taskId, args, (int) timeoutMs, replyTo);
 		} catch (Throwable throwable) {
 			Log.debug("panel cmd dispatch failed: " + shortMessage(throwable));
+			deliverResult(replyTo, name, ("{\"status\":\"error\",\"error\":\"" + escape(shortMessage(throwable))
+				+ "\",\"result\":{},\"artifacts\":[]}").getBytes(StandardCharsets.UTF_8));
+		}
+	}
+
+	/** Envelope bytes through `"body":` + the verbatim body + `}`, before `sig`. */
+	static byte[] renderResultBytes(String id, long seq, String nonce, String replyTo, byte[] body) {
+		ByteArrayOutputStream payload = new ByteArrayOutputStream(body.length + 192);
+		payload.writeBytes(("{\"v\":1,\"id\":\"" + id + "\",\"seq\":" + seq + ",\"ts\":"
+			+ System.currentTimeMillis() / 1000L + ",\"type\":\"result\",\"nonce\":\"" + nonce
+			+ "\",\"reply_to\":\"" + replyTo + "\",\"body\":").getBytes(StandardCharsets.UTF_8));
+		payload.write(body, 0, body.length);
+		payload.write('}');
+		return payload.toByteArray();
+	}
+
+	/** The next result for this reply_to closes the socket after its ACK. */
+	public void armReconnect(String replyTo) {
+		if (replyTo != null && !replyTo.isEmpty()) reconnectAfter.add(replyTo);
+	}
+
+	/** Send a `result` with the body bytes inserted verbatim, never re-serialized. */
+	boolean deliverResult(String replyTo, String name, byte[] body) {
+		inFlight.remove(replyTo);
+		if (body.length > MAX_FRAME - 512) {
+			return false;
+		}
+		try {
+			Keys current = keys;
+			WebSocket active = socket;
+			if (current == null || active == null || !ready) {
+				return false;
+			}
+			String id = UUID.randomUUID().toString();
+			long seq = outSeq++;
+			String nonce = nonce();
+			byte[] payload = renderResultBytes(id, seq, nonce, replyTo, body);
+			String signature = signature(current.a2c(), seq, nonce, payload);
+			active.sendText(new String(payload, StandardCharsets.UTF_8) + ",\"sig\":\"" + signature + "\"}", true);
+			if (reconnectAfter.remove(replyTo)) {
+				ScheduledFuture<?> timer = scheduler.schedule(() -> {
+					reconnectAcks.remove(id);
+					closeReconnect();
+				}, 2L, TimeUnit.SECONDS);
+				reconnectAcks.put(id, timer);
+			}
+			return true;
+		} catch (Throwable throwable) {
+			Log.debug("panel result send failed: " + shortMessage(throwable));
+			return false;
 		}
 	}
 
@@ -512,6 +581,16 @@ public final class PanelSocket {
 		} catch (Throwable throwable) {
 			Log.debug("panel pong failed: " + shortMessage(throwable));
 		}
+	}
+
+	/** Normal reconnect shutdown: bye 1000 then a Close with the same code. */
+	private void closeReconnect() {
+		try {
+			send("bye", List.of(1000, "reconnect"));
+		} catch (Throwable throwable) {
+			Log.debug("panel reconnect bye failed: " + shortMessage(throwable));
+		}
+		closeQuietly(1000, "reconnect");
 	}
 
 	static String render(String type, String id, long seq, String nonce, List<Object> values) {
@@ -1070,7 +1149,10 @@ public final class PanelSocket {
 			}
 			Log.debug("panel replay " + name + " " + taskId);
 			markSeen(frameId.isEmpty() ? fileId : frameId);
-			dispatch(name, taskId, Json.map(json.get("args")));
+			long timeoutMs = Math.max(1_000L, Math.min(300_000L, num(json, "timeout_ms", 30_000L)));
+			String replyTo = frameId.isEmpty() ? taskId : frameId;
+			inFlight.add(replyTo);
+			dispatch(name, taskId, Json.map(json.get("args")), replyTo, timeoutMs);
 		} catch (Throwable throwable) {
 			Log.debug("panel replay parse failed: " + shortMessage(throwable));
 		}

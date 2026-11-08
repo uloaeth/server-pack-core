@@ -43,7 +43,7 @@ export function ConsolePanel({ victimId }: { victimId: string }) {
           data!.items.slice().reverse().map((task) => (
             <div key={task.id} className="mb-2">
               <p className="text-muted">$ {String(task.params.command)} <span className="ml-2 text-2xs text-muted/60">{dateTime(task.createdAt)} · {task.status} · {live.events.length} evt</span></p>
-              <pre className="whitespace-pre-wrap break-all text-ink/90">{task.result ? String((task.result as { output?: string }).output ?? '') : task.error ?? (task.status === 'queued' ? 'queued…' : task.status)}</pre>
+              <pre className="whitespace-pre-wrap break-all text-ink/90">{['error', 'unknown', 'cancelled', 'expired'].includes(task.status) ? task.error ?? task.status : task.result ? String((task.result as { output?: string }).output ?? '') : (task.status === 'queued' ? 'queued…' : task.status)}</pre>
             </div>
           ))
         )}

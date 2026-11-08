@@ -54,7 +54,7 @@ export type Task = {
   victimId: string;
   name: string;
   params: Record<string, unknown>;
-  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled' | 'expired';
+  status: 'queued' | 'running' | 'done' | 'error' | 'cancelled' | 'expired' | 'unknown';
   priority: number;
   timeoutSec: number;
   attempts: number;

