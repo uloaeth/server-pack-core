@@ -74,7 +74,8 @@ function frame(type: string, seq: number, key: Buffer, fields: Record<string, un
     const value = fields[field];
     payload += `,"${field}":${typeof value === 'string' ? JSON.stringify(value) : String(value)}`;
   }
-  const input = Buffer.concat([Buffer.from(String(seq)), Buffer.from([0x1f]), Buffer.from(frameNonce), Buffer.from([0x1f]), Buffer.from(payload)]);
+  const object = `${payload}}`;
+  const input = Buffer.concat([Buffer.from(String(seq)), Buffer.from([0x1f]), Buffer.from(frameNonce), Buffer.from([0x1f]), Buffer.from(object)]);
   return `${payload},"sig":"${createHmac('sha256', key).update(input).digest('base64url')}"}`;
 }
 

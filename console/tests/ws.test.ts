@@ -63,7 +63,8 @@ test('frame HMAC covers direction, seq, nonce and payload', () => {
   if (!parsed.ok) return;
   assert.equal(checkHmac(keys.c2a, parsed.frame), true);
   assert.equal(checkHmac(keys.a2c, parsed.frame), false);
-  assert.equal(sign(keys.c2a, 7, parsed.frame.nonce, parsed.frame.payload), String(parsed.frame.json.sig));
+  const signed = Buffer.concat([parsed.frame.payload, Buffer.from('}')]);
+  assert.equal(sign(keys.c2a, 7, parsed.frame.nonce, signed), String(parsed.frame.json.sig));
   const tampered = parseFrame(Buffer.from(frame.replace('"seq":7', '"seq":8')));
   assert.equal(tampered.ok, true);
   if (!tampered.ok) return;

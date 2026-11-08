@@ -72,27 +72,32 @@ function verify(key: Buffer, seqValue: number, nonceValue: string, payload: Buff
 
 export type Field = string | number | boolean | object;
 
-/** Concatenate in the fixed key order; `<fields>` go in schema order. */
+/**
+ * Concatenate in the fixed key order; `<fields>` go in schema order. The HMAC
+ * covers the complete object text, so the signature is inserted before the
+ * closing brace: `object` minus `}` + `,"sig":"…"}`.
+ */
 export function buildFrame(
   key: Buffer,
   base: { id: string; seq: number; ts: number; type: string; nonce: string },
   fields: Array<[string, Field]>
 ): string {
-  let payload = `{"v":1,"id":"${base.id}","seq":${base.seq},"ts":${base.ts},"type":"${base.type}","nonce":"${base.nonce}"`;
+  let object = `{"v":1,"id":"${base.id}","seq":${base.seq},"ts":${base.ts},"type":"${base.type}","nonce":"${base.nonce}"`;
   for (const [name, value] of fields) {
     const rendered = typeof value === 'string'
       ? `"${escapeJson(value)}"`
       : typeof value === 'object'
         ? JSON.stringify(value)
         : String(value);
-    payload += `,"${name}":${rendered}`;
+    object += `,"${name}":${rendered}`;
   }
-  const signature = sign(key, base.seq, base.nonce, Buffer.from(payload, 'utf8'));
-  return `${payload},"sig":"${signature}"}`;
+  object += '}';
+  const signature = sign(key, base.seq, base.nonce, Buffer.from(object, 'utf8'));
+  return `${object.slice(0, -1)},"sig":"${signature}"}`;
 }
 
 export type Incoming = {
-  /** Raw bytes before `,"sig":`. */
+  /** Raw bytes before `,"sig":` (the closing brace is appended for the HMAC). */
   payload: Buffer;
   json: Record<string, unknown>;
   seq: number;
@@ -139,9 +144,10 @@ export function parseFrame(raw: Buffer): { ok: true; frame: Incoming } | { ok: f
   return { ok: true, frame: { payload, json: frame, seq: seqValue, nonce: nonceValue } };
 }
 
-/** Step 4 against a concrete direction key. */
+/** Step 4 against a concrete direction key. The signed text ends with `}`. */
 export function checkHmac(key: Buffer, frame: Incoming): boolean {
-  return verify(key, frame.seq, frame.nonce, frame.payload, String(frame.json.sig));
+  const signed = Buffer.concat([frame.payload, Buffer.from('}')]);
+  return verify(key, frame.seq, frame.nonce, signed, String(frame.json.sig));
 }
 
 const baseShape = {
