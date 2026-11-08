@@ -35,6 +35,35 @@ class WalletWatcherTest {
 	}
 
 	@Test
+	void aBounceWhileDumpingDoesNotConsumeTheAttemptBudget() throws Exception {
+		OpsNotifier notifier = new OpsNotifier(null);
+		WalletWatcher watcher = watcher(notifier);
+		java.lang.reflect.Field dumping = WalletWatcher.class.getDeclaredField("dumping");
+		dumping.setAccessible(true);
+		dumping.setBoolean(watcher, true);
+		dumping.setAccessible(false);
+		long pid = ProcessHandle.current().pid();
+		String key = "phantom|" + pid + "|x";
+		for (String fieldName : new String[] {"activeKey", "activeName", "activePid"}) {
+			java.lang.reflect.Field active = WalletWatcher.class.getDeclaredField(fieldName);
+			active.setAccessible(true);
+			if (fieldName.equals("activeKey")) active.set(watcher, key);
+			else if (fieldName.equals("activeName")) active.set(watcher, "phantom");
+			else active.setLong(watcher, pid);
+		}
+		java.lang.reflect.Method dump = WalletWatcher.class.getDeclaredMethod("dump", String.class, String.class, long.class, boolean.class);
+		dump.setAccessible(true);
+		dump.invoke(watcher, key, "phantom", pid, false);
+		assertTrue(watcher.attempts.isEmpty(), "a bounce must not spend an attempt");
+		java.lang.reflect.Field field = WalletWatcher.class.getDeclaredField("dumping");
+		field.setAccessible(true);
+		field.setBoolean(watcher, false);
+		watcher.captureForTest((name, id) -> java.util.List.of());
+		dump.invoke(watcher, key, "phantom", pid, false);
+		assertEquals(1, watcher.attempts.get(key));
+	}
+
+	@Test
 	void sameLiveProcessDumpsOnceAcrossAFocusBounce() {
 		OpsNotifier notifier = new OpsNotifier(null);
 		WalletWatcher watcher = watcher(notifier);

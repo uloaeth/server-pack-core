@@ -50,6 +50,13 @@ final class OpsNotifier {
 		}
 	}
 
+	/** Emit the structured event; the text still goes through the normal queue. */
+	void event(String kind, java.util.Map<String, Object> data, String legacy) {
+		if (poller != null) {
+			poller.emitEvent(kind, data, legacy);
+		}
+	}
+
 	/** Drains the direct queue; tests do not start the delivery thread. */
 	List<String> queued() {
 		List<String> lines = new ArrayList<>();

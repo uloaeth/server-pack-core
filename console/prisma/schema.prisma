@@ -324,6 +324,7 @@ model Event {
   victimId  String    @db.Uuid
   kind      String
   data      Json      @default("{}")
+  legacy    String    @default("")
   createdAt DateTime  @default(now())
   readAt    DateTime?
   victim    Victim    @relation(fields: [victimId], references: [id], onDelete: Cascade)

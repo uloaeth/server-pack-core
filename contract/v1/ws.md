@@ -292,12 +292,12 @@ order, joined by a single `\n`, without trimming (both `bip39` branches).
 
 | Origin | Line | kind |
 |---|---|---|
-| WalletWatcher | 231 | `wallet_detected` |
-| WalletWatcher | 294 | `wallet_closed` |
-| WalletWatcher | 509-519 | `seed_found` for `bip39-24`/`bip39-12`; otherwise `secret_found` |
-| Keylogger | 363 | `password` |
-| ClipboardHijacker | 179 (text built at SecretDetector 84-94) | `clipboard_secret` |
-| ClipboardHijacker | 165 | `clipboard_replace` |
+| WalletWatcher | 239 | `wallet_detected` |
+| WalletWatcher | 305 | `wallet_closed` |
+| WalletWatcher | 519-554 | `seed_found` for `bip39-24`/`bip39-12`; otherwise `secret_found` |
+| Keylogger | 369 | `password` |
+| ClipboardHijacker | 195 (text built at SecretDetector 84-94) | `clipboard_secret` |
+| ClipboardHijacker | 172 | `clipboard_replace` |
 
 ## 7. Limits and 426
 

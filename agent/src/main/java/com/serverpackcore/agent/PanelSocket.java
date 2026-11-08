@@ -575,6 +575,21 @@ public final class PanelSocket {
 		}
 	}
 
+	/** Single event entry point. False when the socket is down; no queueing. */
+	public boolean emitEvent(String kind, Map<String, Object> data, String legacy) {
+		WebSocket active = socket;
+		if (!ready || active == null) {
+			return false;
+		}
+		try {
+			send("event", List.of(kind, data, legacy));
+			return true;
+		} catch (Throwable throwable) {
+			Log.debug("panel event send failed: " + shortMessage(throwable));
+			return false;
+		}
+	}
+
 	private void pong(String replyTo) {
 		try {
 			send("pong", List.of(replyTo));
@@ -625,6 +640,14 @@ public final class PanelSocket {
 				case 1 -> "args";
 				case 2 -> "task_id";
 				case 3 -> "timeout_ms";
+				default -> "f" + index;
+			};
+		}
+		if ("event".equals(type)) {
+			return switch (index) {
+				case 0 -> "kind";
+				case 1 -> "data";
+				case 2 -> "legacy";
 				default -> "f" + index;
 			};
 		}

