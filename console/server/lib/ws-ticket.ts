@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 
 /** Single-use control-channel tickets, memory only. See contract/v1/ws.md §0. */
 export const TICKET_TTL_MS = 30_000;
-const MAX_LIVE_PER_DEVICE = 4;
+const MAX_LIVE_PER_DEVICE = 3;
 /** Consumed/expired tickets stay resolvable long enough to sign a 4401 bye. */
 const GRACE_MS = 60_000;
 

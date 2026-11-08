@@ -41,14 +41,14 @@ test('an expired ticket is rejected with its record for the 4401 bye', () => {
   }
 });
 
-test('the fifth live ticket evicts the oldest', () => {
+test('the fourth live ticket evicts the oldest', () => {
   const device = randomUUID();
-  const issued = Array.from({ length: 5 }, () => ticketFor(device));
-  assert.equal(liveTicketCount(device), 4);
+  const issued = Array.from({ length: 4 }, () => ticketFor(device));
+  assert.equal(liveTicketCount(device), 3);
   const oldest = consumeTicket(issued[0]!, device);
   assert.equal(oldest.ok, false);
   assert.equal((oldest as { reason: string }).reason, 'evicted');
-  assert.equal(consumeTicket(issued[4]!, device).ok, true);
+  assert.equal(consumeTicket(issued[3]!, device).ok, true);
 });
 
 test('unknown tickets are unknown', () => {

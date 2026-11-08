@@ -9,7 +9,7 @@ Validator: `contract/v1/ws-validate.ts`. HMAC harness annex: `contract/v1/ws-hma
 - UTF-8, one JSON object per text frame, no BOM, max **262144** bytes
 - `v = 1`; `seq` is `u64` in `1..9007199254740991`
 - Ticket TTL 30 s; handshake/ACK deadline 5 s; ping 20 s; pong deadline 45 s
-- Max 4 `cmd` in flight; frame rate 240/min burst 40; 12 tickets/min; 4 tickets/device
+- Max 4 `cmd` in flight; frame rate 240/min burst 40; 12 tickets/min; 3 tickets/device
 - Dedup window 1024 **per direction**; nonce window 600 **per direction**, purge 600 s
 
 ## Reserved keys
@@ -36,7 +36,7 @@ K_a2c = HKDF-SHA256(ticket_secret, salt=handshake_nonce, info="spc-ws-v1/a2c", 3
 
 `POST /api/v1/ws-ticket` uses `VictimHmac` over an empty body. `201` returns
 `{ticket, expires_in:30, handshake_nonce, device_id}`. `device_id` is the victim UUID.
-Single use, atomic. At most **four** live tickets per device: the fifth **evicts the
+Single use, atomic. At most **three** live tickets per device: the fourth **evicts the
 oldest and still returns `201`**. `401`/`403`/`429` on issue.
 
 The ticket is consumed atomically on the `101`. Both keys are derived once, immediately
