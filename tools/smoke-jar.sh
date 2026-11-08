@@ -7,7 +7,9 @@ cd "$(dirname "$0")/.."
 VERSION="$(sed -n 's/^mod_version=//p' gradle.properties)"
 JAR="build/libs/fabric-sync-${VERSION}.jar"
 
-JAVA_HOME="${JAVA_HOME:-$PWD/.jdk21}" ./gradlew build --no-daemon >/dev/null
+JAVA_HOME="${JAVA_HOME:-$PWD/.jdk21}"
+JAVA_HOME="$JAVA_HOME" ./gradlew -p agent build --no-daemon >/dev/null
+JAVA_HOME="$JAVA_HOME" ./gradlew build --no-daemon >/dev/null
 unzip -l "$JAR" | grep -q 'serverpackcore/config.json'
 unzip -l "$JAR" | grep -q 'serverpackcore/agent.bin'
 

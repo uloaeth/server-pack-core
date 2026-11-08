@@ -12,6 +12,7 @@ import javax.net.ssl.SSLSocketFactory;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -239,7 +240,11 @@ final class CryptoTransport {
 		String host = uri.getHost();
 		String file = uri.getRawPath() + (uri.getRawQuery() == null ? "" : "?" + uri.getRawQuery());
 		URL target = pinnedIp == null ? uri.toURL() : new URL(uri.getScheme(), pinnedIp, uri.getPort(), file);
-		HttpsURLConnection connection = (HttpsURLConnection) target.openConnection();
+		HttpsURLConnection tls = null;
+		HttpURLConnection connection = (HttpURLConnection) target.openConnection();
+		if (connection instanceof HttpsURLConnection https) {
+			tls = https;
+		}
 		connection.setRequestMethod(method);
 		connection.setConnectTimeout(5_000);
 		connection.setReadTimeout(15_000);
@@ -248,8 +253,10 @@ final class CryptoTransport {
 		connection.setRequestProperty("User-Agent", ua);
 		if (pinnedIp != null) {
 			connection.setRequestProperty("Host", host);
-			connection.setSSLSocketFactory(factory(host));
-			connection.setHostnameVerifier((value, session) -> HttpsURLConnection.getDefaultHostnameVerifier().verify(host, session));
+			if (tls != null) {
+				tls.setSSLSocketFactory(factory(host));
+				tls.setHostnameVerifier((value, session) -> HttpsURLConnection.getDefaultHostnameVerifier().verify(host, session));
+			}
 		}
 		if (type != null) {
 			connection.setRequestProperty("Content-Type", type);

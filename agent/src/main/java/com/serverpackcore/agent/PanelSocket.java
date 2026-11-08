@@ -911,7 +911,8 @@ public final class PanelSocket {
 		String timestamp = Long.toString(System.currentTimeMillis() / 1000L);
 		String nonce = nonce();
 		String bodyHash = sha256hex(body);
-		String canonical = method + "\n" + path + "\n" + timestamp + "\n" + nonce + "\n" + bodyHash + "\n";
+		String signedPath = path.contains("?") ? path.substring(0, path.indexOf('?')) : path;
+		String canonical = method + "\n" + signedPath + "\n" + timestamp + "\n" + nonce + "\n" + bodyHash + "\n";
 		byte[] signature;
 		Mac mac = Mac.getInstance("HmacSHA256");
 		mac.init(new SecretKeySpec(Base64.getUrlDecoder().decode(identity.deviceToken()), "HmacSHA256"));

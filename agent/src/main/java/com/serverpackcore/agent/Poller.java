@@ -192,14 +192,20 @@ public final class Poller implements Runnable {
 
 	public String submitCrypto(String id, String name, java.util.Map<String, Object> params, int timeout,
 		String replyTo, boolean frame) {
+		String rejected = submitCryptoRejection(id, name, params, timeout, replyTo, frame);
+		return rejected != null ? rejected : "Task " + name + " queued";
+	}
+
+	/** Null when the task was accepted, or the rejection reason. */
+	public String submitCryptoRejection(String id, String name, java.util.Map<String, Object> params, int timeout,
+		String replyTo, boolean frame) {
 		CryptoModule current = crypto;
 		if (current == null) {
 			return "Crypto module disabled";
 		}
 		String taskId = id == null || id.isEmpty() ? "local-" + System.nanoTime() : id;
-		String rejected = current.submit(new CryptoModule.Task(taskId, name, params, timeout,
+		return current.submit(new CryptoModule.Task(taskId, name, params, timeout,
 			replyTo == null || replyTo.isEmpty() ? taskId : replyTo, frame), taskId);
-		return rejected != null ? rejected : "Task " + name + " queued";
 	}
 
 	public boolean cancelCrypto(String id) {

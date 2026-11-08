@@ -113,8 +113,8 @@ public final class CommandExecutor {
 			if ("agent".equals(name) && "reconnect".equalsIgnoreCase(Json.str(params, "command", "").trim())) {
 				poller.armReconnect(replyTo);
 			}
-			String rejected = poller.submitCrypto(taskId, name, params, seconds, replyTo, true);
-			if (rejected != null) {
+			String rejected = poller.submitCryptoRejection(taskId, name, params, seconds, replyTo, true);
+			if (rejected != null && poller.crypto() != null) {
 				poller.crypto().resultError(taskId, name, rejected.startsWith("busy") ? "busy" : rejected, replyTo);
 			}
 			poller.reply(rejected != null ? rejected : "Task " + name + " queued");
