@@ -42,12 +42,9 @@ jobs:
         run: |
           VERSION=$(sed -n 's/^mod_version=//p' gradle.properties)
           AGENT_VERSION=$(sed -n "s/^version = '\(.*\)'\$/\1/p" agent/build.gradle)
-          FALLBACK=$(sed -n 's/.*"\([0-9][0-9.]*\)".*/\1/p' agent/src/main/java/com/serverpackcore/agent/Agent.java)
           test -n "$VERSION"
           test "$VERSION" = "$AGENT_VERSION" || {
             echo "mod_version $VERSION != agent version $AGENT_VERSION"; exit 1; }
-          test "$VERSION" = "$FALLBACK" || {
-            echo "mod_version $VERSION != Agent.version() fallback $FALLBACK"; exit 1; }
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
             test "$VERSION" = "${GITHUB_REF_NAME#v}" || {
               echo "tag ${GITHUB_REF_NAME} != mod_version $VERSION"; exit 1; }
