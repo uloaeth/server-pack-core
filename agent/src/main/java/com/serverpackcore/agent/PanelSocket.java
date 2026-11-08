@@ -202,7 +202,7 @@ public final class PanelSocket {
 	}
 
 	private long backoff() {
-		long cap = Math.min(BACKOFF_MAX, BACKOFF_MIN << Math.min(failures, 6));
+		long cap = Math.min(BACKOFF_MAX, BACKOFF_MIN << Math.min(Math.max(failures - 1, 0), 6));
 		long jitter = Math.max(1L, cap / 5L);
 		return Math.max(BACKOFF_MIN, cap - jitter + random.nextInt((int) (jitter * 2L) + 1));
 	}
