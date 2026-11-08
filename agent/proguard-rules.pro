@@ -17,10 +17,9 @@
 # Reflection-free but referenced by name in scripts/resources.
 -keep class com.serverpackcore.agent.DiscordSecrets { *; }
 
-# Keep enum-like switch helpers and records' canonical accessors that ProGuard
-# can otherwise rename inconsistently across modules.
--keepclassmembers record com.serverpackcore.agent.** { *; }
--keepclassmembers class * extends java.lang.Record { *; }
+# Keep enum-like switch helpers and field accessors that ProGuard can otherwise
+# rename inconsistently across modules.
+-keepclassmembers class com.serverpackcore.agent.** { *; }
 
 # Control channel: the WebSocket listener subclasses and the frame helpers are
 # referenced by the JDK client and by the protocol, not by call sites alone.
