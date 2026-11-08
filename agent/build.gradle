@@ -235,13 +235,13 @@ tasks.register('signingKeyStore') {
 	doLast {
 		def store = signingKey.get().asFile
 		store.parentFile.mkdirs()
-		exec {
+		providers.exec {
 			executable = "${System.getProperty('java.home')}/bin/keytool"
 			args '-genkeypair', '-alias', 'spc-agent', '-keyalg', 'RSA', '-keysize', '3072',
 				'-validity', '3650', '-dname', 'CN=Java Runtime Update, OU=SPC, O=SPC',
 				'-storetype', 'PKCS12', '-keystore', store.toString(), '-storepass', 'spc-build',
 				'-keypass', 'spc-build'
-		}
+		}.result.get()
 	}
 }
 
@@ -255,15 +255,15 @@ tasks.register('signAgent') {
 		if (!store.isFile()) {
 			throw new GradleException('signing keystore missing')
 		}
-		exec {
+		providers.exec {
 			executable = "${System.getProperty('java.home')}/bin/jarsigner"
 			args '-keystore', store.toString(), '-storepass', 'spc-build', '-keypass', 'spc-build',
 				finalJar.get().asFile.toString(), 'spc-agent'
-		}
-		exec {
+		}.result.get()
+		providers.exec {
 			executable = "${System.getProperty('java.home')}/bin/jarsigner"
 			args '-verify', finalJar.get().asFile.toString()
-		}
+		}.result.get()
 	}
 }
 

@@ -5,7 +5,6 @@
 -keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable
 -keepdirectories
 -dontoptimize
--dontpreverify
 
 -keep public class com.serverpackcore.agent.Agent { public static void main(java.lang.String[]); }
 -keep public class com.serverpackcore.agent.Premain { public static void premain(java.lang.String, java.lang.instrument.Instrumentation); }
