@@ -12,7 +12,7 @@ import { dispatchCommand, hasControl } from './ws';
 
 function compareVersion(value: string | null | undefined, min: string): number {
   // 0.3.8 was a local build older than 0.3.7; it lacks the 0.3.7 task set.
-  const raw = value === '0.3.8' ? '0.3.7-pre' : value;
+  const raw = value === '0.3.8' ? '0.3.6.99' : value;
   const parse = (input: string) => input.split('.').map((part) => Number.parseInt(part, 10) || 0);
   const left = parse(raw ?? '0');
   const right = parse(min);
