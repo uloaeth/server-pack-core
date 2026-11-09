@@ -20,6 +20,12 @@ export async function applyTaskResult(victimId: string, taskId: string, input: R
   const marker = input.result?.http_result === true;
   // `unknown` is terminal: the source may be gone, so no later result revives it.
   const terminal = task.status === 'done' || task.status === 'error' || task.status === 'cancelled' || task.status === 'unknown';
+  // Only the retry-ish paths are worth a line: a marker/duplicate arriving
+  // against a closed task is exactly where results used to get lost.
+  if (marker || terminal) {
+    console.log('[result]', taskId, 'marker=' + marker, 'status=' + task.status,
+      'stored=' + JSON.stringify(task.result), 'incoming=' + JSON.stringify(input.result).slice(0, 200));
+  }
   if (terminal && task.result) {
     if (marker) return 'duplicate';
     // A real http_only body may arrive after its own marker frame; it owns the

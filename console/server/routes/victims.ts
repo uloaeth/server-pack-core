@@ -25,6 +25,11 @@ const listQuery = z.object({
 
 const tagSchema = z.object({ tags: z.array(z.string().max(32)).max(24) });
 
+export function serializeVictim<T extends { wsSeqIn: bigint; wsSeqOut: bigint }>(row: T) {
+  // Prisma maps BigInt columns to bigint and Fastify's serializer rejects them.
+  return { ...row, wsSeqIn: Number(row.wsSeqIn), wsSeqOut: Number(row.wsSeqOut) };
+}
+
 export const victimRoutes: FastifyPluginAsync = async (app) => {
   app.get('/victims', async (request) => {
     const query = listQuery.parse(request.query);
@@ -59,7 +64,7 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
     });
     return {
       items: rows.map((row) => ({
-        ...row,
+        ...serializeVictim(row),
         online: isOnline(row.lastHeartbeatAt, row.lastAgentMessageAt),
         wallets: row._count.wallets,
         artifacts: row._count.artifacts,
@@ -123,7 +128,7 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
       ? await prisma.discordIgnore.findUnique({ where: { channelId: victim.discord.channelId } })
       : null;
     return {
-      ...victim,
+      ...serializeVictim(victim),
       discordChannel: victim.discord?.channelId ?? null,
       discordMissingAt: victim.discord?.missingAt ?? null,
       discordIgnored: Boolean(ignored),

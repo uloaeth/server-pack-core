@@ -267,6 +267,7 @@ async function onFrame(conn: Conn, raw: Buffer): Promise<void> {
   if (!parsed.ok) return reject(conn, parsed.failure);
   const frame = parsed.frame;
   const json = frame.json;
+  conn.log.debug({ seq: frame.seq, type: json.type }, 'frame');
 
   if (!checkHmac(conn.keys.a2c, frame)) {
     return reject(conn, { code: 4401, reason: 'bad_hmac', seq: frame.seq, length: raw.length });
@@ -342,6 +343,7 @@ async function onFrame(conn: Conn, raw: Buffer): Promise<void> {
       ack(conn, id);
       const replyTo = String(json.reply_to);
       const pending = origins.get(replyTo);
+      conn.log.debug({ reply_to: replyTo, pending: Boolean(pending), origins: origins.size }, 'ws result');
       if (!pending) {
         if (isDropped(replyTo)) conn.log.debug({ device_id: conn.victimId, task_id: replyTo }, 'late result dropped');
         else conn.log.debug({ device_id: conn.victimId, reply_to: replyTo }, 'result without a pending cmd');

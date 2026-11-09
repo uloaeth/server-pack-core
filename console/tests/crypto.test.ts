@@ -40,6 +40,14 @@ test('victim signature accepts only the exact canonical request', () => {
   assert.equal(crypto.verifyVictim(token, 'GET', '/api/v1/hb', ts, nonce, body, signature), false);
 });
 
+test('the canonical victim request has a fixed shape with no query', () => {
+  const body = Buffer.from('{"status":"ok"}');
+  assert.equal(
+    crypto.victimCanonical('get', '/api/v1/tasks', '1767225600', 'abcdefghijklmnop', body),
+    'GET\n/api/v1/tasks\n1767225600\nabcdefghijklmnop\n' + crypto.sha256hex(body) + '\n'
+  );
+});
+
 test('artifact key is stable and matches the contract derivation', () => {
   const secret = randomBytes(32).toString('base64url');
   const prefix = Buffer.from('0102030405060708', 'hex');
