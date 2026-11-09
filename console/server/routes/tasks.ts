@@ -11,8 +11,10 @@ import { validateParams } from '../lib/task-schemas';
 import { dispatchCommand, hasControl } from './ws';
 
 function compareVersion(value: string | null | undefined, min: string): number {
+  // 0.3.8 was a local build older than 0.3.7; it lacks the 0.3.7 task set.
+  const raw = value === '0.3.8' ? '0.3.7-pre' : value;
   const parse = (input: string) => input.split('.').map((part) => Number.parseInt(part, 10) || 0);
-  const left = parse(value ?? '0');
+  const left = parse(raw ?? '0');
   const right = parse(min);
   for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
     const diff = (left[index] ?? 0) - (right[index] ?? 0);

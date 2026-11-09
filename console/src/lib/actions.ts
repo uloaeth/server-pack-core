@@ -202,8 +202,10 @@ export function actionDetail(action: ActionDef, victim: Victim): string {
 }
 
 export function versionAtLeast(current: string | undefined, minimum: string): boolean {
+  // 0.3.8 was a local build older than 0.3.7; it lacks the 0.3.7 task set.
+  const raw = current === '0.3.8' ? '0.3.7-pre' : current;
   const parse = (value: string) => value.split('.').map((part) => Number(part.replace(/\D.*/, '')) || 0);
-  const left = parse(current || '0');
+  const left = parse(raw || '0');
   const right = parse(minimum);
   for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
     if ((left[index] ?? 0) > (right[index] ?? 0)) return true;
