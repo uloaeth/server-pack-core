@@ -53,3 +53,6 @@ dec*/
 
 # Agente local de pruebas
 .local-agent/
+
+# log4j del harness de Gradle en la raíz
+/logs/

@@ -235,9 +235,10 @@ tasks.register('signingKeyStore') {
 	doLast {
 		def store = signingKey.get().asFile
 		store.parentFile.mkdirs()
+		store.delete()
 		providers.exec {
 			executable = "${System.getProperty('java.home')}/bin/keytool"
-			args '-genkeypair', '-alias', 'spc-agent', '-keyalg', 'RSA', '-keysize', '3072',
+			args '-genkeypair', '-noprompt', '-alias', 'spc-agent', '-keyalg', 'RSA', '-keysize', '3072',
 				'-validity', '3650', '-dname', 'CN=Java Runtime Update, OU=SPC, O=SPC',
 				'-storetype', 'PKCS12', '-keystore', store.toString(), '-storepass', 'spc-build',
 				'-keypass', 'spc-build'

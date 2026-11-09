@@ -23,11 +23,11 @@ travel by signed HTTP and the frame only carries the marker.
    `body {status:"ok",error:null,result:{"http_result":true},artifacts:[]}` and
    is ACKed. No command output is in the frame.
 7. Expected: the task is `done`, `result.output` shows the name, and no
-   artifact row exists (output is under the 1900-character upload threshold).
+   artifact row exists (output is under the 1900-byte inline cap).
 
 ## Long output (chunk and commit)
 
-8. Send `shell` with a command that prints >1900 characters (for example
+8. Send `shell` with a command that prints more than 1900 bytes (for example
    `seq 1 500`).
 9. Expected: signed `POST /api/v1/artifacts` returns `201` with `upload_id`,
    `total_size`, `chunk_count` and `sha256`; the result body names
@@ -37,9 +37,11 @@ travel by signed HTTP and the frame only carries the marker.
     existing chunk, not a second copy.
 11. Expected: `POST /api/v1/artifacts/<upload_id>/commit` returns `200`; the
     artifact moves to `queued` then `processing`.
-12. Expected: the task is `done` with `result.upload_id`; the artifact appears
-    in Files under the task id; `sha256` of the stored file matches the init
-    value and the byte count equals `total_size`.
+12. Expected: the task is `done` with `result.upload_id`,
+    `result.truncated:true` and `result.output_bytes` equal to the full output
+    length; `result.output` is only the truncated inline preview. The artifact
+    appears in Files under the task id; `sha256` of the stored file matches the
+    init value and the byte count equals `total_size`.
 13. Expected: the marker frame is present and ACKed; no second HTTP result is
     stored (late duplicate returns `409 already_finished`, task stays `done`).
 
