@@ -11,6 +11,6 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["**/*.ts", "../prisma/seed.ts"],
+  "include": ["**/*.ts", "../prisma/seed.ts", "../scripts/**/*.ts"],
   "exclude": ["../node_modules", "../.next", "../src"]
 }

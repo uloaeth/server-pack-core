@@ -7,6 +7,11 @@ if [ -n "${DATABASE_URL_FILE:-}" ]; then
   export DATABASE_URL="$(cat "$DATABASE_URL_FILE")"
 fi
 
+# `docker compose run api <cmd>` must run the command, not start another server.
+if [ "$#" -gt 0 ]; then
+  exec "$@"
+fi
+
 if [ "${MIGRATE:-1}" = "1" ]; then
   npx prisma migrate deploy
 fi

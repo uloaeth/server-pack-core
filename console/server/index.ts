@@ -142,7 +142,7 @@ async function main() {
   const sealing = await sealingStatus().catch(() => null);
   if (sealing?.degraded) {
     logger.warn({ pending: sealing.pending, builds: sealing.builds, victims: sealing.victims, salts: sealing.salts },
-      'DEGRADED: plaintext secret rows remain; run npx tsx scripts/reseal.ts');
+      'DEGRADED: plaintext secret rows remain; run node dist/scripts/reseal.js');
   }
   await initGeo();
   await app.listen({ host: '0.0.0.0', port: env.PORT });

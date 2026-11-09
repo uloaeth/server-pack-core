@@ -50,7 +50,8 @@ Una base ya migrada con el nombre antiguo debe marcarse antes de desplegar:
 ```sh
 npx prisma migrate resolve --applied 20261109000000_secret_separation
 npx prisma migrate deploy
-npx tsx scripts/reseal.ts   # debe terminar con pending=0
+node dist/scripts/reseal.js   # en contenedor; local: npx tsx scripts/reseal.ts
+# debe terminar con pending=0
 ```
 
 Una base nueva ejecuta todo desde cero. El panel arranca en `degraded` si queda
