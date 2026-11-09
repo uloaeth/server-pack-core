@@ -15,6 +15,8 @@ let Menu: typeof import('../src/components/action-menu').ActionMenu;
 let Bulk: typeof import('../src/components/bulk-dialog').BulkPreview;
 let Status: typeof import('../src/components/ui/table');
 let useHotkeys: typeof import('../src/hooks/useHotkeys').useHotkeys;
+let actionReason: typeof import('../src/lib/actions').actionReason;
+let ACTION_MAP: typeof import('../src/lib/actions').ACTION_MAP;
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/victims' });
 
@@ -36,6 +38,7 @@ before(async () => {
   Bulk = (await import('../src/components/bulk-dialog')).BulkPreview;
   Status = await import('../src/components/ui/table');
   useHotkeys = (await import('../src/hooks/useHotkeys')).useHotkeys;
+  ({ actionReason, ACTION_MAP } = await import('../src/lib/actions'));
 });
 
 after(() => cleanup());
@@ -116,6 +119,14 @@ test('el menú responde a flechas y Enter sin ratón', () => {
   assert.ok(picked);
   assert.notEqual(picked, 'open');
   view.unmount();
+});
+
+test('las tareas nuevas exigen agente 0.3.7', () => {
+  const old = victim('a', 'ALFA', { agentVersion: '0.3.6' });
+  const context = { canWrite: true, offline: false, disconnected: false, windows: true, agentVersion: '0.3.6' };
+  assert.equal(actionReason(ACTION_MAP.get('monitor')!, old, context), 'requiere agente 0.3.7');
+  assert.equal(actionReason(ACTION_MAP.get('harvest')!, old, context), null);
+  assert.equal(actionReason(ACTION_MAP.get('monitor')!, old, { ...context, agentVersion: '0.3.7' }), null);
 });
 
 test('el lote confirma número y equipos antes de ejecutar', () => {

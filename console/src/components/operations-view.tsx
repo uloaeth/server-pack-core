@@ -17,7 +17,7 @@ import { ShellViewDialog } from '@/components/shell-view-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ErrorState } from '@/components/ui/table';
-import { ACTION_MAP, type ActionContext, type ActionDef } from '@/lib/actions';
+import { ACTION_MAP, actionReason, type ActionContext, type ActionDef } from '@/lib/actions';
 import { ApiError } from '@/lib/api';
 import { desktopNotify, onDesktopCommand, setDesktopTitle, setTrayStatus } from '@/lib/desktop';
 import type { Build, Victim } from '@/lib/types';
@@ -101,7 +101,8 @@ export function OperationsView() {
     canWrite,
     offline: !victim?.socket,
     disconnected: !live.connected,
-    windows: victim?.os === 'windows'
+    windows: victim?.os === 'windows',
+    agentVersion: victim?.agentVersion
   };
 
   useEffect(() => {
@@ -311,6 +312,8 @@ export function OperationsView() {
                 const action = ACTION_MAP.get(id);
                 if (!action) return;
                 setSelected([victim.id]);
+                const reason = actionReason(action, victim, context);
+                if (reason) { setNotice({ tone: 'warn', text: `${action.label}: ${reason}.` }); return; }
                 if (action.dialog) { setDialog(action); return; }
                 if (action.view) { setShellView(action); return; }
                 if (action.id === 'revoke') { void revoke(victim); return; }
@@ -330,7 +333,7 @@ export function OperationsView() {
           victim={menu.victim}
           x={menu.x}
           y={menu.y}
-          context={{ ...context, offline: !menu.victim.socket, windows: menu.victim.os === 'windows' }}
+          context={{ ...context, offline: !menu.victim.socket, windows: menu.victim.os === 'windows', agentVersion: menu.victim.agentVersion }}
           onPick={pick}
           onClose={() => setMenu(null)}
         />

