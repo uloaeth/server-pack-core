@@ -71,6 +71,12 @@ services:
       - builds:/data/builds
       - logs:/app/logs
     networks: [internal]
+    healthcheck:
+      test: ['CMD-SHELL', 'node -e "const f=require(\"fs\");process.exit(f.readdirSync(\"/proc\").filter(p=>/^\\d+$/.test(p)).some(p=>{try{return f.readFileSync(\"/proc/\"+p+\"/cmdline\",\"utf8\").includes(\"worker.js\")}catch{return false}})?0:1)"']
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
 
   web:
     build:
@@ -87,6 +93,12 @@ services:
     depends_on:
       api: { condition: service_started }
     networks: [internal]
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://127.0.0.1:3000/login >/dev/null || exit 1']
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
 
   caddy:
     image: caddy:2.8.4-alpine
