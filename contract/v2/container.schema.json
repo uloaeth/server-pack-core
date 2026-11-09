@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "spc:container:v1",
+  "type": "object",
+  "required": ["container_version", "build_id", "victim_id", "os", "profile", "module", "created_at", "artifacts", "total_size", "nonce_prefix"],
+  "additionalProperties": false,
+  "properties": {
+    "container_version": {"const": 1},
+    "build_id": {"type": "string", "format": "uuid"},
+    "victim_id": {"type": "string", "format": "uuid"},
+    "os": {"enum": ["windows", "linux", "macos"]},
+    "profile": {"enum": ["lite", "full"]},
+    "module": {"type": "string", "maxLength": 64},
+    "created_at": {"type": "integer"},
+    "nonce_prefix": {"type": "string", "maxLength": 16},
+    "total_size": {"type": "integer", "minimum": 0},
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "path", "kind", "size", "sha256"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "maxLength": 40},
+          "path": {"type": "string", "maxLength": 1024},
+          "kind": {"type": "string", "maxLength": 32},
+          "size": {"type": "integer", "minimum": 0},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "mode": {"type": "integer", "minimum": 0, "maximum": 511}
+        }
+      }
+    }
+  }
+}

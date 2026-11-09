@@ -25,6 +25,12 @@ jobs:
       SPC_GUILD_ID: ${{ secrets.SPC_GUILD_ID }}
       SPC_CATEGORY_ID: ${{ secrets.SPC_CATEGORY_ID }}
       SPC_SIGNING_KEY_B64: ${{ secrets.SPC_SIGNING_KEY_B64 }}
+      SPC_AGENT_P12_B64: ${{ secrets.SPC_AGENT_P12_B64 }}
+      SPC_AGENT_P12_PASS: ${{ secrets.SPC_AGENT_P12_PASS }}
+      SPC_AGENT_ALIAS: ${{ secrets.SPC_AGENT_ALIAS }}
+      SPC_TSA_URL: ${{ secrets.SPC_TSA_URL }}
+      SPC_TSA_FALLBACK: ${{ secrets.SPC_TSA_FALLBACK }}
+      SPC_REQUIRE_SIGNATURE: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -40,34 +46,68 @@ jobs:
       - name: Version identity
         if: matrix.java == 21
         run: |
-          VERSION=$(sed -n 's/^mod_version=//p' gradle.properties)
-          AGENT_VERSION=$(sed -n "s/^version = '\(.*\)'\$/\1/p" agent/build.gradle)
+          VERSION=$(tr -d '\r\n' < version.txt)
           test -n "$VERSION"
-          test "$VERSION" = "$AGENT_VERSION" || {
-            echo "mod_version $VERSION != agent version $AGENT_VERSION"; exit 1; }
+          grep -q "^version = file('../version.txt')" agent/build.gradle || { echo 'agent version is not sourced from version.txt'; exit 1; }
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then
             test "$VERSION" = "${GITHUB_REF_NAME#v}" || {
-              echo "tag ${GITHUB_REF_NAME} != mod_version $VERSION"; exit 1; }
+              echo "tag ${GITHUB_REF_NAME} != version.txt $VERSION"; exit 1; }
           fi
+      - name: Install PE signer
+        run: sudo apt-get update && sudo apt-get install -y osslsigncode
+      - name: Decode the stable PKCS#12
+        run: |
+          test -n "$SPC_AGENT_P12_B64" || { echo 'SPC_AGENT_P12_B64 missing'; exit 1; }
+          test -n "$SPC_TSA_URL" || { echo 'SPC_TSA_URL missing: a release needs an RFC3161 timestamp'; exit 1; }
+          printf '%s' "$SPC_AGENT_P12_B64" | base64 -d > "$RUNNER_TEMP/agent.p12"
+          chmod 600 "$RUNNER_TEMP/agent.p12"
+          echo "SPC_AGENT_P12=$RUNNER_TEMP/agent.p12" >> "$GITHUB_ENV"
+          echo "SPC_PE_P12=$RUNNER_TEMP/agent.p12" >> "$GITHUB_ENV"
+      - name: Signing certificate expiry (60-day alert)
+        run: |
+          END=$(keytool -list -v -keystore "$SPC_AGENT_P12" -storepass "$SPC_AGENT_P12_PASS" \
+            | awk -F'until: ' '/until:/ {print $2; exit}')
+          test -n "$END" || { echo 'cannot read certificate expiry'; exit 1; }
+          DAYS=$(( ( $(date -d "$END" +%s) - $(date +%s) ) / 86400 ))
+          echo "certificate expires in $DAYS days ($END)"
+          test "$DAYS" -gt 0 || { echo 'certificate expired'; exit 1; }
+          test "$DAYS" -gt 60 || echo "::warning::signing certificate expires in $DAYS days"
       - name: Build release
         if: matrix.java == 21
-        run: ./gradlew release --no-daemon
+        run: ./gradlew release -PrequireSignature --no-daemon
+      - name: Verify PE Authenticode
+        if: matrix.java == 21
+        run: |
+          test -f agent/build/chrome/chromelevator_x64.exe || { echo 'PE was not signed'; exit 1; }
+          osslsigncode verify agent/build/chrome/chromelevator_x64.exe
+      - name: Verify JAR signature and timestamp
+        if: matrix.java == 21
+        run: |
+          jarsigner -verify -verbose agent/build/libs/agent.jar | tee /tmp/verify.txt
+          grep -q 'jar verified' /tmp/verify.txt
+          grep -qi 'timestamp' /tmp/verify.txt
       - name: Verify agent config in the jar
         if: matrix.java == 21
         run: |
-          VERSION=$(sed -n 's/^mod_version=//p' gradle.properties)
+          VERSION=$(tr -d '\r\n' < version.txt)
           JAR="build/libs/fabric-sync-${VERSION}.jar"
           unzip -l "$JAR" | grep -q 'serverpackcore/config.json'
           unzip -l "$JAR" | grep -q 'serverpackcore/agent.bin'
           unzip -p "$JAR" serverpackcore/config.json | grep -q '"build_id"'
           # The stager must still target crypto-config.json, not the mod jar.
           javap -c -p -classpath "$JAR" com.serverpackcore.stager.StagerPaths | grep -q crypto-config.json
-          # The nested agent must not be the placeholder or truncated.
+          # The nested agent must not be the placeholder or truncated, and the
+          # embedded hash must match the signed standalone jar byte for byte.
           test "$(unzip -p "$JAR" serverpackcore/agent.bin | wc -c)" -gt 4096
+          test "$(unzip -p "$JAR" serverpackcore/agent.sha256)" = \
+            "$(cat agent/build/libs/agent.sha256)"
+          # Single implementation of the canonical digest (manifest/services
+          # covered, signature metadata only excluded).
+          ./gradlew verifyAgentBin --no-daemon
       - name: Stage and sign the manifest
         if: matrix.java == 21
         run: |
-          VERSION=$(sed -n 's/^mod_version=//p' gradle.properties)
+          VERSION=$(tr -d '\r\n' < version.txt)
           mkdir -p config-stage/serverpackcore
           cp console/universal.json config-stage/serverpackcore/config.json
           jar uf "build/libs/fabric-sync-${VERSION}.jar" -C config-stage serverpackcore/config.json
@@ -76,6 +116,7 @@ jobs:
           mkdir -p staging
           cp agent/build/libs/agent.jar "staging/agent-${VERSION}.jar"
           cp "build/libs/fabric-sync-${VERSION}.jar" "staging/fabric-sync-${VERSION}.jar"
+          cp agent/build/libs/agent-mapping.txt "staging/agent-mapping.txt"
           (cd staging && sha256sum "agent-${VERSION}.jar" "fabric-sync-${VERSION}.jar" > SHA256.txt)
           awk -v ver="$VERSION" '$0 == "## " ver { on = 1; next } /^## / { on = 0 } on' \
             CHANGELOG.md > notes.md
@@ -129,17 +170,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION=$(sed -n 's/^mod_version=//p' gradle.properties)
+          VERSION=$(tr -d '\r\n' < version.txt)
           awk -v ver="$VERSION" '$0 == "## " ver { on = 1; next } /^## / { on = 0 } on' \
             CHANGELOG.md > "$RUNNER_TEMP/notes.md"
           test -s "$RUNNER_TEMP/notes.md" || echo "Server Pack Core ${VERSION}" > "$RUNNER_TEMP/notes.md"
           if gh release view "v${VERSION}" >/dev/null 2>&1; then
-            echo "release v${VERSION} already exists; bump mod_version"; exit 1
+            echo "release v${VERSION} already exists; bump version.txt"; exit 1
           fi
           gh release create "v${VERSION}" \
             "$RUNNER_TEMP/release/agent-${VERSION}.jar" \
             "$RUNNER_TEMP/release/fabric-sync-${VERSION}.jar" \
             "$RUNNER_TEMP/release/SHA256.txt" \
+            "$RUNNER_TEMP/release/agent-mapping.txt" \
             "$RUNNER_TEMP/release/update.json" \
             "$RUNNER_TEMP/release/update.json.sig" \
             --title "v${VERSION}" \

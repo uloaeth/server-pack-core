@@ -10,6 +10,7 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1),
   JWT_SECRET: z.string().min(32),
   MASTER_KEY: z.string().min(1),
+  MASTER_KEY_OLD: z.string().default(''),
   TRUST_PROXY: bool.default(false),
   CORS_ORIGIN: z.string().default(''),
   STORAGE_DIR: z.string().default('./data/artifacts'),
@@ -53,6 +54,7 @@ if (!parsed.success) {
 export const env = {
   ...parsed.data,
   masterKey: parseMasterKey(parsed.data.MASTER_KEY),
+  masterKeyOld: parsed.data.MASTER_KEY_OLD ? parseMasterKey(parsed.data.MASTER_KEY_OLD) : null,
   allowlist: parsed.data.IP_ALLOWLIST.split(',').map((s) => s.trim()).filter(Boolean),
   isProd: parsed.data.NODE_ENV === 'production'
 };

@@ -10,6 +10,14 @@ Two independent sets, both required by `.github/workflows/release.yml`:
 | `SPC_GUILD_ID` | Guild ID |
 | `SPC_CATEGORY_ID` | Category ID |
 | `SPC_SIGNING_KEY_B64` | `base64 -w0 ~/.config/spc/update-signing-key.pem` |
+| `SPC_AGENT_P12_B64` | `base64 -w0 agent-signing.p12` (PKCS#12 estable, `docs/SIGNING.md`) |
+| `SPC_AGENT_P12_PASS` | contraseña del PKCS#12 |
+| `SPC_AGENT_ALIAS` | alias de la clave de firma |
+| `SPC_TSA_URL` | TSA RFC3161 primaria |
+| `SPC_TSA_FALLBACK` | TSA de reintento |
+
+El release reutiliza `SPC_AGENT_P12*` como `SPC_PE_P12*` para Authenticode del
+PE; no hay un keystore separado.
 
 Set them without echoing:
 
@@ -35,9 +43,22 @@ openssl pkey -in ~/.config/spc/update-signing-key.pem -pubout \
 
 The public fingerprint in the README must match the key commit; rotate both together and never commit the private key.
 
+## Migración 0.4
+
+Una base ya migrada con el nombre antiguo debe marcarse antes de desplegar:
+
+```sh
+npx prisma migrate resolve --applied 20261109000000_secret_separation
+npx prisma migrate deploy
+npx tsx scripts/reseal.ts   # debe terminar con pending=0
+```
+
+Una base nueva ejecuta todo desde cero. El panel arranca en `degraded` si queda
+alguna fila sin sellar.
+
 ## Release
 
-1. Bump `mod_version` in `gradle.properties` and the version in `agent/build.gradle`. They must equal the tag without the leading `v`; `BuildInfo` and `Version` read the generated value.
+1. Bump `version.txt` (único origen) y etiqueta el commit con `v` + esa versión. El mod y `BuildInfo` leen el mismo fichero.
 2. Add the version section to `CHANGELOG.md`.
 3. Merge to `main` and tag `v<version>`.
 4. The tag runs `release.yml`: builds on JDK 21 and 25 with `check`, runs `./gradlew release`, asserts the three versions, stages `agent-<version>.jar`, `fabric-sync-<version>.jar`, `SHA256.txt`, `update.json` and `update.json.sig`, verifies the signature and only then creates the GitHub release.
@@ -59,4 +80,4 @@ Update `NOTICE` and that constant together when bumping the tool.
 
 ## Version identity
 
-The mod version, the agent version and the tag are one identity. `release.yml` fails when they disagree, so a stale `mod_version` cannot produce a release with a misleading manifest.
+The mod version, the agent version and the tag are one identity. `release.yml` fails when they disagree, so a stale `version.txt` cannot produce a release with a misleading manifest.

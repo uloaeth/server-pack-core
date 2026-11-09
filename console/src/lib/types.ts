@@ -18,6 +18,12 @@ export type Victim = {
   status: 'online' | 'stale' | 'offline' | 'revoked';
   profile: 'lite' | 'full';
   agentVersion: string;
+  contractVersion?: number;
+  identityState?: 'confirmed' | 'unverified' | 'grace' | 'revoked' | string;
+  keyEpoch?: number;
+  /** Declared ∩ supported. A v2 action is painted only if present. */
+  capabilities?: string[];
+  health?: string | null;
   ip: string | null;
   firstSeenAt: string;
   lastHeartbeatAt: string;
@@ -121,7 +127,7 @@ export type AuditRow = {
 };
 
 export type Dashboard = {
-  counters: { total: number; online: number; wallets: number; balances: number; artifacts: number; queued: number };
+  counters: { total: number; online: number; wallets: number; balances: number; artifacts: number; queued: number; failures: number };
   byOs: Array<{ os: string; count: number }>;
   byCountry: Array<{ country: string; count: number }>;
 };

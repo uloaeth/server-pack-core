@@ -77,3 +77,37 @@ async function seedFound(victimId: string, value: string): Promise<void> {
     dedupeKey: `seed:${victimId}:${createHash('sha256').update(value).digest('hex')}`
   }).catch(() => undefined);
 }
+
+const FAILURE_WINDOW = 10 * 60_000;
+
+/** Deduplicated failure telemetry. Returns true when a new row was written. */
+export async function recordFailure(
+  victimId: string,
+  kind: 'task_failed' | 'module_degraded' | 'outbox_dropped',
+  key: string,
+  detail: string
+): Promise<boolean> {
+  const since = new Date(Date.now() - FAILURE_WINDOW);
+  const existing = await prisma.event.findFirst({
+    where: { victimId, kind, createdAt: { gte: since }, data: { path: ['key'], equals: key } },
+    select: { id: true }
+  }).catch(() => null);
+  if (existing) return false;
+  await prisma.event.create({
+    data: { victimId, kind, data: { key, detail: detail.slice(0, 2000) } as never }
+  });
+  void publish({ type: 'event.new', victimId, at: Date.now(), data: { kind, key, detail: detail.slice(0, 2000) } });
+  if (kind !== 'task_failed') {
+    const count = await prisma.event.count({
+      where: { victimId, kind, createdAt: { gte: since }, data: { path: ['key'], equals: key } }
+    }).catch(() => 0);
+    if (count === 5) {
+      await notify({
+        kind, victimId, title: kind === 'module_degraded' ? 'Module degraded' : 'Outbox dropping results',
+        body: detail.slice(0, 300), link: `/victims/${victimId}`,
+        dedupeKey: `${kind}:${victimId}:${key}`, dedupeMs: 30 * 60_000
+      }).catch(() => undefined);
+    }
+  }
+  return true;
+}

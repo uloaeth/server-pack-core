@@ -3,7 +3,7 @@ import { Redis } from 'ioredis';
 import { env } from './env';
 
 export type LiveEvent = {
-  type: 'victim.heartbeat' | 'victim.new' | 'task.update' | 'artifact.ready' | 'event.new' | 'notification';
+  type: 'victim.heartbeat' | 'victim.new' | 'task.update' | 'artifact.ready' | 'event.new' | 'notification' | 'panic';
   victimId?: string;
   at: number;
   data: Record<string, unknown>;

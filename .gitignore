@@ -31,6 +31,7 @@ remappedSrc/
 # Distribucion
 dist/*.jar
 src/main/resources/serverpackcore/agent.bin
+src/main/resources/serverpackcore/agent.sha256
 
 # Entorno local
 local.properties
@@ -38,6 +39,7 @@ local.properties
 .tmp-in026/
 .jdk21/
 *.log
+*.hprof
 __pycache__/
 *.pyc
 .blob/

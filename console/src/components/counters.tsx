@@ -11,10 +11,11 @@ export function Counters({ data, loading }: { data: Dashboard | null; loading: b
     { label: 'Wallets', value: data?.counters.wallets ?? 0, icon: Wallet, href: '/victims?has=wallets', tone: 'text-brand' },
     { label: 'Con saldo', value: data?.counters.balances ?? 0, icon: Activity, href: '/events?kind=wallet_balance', tone: 'text-warn' },
     { label: 'Artefactos', value: data?.counters.artifacts ?? 0, icon: Download, href: '/victims', tone: 'text-ink' },
-    { label: 'Tareas en cola', value: data?.counters.queued ?? 0, icon: Activity, href: '/tasks?status=queued', tone: 'text-warn' }
+    { label: 'Tareas en cola', value: data?.counters.queued ?? 0, icon: Activity, href: '/tasks?status=queued', tone: 'text-warn' },
+    { label: 'Errores 24 h', value: data?.counters.failures ?? 0, icon: Activity, href: '/events', tone: 'text-bad' }
   ];
   return (
-    <div className="grid grid-cols-6 gap-2">
+    <div className="grid grid-cols-7 gap-2">
       {items.map((item) => (
         <Link key={item.label} href={item.href} className="rounded-lg border border-line bg-panel p-3 transition-colors hover:border-line/80 hover:bg-panel/70">
           <div className="flex items-center justify-between text-muted">

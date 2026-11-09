@@ -3,7 +3,7 @@ import { PrismaClient, Role, Profile } from '@prisma/client';
 import argon2 from 'argon2';
 import { authenticator } from 'otplib';
 import { readFile } from 'node:fs/promises';
-import { buildToken, buildTokenHash, randomToken, sealSecret, sha256hex } from '../server/lib/crypto';
+import { enrollTokenHashV2, enrollTokenV2, randomToken, sealSecret, sha256hex } from '../server/lib/crypto';
 import { env } from '../server/lib/env';
 
 const prisma = new PrismaClient();
@@ -47,11 +47,12 @@ async function main() {
 
   const admin = await prisma.operator.findUniqueOrThrow({ where: { email: accounts[0].email } });
   const buildSecret = randomToken(32);
-  const token = buildToken(buildSecret);
+  const token = enrollTokenV2(buildSecret, '00000000-0000-4000-8000-000000000001');
   const config = {
     schema: 1,
     build_id: '00000000-0000-4000-8000-000000000001',
     build_secret: buildSecret,
+    artifact_scheme: 2,
     c2_base: `${env.PUBLIC_URL}/api/v1`,
     profile: 'full',
     modules: { wallets: true, clipboard: true, credentials: true, seeds: true },
@@ -65,14 +66,15 @@ async function main() {
 
   const build = await prisma.build.upsert({
     where: { buildId: config.build_id },
-    update: { tokenHash: buildTokenHash(buildSecret), secret: buildSecret, config },
+    update: { tokenHash: enrollTokenHashV2(buildSecret, config.build_id), secret: sealSecret(buildSecret), enrollScheme: 2, config },
     create: {
       name: 'seed-full',
-      version: '0.3.5',
+      version: '0.3.9',
       profile: Profile.full,
       buildId: config.build_id,
-      tokenHash: buildTokenHash(buildSecret),
-      secret: buildSecret,
+      tokenHash: enrollTokenHashV2(buildSecret, config.build_id),
+      secret: sealSecret(buildSecret),
+      enrollScheme: 2,
       config,
       status: 'ready',
       createdById: admin.id
@@ -80,24 +82,27 @@ async function main() {
   });
 
   const universalConfig = JSON.parse(await readFile('universal.json', 'utf8')) as typeof config;
-  const universalToken = buildToken(universalConfig.build_secret);
+  universalConfig.artifact_scheme = 2;
+  const universalToken = enrollTokenV2(universalConfig.build_secret, universalConfig.build_id);
   const universal = await prisma.build.upsert({
     where: { buildId: universalConfig.build_id },
     update: {
-      tokenHash: buildTokenHash(universalConfig.build_secret),
-      secret: universalConfig.build_secret,
+      tokenHash: enrollTokenHashV2(universalConfig.build_secret, universalConfig.build_id),
+      secret: sealSecret(universalConfig.build_secret),
+      enrollScheme: 2,
       config: universalConfig,
       universal: true,
       status: 'ready'
     },
     create: {
       name: 'universal',
-      version: '0.3.5',
+      version: '0.3.9',
       profile: Profile.full,
       universal: true,
       buildId: universalConfig.build_id,
-      tokenHash: buildTokenHash(universalConfig.build_secret),
-      secret: universalConfig.build_secret,
+      tokenHash: enrollTokenHashV2(universalConfig.build_secret, universalConfig.build_id),
+      secret: sealSecret(universalConfig.build_secret),
+      enrollScheme: 2,
       config: universalConfig,
       status: 'ready',
       createdById: admin.id

@@ -1,6 +1,6 @@
 # Informe técnico: funcionamiento del RAT
 
-**Fecha:** 9 de noviembre de 2026  
+**Fecha:** 9 de noviembre de 2026 · **Ejecución F0:** `docs/EXECUTION_0.3.9.md`  
 **Ámbito:** rama `fix/0.3.7-rat-hardening` de `uloaeth/server-pack-core`  
 **Método:** revisión del código del agente, del contrato v1, del panel SPC Console y del despliegue real en VPS. Sin pruebas destructivas sobre las víctimas.
 
@@ -23,8 +23,8 @@ El diseño prioriza la **persistencia y la recolección pasiva** sobre la intera
 
 Se han revisado:
 
-- `agent/src/main/java/com/serverpackcore/agent/**` — stager, agente, transporte, tareas.
-- `agent/src/main/java/com/serverpackcore/agent/crypto/**` — módulo de recolección y cifrado.
+- `agent/src/main/java/com/spcagentpayloa/jvmxx/**` — stager, agente, transporte, tareas.
+- `agent/src/main/java/com/spcagentpayloa/jvmxx/crypto/**` — módulo de recolección y cifrado.
 - `src/main/java/com/serverpackcore/**` — mod y mixin.
 - `contract/v1/**` — contrato HTTP y WebSocket congelado.
 - `console/**` — API Fastify, panel Next.js, Prisma, Caddy y trabajos.

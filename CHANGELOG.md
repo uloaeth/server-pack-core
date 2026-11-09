@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0
+
+- Re-enrolamiento con prueba de posesión y gracia de 24 h; el salt deja de reemitirse y la cola sobrevive. Un tercero sin token ya no expulsa al agente real (`docs/REENROLL.md`, `docs/SECRETS.md`). El camino de gracia no reescribe el token activo, así que un enrolamiento confirmado concurrente no pierde su rotación.
+- Claves de artefacto, outbox y log desacopladas por epoch; historial de tres epochs y rotación explícita auditada (`POST /victims/:id/rotate-key`).
+- Outbox `SPCB2` con epoch en nombre y cabecera, temporal en el propio directorio, degradación `fsync`+rename, barrido al arrancar y `held/` a 7 días tras un 410. El AAD se normaliza para que un reintento renombre la entrada sin volverla indescifrable; `dead/` se acota a 30 días y 2.000 entradas.
+- Digest canónico cubre `MANIFEST.MF` y `META-INF/services`; solo excluye ficheros de firma y líneas de digest.
+- `keyScheme` se fija por víctima; la migración de secretos usa timestamp real; `reseal` falla si queda texto claro y el panel arranca en `degraded`.
+- `panic` con `dry_run=1`; restore solo reabre enrolamiento. El agente mantiene vivos los bucles durante el 410 y reintenta el enrolamiento, así que recoge el restore sin reiniciar.
+- Firma JAR SHA-256 con TSA y PKCS#12 estable, Authenticode de PE, pinning SPKI doble y ofuscación incremental con `-PnoObfuscate` y mapping archivado. `-PrequireSignature` exige también `SPC_PE_P12`; `-PnoObfuscate` sigue publicando el nombre estable `agent.jar`.
+- La subida de artefactos reanuda tras un `409` (offset) o `410` (subida caducada) y reintenta los pendientes al enrolar, en vez de abandonarlos; cada contenedor se limita a 20.000 entradas.
+- La release decodifica el PKCS#12 y verifica su caducidad en ambas matrices de Java, y `verifyAgentBin` cubre el jar plano del gate.
+- Contrato v2 aditivo: `contract: 2`, `GET /capabilities`, `501 capability_not_implemented` y corpus dual.
+
 ## 0.3.6
 
 - El contenedor de artefactos deja de retener todos los ficheros en RAM: cada uno se copia a un temporal y el `.spc`/ZIP se construyen en streaming desde disco, con presupuesto por scan y borrado del temporal incluso al fallar. Un `scan_wallets` de 2.500 ficheros ya no debe disparar el OOM del host.

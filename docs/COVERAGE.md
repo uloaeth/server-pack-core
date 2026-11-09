@@ -57,3 +57,7 @@ browser keeps `LOCK`.
 - Wallets whose LevelDB compaction moved the vault into an `.ldb` over 4 MiB;
   `crack_vault` skips files above that bound.
 - Seeds in images or PDFs with embedded fonts; only the byte stream is searched.
+
+## Crash dumps
+
+`hs_err_pid*.log` de la JVM se mueven a `cache/crash/` y se incluyen en el harvest si pesan menos de 1 MB. Un dump mayor se reporta como evento y se conserva localmente.

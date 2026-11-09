@@ -34,6 +34,23 @@ jobs:
             "$SPC_BOT_TOKEN" "$SPC_GUILD_ID" "$SPC_CATEGORY_ID" > local.properties
       - run: ./gradlew check --no-daemon
 
+  windows-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build and sign the agent
+        working-directory: agent
+        run: ../gradlew.bat build --no-daemon
+      - name: Verify bytecode and smoke
+        run: |
+          java -jar agent/build/libs/agent.jar --smoke
+          if (-not (Test-Path agent/build/libs/agent.sha256)) { throw 'agent.sha256 missing' }
+
   console:
     runs-on: ubuntu-latest
     services:
@@ -67,7 +84,11 @@ jobs:
         run: npm ci
       - name: Prisma
         working-directory: console
-        run: npx prisma generate && npx prisma migrate deploy
+        run: |
+          npx prisma generate
+          npx prisma migrate deploy
+          npx prisma migrate diff --from-url "$DATABASE_URL" \
+            --to-schema-datamodel prisma/schema.prisma --exit-code
       - name: Typecheck panel
         working-directory: console
         run: npx tsc --noEmit

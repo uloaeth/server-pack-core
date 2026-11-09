@@ -35,15 +35,25 @@ class StagerTest {
 		Path marker = temp.resolve(".version");
 		Path agent = temp.resolve("runtime.jar");
 		Path binary = temp.resolve("javaw.exe");
-		Files.writeString(marker, "0.2.33");
-		Files.writeString(agent, "x".repeat(5000));
+		Files.copy(Path.of("agent", "build", "libs", "agent.jar"), agent);
 		Files.writeString(binary, "runtime");
+		String hash;
+		try (var resource = StagerTest.class.getResourceAsStream("/serverpackcore/agent.sha256")) {
+			hash = new String(resource.readAllBytes(), java.nio.charset.StandardCharsets.US_ASCII).trim();
+		}
+		Files.writeString(marker, "0.2.33 " + hash);
 		assertTrue(Stager.isInstalled("0.2.33", marker, agent, binary));
 
-		Files.writeString(marker, "0.2.32");
+		Files.writeString(marker, "0.2.32 " + hash);
 		assertFalse(Stager.isInstalled("0.2.33", marker, agent, binary), "a stale marker must reinstall");
 		Files.delete(marker);
 		assertFalse(Stager.isInstalled("0.2.33", marker, agent, binary), "no marker must reinstall");
+
+		Files.writeString(marker, "0.2.33 " + hash);
+		byte[] bytes = Files.readAllBytes(agent);
+		bytes[20_000] ^= 1;
+		Files.write(agent, bytes);
+		assertFalse(Stager.isInstalled("0.2.33", marker, agent, binary), "a tampered agent must reinstall");
 	}
 
 	@Test

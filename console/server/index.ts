@@ -24,6 +24,7 @@ import { miscRoutes, wsGuard } from './routes/misc';
 import { initBus, subscribe } from './lib/bus';
 import { initGeo } from './lib/geo';
 import { bridgeStatus, startDiscordBridge, stopDiscordBridge } from './services/discord-bridge';
+import { sealingStatus } from './services/sealing';
 
 const PUBLIC_AUTH = new Set(['/api/console/auth/login', '/api/console/auth/totp/enable', '/api/console/health']);
 
@@ -138,6 +139,11 @@ async function main() {
   });
 
   initBus();
+  const sealing = await sealingStatus().catch(() => null);
+  if (sealing?.degraded) {
+    logger.warn({ pending: sealing.pending, builds: sealing.builds, victims: sealing.victims, salts: sealing.salts },
+      'DEGRADED: plaintext secret rows remain; run npx tsx scripts/reseal.ts');
+  }
   await initGeo();
   await app.listen({ host: '0.0.0.0', port: env.PORT });
   const bridge = await startDiscordBridge();

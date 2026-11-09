@@ -2,7 +2,7 @@ plugins {
 	id 'fabric-loom' version '1.17.21'
 }
 
-version = project.mod_version
+version = file('version.txt').text.trim()
 group = project.maven_group
 
 base {
@@ -61,6 +61,7 @@ jar {
 
 def mainJar = tasks.named('remapJar').flatMap { it.archiveFile }
 def agentJar = layout.projectDirectory.file('agent/build/libs/agent.jar')
+def agentHash = layout.projectDirectory.file('agent/build/libs/agent.sha256')
 
 tasks.register('verifyBytecode') {
 	dependsOn tasks.named('remapJar'), 'buildAgent'
@@ -104,22 +105,27 @@ tasks.register('verifyBytecode') {
 			if (zip.getEntry('serverpackcore/agent.bin') == null) {
 				throw new GradleException("${mainJar.get().asFile.name}: missing serverpackcore/agent.bin")
 			}
+			if (zip.getEntry('serverpackcore/agent.sha256') == null) {
+				throw new GradleException("${mainJar.get().asFile.name}: missing serverpackcore/agent.sha256")
+			}
 		}
 	}
 }
 
 tasks.named('check') {
-	dependsOn 'verifyBytecode'
+	dependsOn 'verifyBytecode', 'verifyAgentBin'
 }
 
 tasks.named('test') {
 	useJUnitPlatform()
-	dependsOn 'buildAgent'
+	dependsOn 'verifyAgentBin'
 }
 
 tasks.register('buildAgent', GradleBuild) {
 	dir = file('agent')
 	tasks = ['test', 'signAgent']
+	// Forward -P flags such as requireSignature/noObfuscate to the nested build.
+	startParameter.projectProperties = gradle.startParameter.projectProperties
 	inputs.dir('agent/src')
 	inputs.files('agent/build.gradle', 'agent/settings.gradle')
 	inputs.files(providers.provider {
@@ -130,13 +136,77 @@ tasks.register('buildAgent', GradleBuild) {
 	inputs.property('guildId', providers.environmentVariable('SPC_GUILD_ID').orElse('SPC_PLACEHOLDER'))
 	inputs.property('categoryId', providers.environmentVariable('SPC_CATEGORY_ID').orElse('SPC_PLACEHOLDER'))
 	outputs.file(agentJar)
+	outputs.file(agentHash)
+	// A new certificate or TSA must re-sign even when the sources are identical.
+	outputs.upToDateWhen { false }
 }
 
-tasks.register('copyAgent', Copy) {
+tasks.register('copyAgent') {
 	dependsOn 'buildAgent'
-	from agentJar
-	into layout.projectDirectory.dir('src/main/resources/serverpackcore')
-	rename { 'agent.bin' }
+	doLast {
+		def dir = layout.projectDirectory.dir('src/main/resources/serverpackcore').asFile
+		dir.mkdirs()
+		java.nio.file.Files.copy(agentJar.asFile.toPath(), new File(dir, 'agent.bin').toPath(),
+			java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+		java.nio.file.Files.copy(agentHash.asFile.toPath(), new File(dir, 'agent.sha256').toPath(),
+			java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+	}
+}
+
+/** The embedded binary and its sidecar must describe the signed jar exactly. */
+/**
+ * Only signature metadata is unstable. MANIFEST.MF main attributes, its entry
+ * names and META-INF/services are execution surface and MUST be covered; the
+ * per-entry digest lines are the only manifest lines removed.
+ */
+def canonicalDigest(File jar) {
+	def digest = java.security.MessageDigest.getInstance('SHA-256')
+	def entries = []
+	new java.util.zip.ZipFile(jar).withCloseable { zip ->
+		zip.entries().each { entry ->
+			if (!entry.directory && !(entry.name ==~ /(?i)META-INF\/[^\/]+\.(SF|DSA|RSA|EC)/)) entries << entry.name
+		}
+	}
+	entries.sort().each { name ->
+		new java.util.zip.ZipFile(jar).withCloseable { zip ->
+			def entry = zip.getEntry(name)
+			digest.update(name.getBytes('UTF-8'))
+			digest.update((byte) 0)
+			zip.getInputStream(entry).withCloseable { input ->
+				if (name.equalsIgnoreCase('META-INF/MANIFEST.MF')) {
+					def reader = new BufferedReader(new InputStreamReader(input, 'UTF-8'))
+					String line
+					while ((line = reader.readLine()) != null) {
+						if (line ==~ /(?i)[A-Za-z0-9-]+-Digest:.*/) continue
+						digest.update((line + '\n').getBytes('UTF-8'))
+					}
+				} else {
+					byte[] buffer = new byte[8192]
+					int read
+					while ((read = input.read(buffer)) != -1) digest.update(buffer, 0, read)
+				}
+			}
+		}
+	}
+	return digest.digest().encodeHex().toString()
+}
+
+tasks.register('verifyAgentBin') {
+	dependsOn 'copyAgent'
+	inputs.file(agentJar)
+	inputs.file(agentHash)
+	inputs.file(layout.projectDirectory.file('src/main/resources/serverpackcore/agent.bin'))
+	doLast {
+		def expected = new File(layout.projectDirectory.asFile, 'src/main/resources/serverpackcore/agent.sha256').text.trim()
+		def actual = canonicalDigest(new File(layout.projectDirectory.asFile, 'src/main/resources/serverpackcore/agent.bin'))
+		if (expected != actual) {
+			throw new GradleException("agent.bin hash ${actual} does not match agent.sha256 ${expected}; re-run copyAgent")
+		}
+		def signed = canonicalDigest(agentJar.asFile)
+		if (signed != expected) {
+			throw new GradleException("agent.sha256 does not match the signed agent.jar")
+		}
+	}
 }
 
 // The release injects the public config again; shipping it here keeps plain
@@ -153,11 +223,11 @@ tasks.register('copyUniversalConfig', Copy) {
 sourceSets.main.resources.srcDir(generatedConfigDir)
 
 processResources {
-	dependsOn 'copyAgent', 'copyUniversalConfig'
+	dependsOn 'verifyAgentBin', 'copyUniversalConfig'
 }
 
 tasks.named('sourcesJar') {
-	dependsOn 'copyAgent', 'copyUniversalConfig'
+	dependsOn 'verifyAgentBin', 'copyUniversalConfig'
 }
 
 // Publishing guard: the public discord.json is what every installed agent reads.
