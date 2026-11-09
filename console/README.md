@@ -1,5 +1,7 @@
 # SPC Console — VPS deployment from zero
 
+Guía paso a paso en español: [`docs/DEPLOY_VPS.md`](../docs/DEPLOY_VPS.md).
+
 Target: Debian 12 or Ubuntu 22.04, 2 vCPU / 4 GB RAM / 40 GB disk, Docker 27+ and the
 compose plugin. DNS `A`/`AAAA` for `c2.spc-cloud.net` must point at the VPS **before**
 starting Caddy; Caddy requests the certificate on first boot and retries on failure.

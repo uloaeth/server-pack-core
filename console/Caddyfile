@@ -13,7 +13,7 @@
   }
 }
 
-c2.spc-cloud.net {
+{$DOMAIN} {
   import security
   log {
     output file /data/access.log {
