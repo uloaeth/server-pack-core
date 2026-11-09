@@ -95,6 +95,10 @@ test('secret_found collapses onto one event per value per day while the vault ke
     const events = await prisma.event.findMany({ where: { victimId: row.id, kind: 'secret_found' } });
     assert.equal(events.length, 1);
     assert.equal((events[0]!.data as { count: number }).count, 2);
+    const eventData = events[0]!.data as { value?: string; preview?: string; hash?: string };
+    assert.equal(eventData.value, undefined);
+    assert.match(String(eventData.preview), /^0xaaaaaa/);
+    assert.ok(eventData.hash);
     const secrets = await prisma.walletSecret.findMany({ where: { wallet: { victimId: row.id } } });
     assert.equal(secrets.length, 1);
     assert.equal(secrets[0]!.kind, 'private_key');

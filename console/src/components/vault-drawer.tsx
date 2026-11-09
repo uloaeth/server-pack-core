@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, Copy, Eye, EyeOff, FolderOpen, KeyRound, RefreshCw, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -39,6 +39,11 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
   );
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState('');
+  const panel = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (walletId) panel.current?.focus();
+  }, [walletId]);
 
   useEffect(() => {
     setRevealed({});
@@ -47,6 +52,14 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === 'Escape' && walletId) onClose();
+      if (event.key === 'Tab' && walletId && panel.current) {
+        const nodes = [...panel.current.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((node) => !node.hasAttribute('disabled'));
+        if (nodes.length === 0) return;
+        const first = nodes[0]!;
+        const last = nodes.at(-1)!;
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -54,17 +67,27 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
 
   if (!walletId) return null;
 
-  async function reveal(kind: string, credential?: boolean, id?: string) {
+  async function reveal(kind: string, credential?: boolean, id?: string): Promise<string | null> {
     setBusy(kind);
     try {
       const path = credential ? `/vault/credentials/${id}/reveal` : `/vault/wallets/${walletId}/reveal?kind=${encodeURIComponent(kind)}`;
       const data = await api<{ value: string }>(path);
       setRevealed((current) => ({ ...current, [credential ? `c:${id}` : kind]: data.value }));
+      return data.value;
     } catch (caught) {
       toast.error(caught instanceof ApiError ? caught.message : 'No se pudo revelar');
+      return null;
     } finally {
       setBusy('');
     }
+  }
+
+  async function copyCredential(credential: Credential) {
+    const key = `c:${credential.id}`;
+    const value = revealed[key] ?? await reveal('password', true, credential.id);
+    if (!value) return;
+    copy(value);
+    toast.success('Contraseña copiada');
   }
 
   async function copyKind(kind: string) {
@@ -103,7 +126,7 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={data ? `Bóveda ${data.targetId}` : 'Bóveda'}>
       <button aria-label="Cerrar bóveda" className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="drawer-panel relative animate-in slide-in-from-right duration-200">
+      <div ref={panel} tabIndex={-1} className="drawer-panel relative outline-none animate-in slide-in-from-right duration-200">
         <header className="shrink-0 border-b border-line/80 p-4">
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
@@ -183,7 +206,7 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
                     </div>
                     <span className="font-mono text-2xs">{revealed[`c:${credential.id}`] ?? credential.passwordPreview ?? '—'}</span>
                     <Button size="sm" variant="ghost" loading={busy === credential.id} onClick={() => reveal('password', true, credential.id)}><Eye className="h-3 w-3" /></Button>
-                    <Button size="sm" variant="ghost" onClick={() => { copy(revealed[`c:${credential.id}`] ?? ''); toast.success('Copiado'); }}><Copy className="h-3 w-3" /></Button>
+                    <Button size="sm" variant="ghost" onClick={() => void copyCredential(credential)}><Copy className="h-3 w-3" /></Button>
                   </div>
                 ))}
               </section>
