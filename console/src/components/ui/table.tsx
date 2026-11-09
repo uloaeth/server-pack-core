@@ -23,7 +23,7 @@ export function TH({ className, ...props }: React.ThHTMLAttributes<HTMLTableCell
 }
 
 export function TD({ className, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) {
-  return <td className={cn('h-9 px-2 align-middle', className)} {...props} />;
+  return <td className={cn('h-8 whitespace-nowrap px-2 align-middle', className)} {...props} />;
 }
 
 export function Empty({ title, hint, action }: { title: string; hint?: string; action?: React.ReactNode }) {

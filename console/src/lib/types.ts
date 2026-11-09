@@ -24,6 +24,8 @@ export type Victim = {
   lastAgentMessageAt?: string;
   revokedAt?: string | null;
   online: boolean;
+  /** Live control socket, stricter than the heartbeat-derived `online`. */
+  socket?: boolean;
   wallets?: number;
   artifacts?: number;
   build?: { id: string; name: string; version: string; buildId: string };

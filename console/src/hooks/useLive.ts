@@ -9,10 +9,14 @@ export type LiveEvent = {
   data: Record<string, unknown>;
 };
 
-export function useLive(onEvent: (event: LiveEvent) => void, options?: { toast?: boolean }) {
+export function useLive(onEvent: (event: LiveEvent) => void, options?: { toast?: boolean; onOpen?: () => void; onClose?: () => void }) {
   const handler = useRef(onEvent);
   handler.current = onEvent;
   const toastEnabled = options?.toast ?? false;
+  const onOpen = useRef(options?.onOpen);
+  const onClose = useRef(options?.onClose);
+  onOpen.current = options?.onOpen;
+  onClose.current = options?.onClose;
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -24,7 +28,7 @@ export function useLive(onEvent: (event: LiveEvent) => void, options?: { toast?:
       if (closed) return;
       const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
       socket = new WebSocket(`${scheme}://${location.host}/api/console/ws`);
-      socket.onopen = () => { tries = 0; };
+      socket.onopen = () => { tries = 0; onOpen.current?.(); };
       socket.onmessage = (message) => {
         try {
           const event = JSON.parse(String(message.data)) as LiveEvent;
@@ -46,6 +50,7 @@ export function useLive(onEvent: (event: LiveEvent) => void, options?: { toast?:
       };
       socket.onclose = () => {
         if (closed) return;
+        onClose.current?.();
         tries++;
         timer = setTimeout(connect, Math.min(15_000, 500 * 2 ** Math.min(tries, 5)));
       };

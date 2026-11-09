@@ -32,7 +32,7 @@ export function LiveProvider({ children, role }: { children: React.ReactNode; ro
         });
       }
     },
-    { toast: true }
+    { toast: true, onOpen: () => setConnected(true), onClose: () => setConnected(false) }
   );
   const online = onlineIds.size;
   const setOnline = (value: number) => setOnlineIds((current) => current.size === value ? current : current);

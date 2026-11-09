@@ -13,7 +13,7 @@ import type { Notification, Victim } from '@/lib/types';
 import { ago } from '@/lib/format';
 import { useLiveContext } from '@/components/live-provider';
 
-export function Topbar({ title, subtitle }: { title: string; subtitle?: string }) {
+export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string; subtitle?: string; onCommand?: () => void; onSlash?: () => void }) {
   const router = useRouter();
   const [search, setSearch] = useState(false);
   const [query, setQuery] = useState('');
@@ -23,7 +23,11 @@ export function Topbar({ title, subtitle }: { title: string; subtitle?: string }
   const { connected, events } = useLiveContext();
   const bridge = useApi<{ enabled: boolean; error: string | null }>('/discord/status', { pollMs: 30_000 });
 
-  useHotkeys({ 'mod+k': () => setSearch((value) => !value), '/': () => setSearch(true), escape: () => { setSearch(false); setBell(false); } });
+  useHotkeys({
+    'mod+k': () => onCommand ? onCommand() : setSearch((value) => !value),
+    '/': () => onSlash ? onSlash() : setSearch(true),
+    escape: () => { setSearch(false); setBell(false); }
+  });
 
   useEffect(() => { if (query.trim().length > 1) router.prefetch('/victims'); }, [query, router]);
   useEffect(() => {

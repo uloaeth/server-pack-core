@@ -12,15 +12,15 @@ import type { Role } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 
 const nav = [
-  { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
-  { href: '/victims', label: 'Victims', icon: Cpu },
-  { href: '/tasks', label: 'Tasks', icon: ClipboardList },
+  { href: '/dashboard', label: 'Resumen', icon: LayoutDashboard },
+  { href: '/victims', label: 'Equipos', icon: Cpu },
+  { href: '/tasks', label: 'Tareas', icon: ClipboardList },
   { href: '/builds', label: 'Builds', icon: Boxes },
-  { href: '/events', label: 'Events', icon: Activity },
+  { href: '/events', label: 'Eventos', icon: Activity },
   { href: '/logs', label: 'Logs', icon: FileClock },
-  { href: '/audit', label: 'Audit', icon: ScrollText },
-  { href: '/operators', label: 'Operators', icon: Users, admin: true },
-  { href: '/settings', label: 'Settings', icon: Settings }
+  { href: '/audit', label: 'Auditoría', icon: ScrollText },
+  { href: '/operators', label: 'Operadores', icon: Users, admin: true },
+  { href: '/settings', label: 'Ajustes', icon: Settings }
 ];
 
 export function Sidebar({ email, role, version }: { email: string; role: Role; version: string }) {
@@ -51,7 +51,7 @@ export function Sidebar({ email, role, version }: { email: string; role: Role; v
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
-        <p className="px-2 py-2 text-2xs uppercase tracking-widest text-muted/70">Operations</p>
+        <p className="px-2 py-2 text-2xs uppercase tracking-widest text-muted/70">Operación</p>
         {nav.map((item) => {
           if (item.admin && role !== 'admin') return null;
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
