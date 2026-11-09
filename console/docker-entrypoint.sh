@@ -34,7 +34,7 @@ if [ "$role" = "worker" ]; then
   worker=$!
 fi
 if [ "$role" = "web" ] || [ "$role" = "all" ]; then
-  HOSTNAME=0.0.0.0 PORT=3000 node .next/standalone/server.js &
+  HOSTNAME=0.0.0.0 PORT=3000 node server.js &
   web=$!
 fi
 

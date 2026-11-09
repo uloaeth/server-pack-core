@@ -21,6 +21,7 @@ COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/dist ./dist
 COPY prisma ./prisma
 COPY universal.json ./universal.json
+COPY --from=contract . /app/contract
 COPY docker-entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod 0755 /usr/local/bin/entrypoint && mkdir -p /data/artifacts /data/builds /app/logs && chown -R node:node /data /app/logs
 USER node
