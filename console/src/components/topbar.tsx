@@ -106,7 +106,7 @@ export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string;
           </div>
           <div className="max-h-80 overflow-y-auto p-1">
             {(results.data?.items ?? []).map((victim) => (
-              <Link key={victim.id} href={`/victims/${victim.id}`} onClick={() => { setSearch(false); setQuery(''); }} className="flex items-center justify-between rounded px-2 py-2 text-xs hover:bg-line">
+              <Link key={victim.id} href={`/victims?select=${victim.id}`} onClick={() => { setSearch(false); setQuery(''); }} className="flex items-center justify-between rounded px-2 py-2 text-xs hover:bg-line">
                 <span className="font-mono">{victim.hostname}</span>
                 <span className="text-muted">{victim.os} · {victim.ip ?? 'no ip'}</span>
               </Link>

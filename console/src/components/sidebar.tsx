@@ -12,8 +12,8 @@ import type { Role } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 
 const nav = [
-  { href: '/dashboard', label: 'Resumen', icon: LayoutDashboard },
   { href: '/victims', label: 'Equipos', icon: Cpu },
+  { href: '/dashboard', label: 'Resumen', icon: LayoutDashboard },
   { href: '/tasks', label: 'Tareas', icon: ClipboardList },
   { href: '/builds', label: 'Builds', icon: Boxes },
   { href: '/events', label: 'Eventos', icon: Activity },

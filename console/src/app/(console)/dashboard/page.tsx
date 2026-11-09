@@ -21,24 +21,24 @@ export default function DashboardPage() {
 
   return (
     <>
-      <Topbar title="Overview" subtitle={`${events.length} live events this session`} />
+      <Topbar title="Resumen" subtitle={`${events.length} eventos en vivo en esta sesión`} />
       <div className="space-y-3 pt-3">
         <Counters data={dashboard.data} loading={dashboard.loading} />
 
         <div className="grid grid-cols-[1fr_360px] gap-3">
           <Card className="overflow-hidden">
             <CardHeader>
-              <CardTitle>Geolocation</CardTitle>
-              <span className="font-mono text-2xs text-muted">heartbeat · 20s refresh</span>
+              <CardTitle>Geolocalización</CardTitle>
+              <span className="font-mono text-2xs text-muted">heartbeat · refresco 20 s</span>
             </CardHeader>
-            <WorldMap onSelect={(point) => router.push(`/victims/${point.id}`)} />
+            <WorldMap onSelect={(point) => router.push(`/victims?select=${point.id}`)} />
           </Card>
 
           <div className="space-y-3">
             <Card>
-              <CardHeader><CardTitle>OS mix</CardTitle></CardHeader>
+              <CardHeader><CardTitle>Sistemas</CardTitle></CardHeader>
               <CardContent className="space-y-2">
-                {(dashboard.data?.byOs ?? []).length === 0 ? <p className="text-xs text-muted">No data</p> : null}
+                {(dashboard.data?.byOs ?? []).length === 0 ? <p className="text-xs text-muted">Sin datos</p> : null}
                 {(dashboard.data?.byOs ?? []).map((row) => {
                   const total = dashboard.data?.counters.total || 1;
                   return (
@@ -51,7 +51,7 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle>Top countries</CardTitle></CardHeader>
+              <CardHeader><CardTitle>Países</CardTitle></CardHeader>
               <CardContent className="space-y-1">
                 {(dashboard.data?.byCountry ?? []).map((row) => (
                   <div key={row.country} className="flex justify-between text-xs">
@@ -67,15 +67,15 @@ export default function DashboardPage() {
         <div className="grid grid-cols-[1fr_360px] gap-3">
           <Card>
             <CardHeader>
-              <CardTitle>Recent victims</CardTitle>
-              <Link href="/victims" className="text-2xs text-brand">all victims →</Link>
+              <CardTitle>Equipos recientes</CardTitle>
+              <Link href="/victims" className="text-2xs text-brand">todos los equipos →</Link>
             </CardHeader>
-            {recent.loading ? <SkeletonRows rows={6} cols={6} /> : (recent.data?.items ?? []).length === 0 ? <Empty title="No victims yet" hint="Inject a build config and run the mod on a client." /> : (
+            {recent.loading ? <SkeletonRows rows={6} cols={6} /> : (recent.data?.items ?? []).length === 0 ? <Empty title="Sin equipos todavía" hint="Compila un build con su config y ejecuta el mod en un cliente." /> : (
               <Table>
-                <THead><TR><TH>Host</TH><TH>OS</TH><TH>Country</TH><TH>User</TH><TH>Tags</TH><TH>Last seen</TH></TR></THead>
+                <THead><TR><TH>Equipo</TH><TH>SO</TH><TH>País</TH><TH>Usuario</TH><TH>Etiquetas</TH><TH>Última señal</TH></TR></THead>
                 <tbody>
                   {recent.data!.items.map((victim) => (
-                    <TR key={victim.id} onClick={() => router.push(`/victims/${victim.id}`)} className="cursor-pointer">
+                    <TR key={victim.id} onClick={() => router.push(`/victims?select=${victim.id}`)} className="cursor-pointer">
                       <TD className="font-mono text-xs text-ink">{victim.hostname}</TD>
                       <TD><Badge tone={victim.online ? 'ok' : 'default'}>{victim.online ? 'online' : victim.os}</Badge></TD>
                       <TD className="text-muted">{flag(victim.countryCode)} {victim.country ?? '—'}</TD>
@@ -89,7 +89,7 @@ export default function DashboardPage() {
             )}
           </Card>
           <Card>
-            <CardHeader><CardTitle>Live activity</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Actividad en vivo</CardTitle></CardHeader>
             <div className="max-h-[420px] overflow-y-auto"><EventFeed /></div>
           </Card>
         </div>

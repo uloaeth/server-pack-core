@@ -34,7 +34,7 @@ export default function LoginPage() {
         setQr(await QRCode.toDataURL(result.uri!, { margin: 1, width: 220, color: { dark: '#e6e8eb', light: '#101216' } }));
         setStep('setup');
       } else {
-        router.push('/dashboard');
+        router.push('/victims');
         router.refresh();
       }
     } catch (caught) {
@@ -55,7 +55,7 @@ export default function LoginPage() {
     setError('');
     try {
       await api('/auth/totp/enable', { method: 'POST', body: JSON.stringify({ code }) });
-      router.push('/dashboard');
+      router.push('/victims');
       router.refresh();
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : 'Invalid code');
