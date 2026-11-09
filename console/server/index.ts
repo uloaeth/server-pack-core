@@ -18,6 +18,7 @@ import { authRoutes } from './routes/auth';
 import { agentRoutes } from './routes/agent';
 import { wsRoutes } from './routes/ws';
 import { victimRoutes } from './routes/victims';
+import { vaultRoutes } from './routes/vault';
 import { taskRoutes } from './routes/tasks';
 import { buildRoutes } from './routes/builds';
 import { miscRoutes, wsGuard } from './routes/misc';
@@ -112,6 +113,7 @@ async function main() {
     async (scope) => {
       await scope.register(authRoutes);
       await scope.register(victimRoutes);
+      await scope.register(vaultRoutes);
       await scope.register(taskRoutes);
       await scope.register(buildRoutes);
       await scope.register(miscRoutes);

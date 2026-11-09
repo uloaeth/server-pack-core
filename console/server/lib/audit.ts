@@ -9,7 +9,7 @@ export type AuditInput = {
   data?: Record<string, unknown>;
 };
 
-type Db = PrismaClient | Prisma.TransactionClient;
+export type Db = PrismaClient | Prisma.TransactionClient;
 
 export async function audit(db: Db, input: AuditInput): Promise<void> {
   await db.auditLog.create({

