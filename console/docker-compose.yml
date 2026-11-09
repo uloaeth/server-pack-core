@@ -30,7 +30,10 @@ services:
     networks: [internal]
 
   api:
-    build: .
+    build:
+      context: .
+      additional_contexts:
+        contract: ../contract
     restart: unless-stopped
     env_file: .env
     environment:
@@ -49,7 +52,10 @@ services:
     networks: [internal]
 
   worker:
-    build: .
+    build:
+      context: .
+      additional_contexts:
+        contract: ../contract
     restart: unless-stopped
     env_file: .env
     environment:
@@ -67,7 +73,10 @@ services:
     networks: [internal]
 
   web:
-    build: .
+    build:
+      context: .
+      additional_contexts:
+        contract: ../contract
     restart: unless-stopped
     env_file: .env
     environment:

@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
+COPY --from=contract . /contract
 RUN npx prisma generate && npx tsc -p server/tsconfig.json && NEXT_TELEMETRY_DISABLED=1 npx next build
 
 FROM node:20.18-bookworm-slim AS runtime
