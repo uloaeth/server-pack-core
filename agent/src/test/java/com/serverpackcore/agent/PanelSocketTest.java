@@ -19,4 +19,17 @@ class PanelSocketTest {
 		// The body braces must survive untouched: exactly one object after body.
 		assertEquals(1, frame.split("\"body\":\\{\"status\"", -1).length - 1);
 	}
+
+	@Test
+	void theQueryIsNotSigned() {
+		assertEquals("/api/v1/tasks", PanelSocket.signedPath("/api/v1/tasks?limit=32"));
+		assertEquals("/api/v1/tasks", PanelSocket.signedPath("/api/v1/tasks?limit=32&after=9"));
+		assertEquals("/api/v1/tasks", PanelSocket.signedPath("/api/v1/tasks?"));
+	}
+
+	@Test
+	void plainPathsPassUnchanged() {
+		assertEquals("/api/v1/ws-ticket", PanelSocket.signedPath("/api/v1/ws-ticket"));
+		assertEquals("/api/v1/result", PanelSocket.signedPath("/api/v1/result"));
+	}
 }

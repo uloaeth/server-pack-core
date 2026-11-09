@@ -57,6 +57,7 @@ final class CryptoTransport {
 	private volatile String pinned;
 	private volatile long pinnedUntil;
 	private volatile long lastSend;
+	private volatile long generation;
 
 	CryptoTransport(CryptoConfig config, CryptoLog log) {
 		this.config = config;
@@ -67,6 +68,12 @@ final class CryptoTransport {
 	void identity(String victim, String token) {
 		this.victimId = victim;
 		this.deviceToken = token;
+		generation++;
+	}
+
+	/** Bumped on every identity change: a 401 signed with an older value is stale. */
+	long generation() {
+		return generation;
 	}
 
 	boolean enrolled() {

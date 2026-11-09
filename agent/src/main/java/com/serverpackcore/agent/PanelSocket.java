@@ -462,7 +462,9 @@ public final class PanelSocket {
 		try {
 			Keys current = keys;
 			WebSocket active = socket;
-			if (current == null || active == null || !ready) {
+			Log.debug("deliverResult replyTo=" + replyTo + " ready=" + ready + " keys=" + (current != null)
+				+ " socket=" + (active != null));
+			if (current == null || active == null || !ready || active.isOutputClosed()) {
 				return false;
 			}
 			String id = UUID.randomUUID().toString();
@@ -906,13 +908,18 @@ public final class PanelSocket {
 		return new Ticket(value, nonce, device);
 	}
 
+	/** The signature covers the path only; the query string is transport detail. */
+	static String signedPath(String path) {
+		int query = path.indexOf('?');
+		return query < 0 ? path : path.substring(0, query);
+	}
+
 	private HttpResponse<byte[]> signed(String endpoint, String method, String path, byte[] body, Identity identity)
 		throws Exception {
 		String timestamp = Long.toString(System.currentTimeMillis() / 1000L);
 		String nonce = nonce();
 		String bodyHash = sha256hex(body);
-		String signedPath = path.contains("?") ? path.substring(0, path.indexOf('?')) : path;
-		String canonical = method + "\n" + signedPath + "\n" + timestamp + "\n" + nonce + "\n" + bodyHash + "\n";
+		String canonical = method + "\n" + signedPath(path) + "\n" + timestamp + "\n" + nonce + "\n" + bodyHash + "\n";
 		byte[] signature;
 		Mac mac = Mac.getInstance("HmacSHA256");
 		mac.init(new SecretKeySpec(Base64.getUrlDecoder().decode(identity.deviceToken()), "HmacSHA256"));
