@@ -191,7 +191,15 @@ if (!libraryJdk) {
 		}
 	}
 	def older = ['/home/surrender/jdk17', '/usr/lib/jvm/java-17-openjdk', System.getenv('JDK17_HOME')]
-		.find { it && file(it).isDirectory() }
+	['/opt/hostedtoolcache/Java_Temurin-Hotspot_jdk', '/opt/hostedtoolcache/Java_Zulu_jdk'].each { root ->
+		def base = file(root)
+		if (base.isDirectory()) {
+			base.listFiles()?.findAll { it.name ==~ /17(\..*)?/ }?.sort()?.each { version ->
+				older << new File(version, 'x64').path
+			}
+		}
+	}
+	older = older.find { it && file(it).isDirectory() }
 	libraryJdk = homeVersion <= 23 ? System.getProperty('java.home') : (older ?: System.getProperty('java.home'))
 }
 def extractedLib = layout.buildDirectory.dir('proguard-jdk')

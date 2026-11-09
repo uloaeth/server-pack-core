@@ -63,7 +63,7 @@ def mainJar = tasks.named('remapJar').flatMap { it.archiveFile }
 def agentJar = layout.projectDirectory.file('agent/build/libs/agent.jar')
 
 tasks.register('verifyBytecode') {
-	dependsOn tasks.named('remapJar')
+	dependsOn tasks.named('remapJar'), 'buildAgent'
 	inputs.file(mainJar)
 	inputs.file(agentJar)
 	doLast {
@@ -119,7 +119,7 @@ tasks.named('test') {
 
 tasks.register('buildAgent', GradleBuild) {
 	dir = file('agent')
-	tasks = ['test', 'jar']
+	tasks = ['test', 'signAgent']
 	inputs.dir('agent/src')
 	inputs.files('agent/build.gradle', 'agent/settings.gradle')
 	inputs.files(providers.provider {
