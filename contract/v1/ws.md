@@ -154,7 +154,7 @@ expect_seq_in` — strings except `first` (bool) and `expect_seq_in` (u64). `pub
 
 ### `cmd` (panel → agent)
 
-`name, args, task_id, timeout_ms` — `name` is one of the eleven task names; `args` is
+`name, args, task_id, timeout_ms` — `name` is one of the task names in `task-schemas.json`; `args` is
 exactly that name's `params` in `task-schemas.json`; `task_id` is a UUID; `timeout_ms`
 defaults `30000`, max `300000`. Requires ACK before execution.
 
