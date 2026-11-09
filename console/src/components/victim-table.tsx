@@ -53,6 +53,7 @@ export function VictimTable({
   onBulk: () => void;
 }) {
   const [columns, setColumns] = useState<ColumnId[]>(DEFAULT_COLUMNS);
+  const [scrollTop, setScrollTop] = useState(0);
   const anchor = useRef<number | null>(null);
 
   useEffect(() => {
@@ -90,6 +91,11 @@ export function VictimTable({
   }
 
   const all = items.length > 0 && items.every((item) => selected.includes(item.id));
+  const virtual = items.length > 200;
+  const rowHeight = 40;
+  const start = virtual ? Math.max(0, Math.floor(scrollTop / rowHeight) - 5) : 0;
+  const end = virtual ? Math.min(items.length, start + 25) : items.length;
+  const cols = columns.length + 2;
 
   if (loading) return <SkeletonRows rows={14} cols={columns.length + 1} />;
   if (items.length === 0) return <Empty title="Ningún equipo coincide" hint="Ajusta los filtros o matricula un build nuevo. La selección y el log quedan aquí." />;
@@ -104,8 +110,8 @@ export function VictimTable({
           <span className="ml-auto text-2xs text-muted">Shift+clic para rango</span>
         </div>
       ) : null}
-      <div className="min-h-0 flex-1 overflow-auto">
-        <Table className="min-w-[1040px] font-mono">
+      <div className="min-h-0 flex-1 overflow-auto" onScroll={(event) => virtual && setScrollTop(event.currentTarget.scrollTop)}>
+        <Table className="table-sticky min-w-[1040px] font-mono">
           <THead>
             <TR className="hover:bg-transparent">
               <TH className="w-10">
@@ -139,7 +145,9 @@ export function VictimTable({
             </TR>
           </THead>
           <tbody>
-            {items.map((victim, index) => {
+            {virtual && start > 0 ? <tr style={{ height: start * rowHeight }} aria-hidden><td colSpan={cols} /></tr> : null}
+            {items.slice(start, end).map((victim, offset) => {
+              const index = start + offset;
               const isSelected = selected.includes(victim.id);
               return (
                 <TR
@@ -174,6 +182,7 @@ export function VictimTable({
                 </TR>
               );
             })}
+            {virtual && end < items.length ? <tr style={{ height: (items.length - end) * rowHeight }} aria-hidden><td colSpan={cols} /></tr> : null}
           </tbody>
         </Table>
       </div>

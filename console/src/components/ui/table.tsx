@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge';
 
 export function Table({ className, ...props }: React.TableHTMLAttributes<HTMLTableElement>) {
   return (
-    <div className="w-full overflow-x-auto">
+    <div className="table-wrap">
       <table className={cn('w-full border-collapse text-left text-sm', className)} {...props} />
     </div>
   );

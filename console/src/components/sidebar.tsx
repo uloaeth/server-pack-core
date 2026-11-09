@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  Activity, Boxes, Bug, ClipboardList, Cpu, FileClock, LayoutDashboard, LogOut, Network,
+  Activity, Boxes, ClipboardList, Cpu, FileClock, LayoutDashboard, LogOut,
   ScrollText, Settings, ShieldCheck, Users, Wallet
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -16,6 +16,7 @@ const nav = [
   { href: '/dashboard', label: 'Resumen', icon: LayoutDashboard },
   { href: '/tasks', label: 'Tareas', icon: ClipboardList },
   { href: '/builds', label: 'Builds', icon: Boxes },
+  { href: '/vault', label: 'Bóveda', icon: Wallet },
   { href: '/events', label: 'Eventos', icon: Activity },
   { href: '/logs', label: 'Logs', icon: FileClock },
   { href: '/audit', label: 'Auditoría', icon: ScrollText },
@@ -69,16 +70,6 @@ export function Sidebar({ email, role, version }: { email: string; role: Role; v
             </Link>
           );
         })}
-        <p className="px-2 pb-1 pt-4 text-2xs uppercase tracking-widest text-muted/70">Material</p>
-        <Link href="/victims?has=wallets" className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm text-muted hover:bg-panel-2 hover:text-ink">
-          <Wallet className="h-4 w-4" /> Wallets
-        </Link>
-        <Link href="/seeds" className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm text-muted hover:bg-panel-2 hover:text-ink">
-          <Bug className="h-4 w-4" /> Seeds
-        </Link>
-        <Link href="/events?kind=enrolled" className="flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm text-muted hover:bg-panel-2 hover:text-ink">
-          <Network className="h-4 w-4" /> Enrollments
-        </Link>
       </nav>
 
       <div className="border-t border-line/80 p-3">

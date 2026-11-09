@@ -27,10 +27,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 ::selection { background: hsl(var(--brand) / 0.35); }
-::-webkit-scrollbar { width: 12px; height: 12px; }
+html { scrollbar-width: thin; scrollbar-color: hsl(var(--line)) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: hsl(var(--line)); border-radius: 6px; border: 2px solid hsl(var(--bg)); }
-::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted) / 0.5); }
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--line));
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted) / 0.55); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+* { scrollbar-width: thin; scrollbar-color: hsl(var(--line)) transparent; }
 
 @layer components {
   .num { @apply font-mono tabular-nums; }
@@ -41,6 +49,24 @@ body {
     background-size: 24px 24px;
   }
   .focus-ring { @apply outline-none ring-offset-0 focus-visible:ring-2 focus-visible:ring-brand/60; }
+  .table-wrap { @apply w-full overflow-auto; overscroll-behavior: contain; }
+  .table-sticky tbody tr > :first-child,
+  .table-sticky thead tr > :first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: hsl(var(--panel));
+    box-shadow: 1px 0 0 hsl(var(--line) / 0.8);
+  }
+  .table-sticky thead tr > :first-child { background: hsl(var(--panel-2)); z-index: 3; }
+  .table-sticky tbody tr:hover > :first-child { background: hsl(var(--panel-2)); }
+  .scroll-panel { @apply overflow-auto; overscroll-behavior: contain; }
+  .drawer-panel { @apply flex h-full w-full flex-col bg-panel shadow-2xl; }
+  @media (min-width: 768px) { .drawer-panel { width: min(680px, calc(100vw - 2rem)); } }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-2xs text-muted;
+  }
+  .chip[data-active='true'] { @apply border-brand/50 bg-brand/10 text-brand; }
   .skeleton {
     @apply relative overflow-hidden rounded bg-panel;
   }

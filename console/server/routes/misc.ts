@@ -1,7 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { createReadStream } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { prisma } from '../lib/db';
 import { env } from '../lib/env';
@@ -14,6 +13,53 @@ import { newTotpSecret, totpUri } from '../lib/totp';
 import { sealingStatus } from '../services/sealing';
 
 const LOG_DIR = process.env.LOG_DIR ?? './logs';
+
+const logQuery = z.object({
+  file: z.string().regex(/^[\w.-]+\.log$/).default('api.log'),
+  level: z.enum(['debug', 'info', 'warn', 'error']).optional(),
+  q: z.string().max(256).optional(),
+  cursor: z.coerce.number().int().min(0).default(0),
+  limit: z.coerce.number().int().min(1).max(1000).default(300)
+});
+
+const LEVELS: Record<number, string> = { 10: 'debug', 20: 'debug', 30: 'info', 40: 'warn', 50: 'error', 60: 'error' };
+
+/** Never expose cookies, bearer tokens or set-cookie headers in the viewer. */
+function redact(line: string): string {
+  return line
+    .replace(/(set-cookie|cookie)("?\s*:\s*"?)[^"\\\n]+/gi, '$1$2[redacted]')
+    .replace(/(authorization"?\s*:\s*"?)(bearer\s+)?[^"\\\n,]+/gi, '$1$2[redacted]')
+    .replace(/((?:device_token|build_token|token|password)=)[^&\s,;"]+/gi, '$1[redacted]');
+}
+
+function levelOf(line: string): string {
+  const numeric = /"level"\s*:\s*(\d+)/.exec(line);
+  if (numeric) return LEVELS[Number(numeric[1])] ?? 'info';
+  if (/\b(error|fatal)\b|\[error\]/i.test(line)) return 'error';
+  if (/\bwarn(ing)?\b|\[warn\]/i.test(line)) return 'warn';
+  if (/\bdebug\b|\[debug\]|trace/i.test(line)) return 'debug';
+  return 'info';
+}
+
+function filterLog(text: string, query: z.infer<typeof logQuery>): Array<{ line: number; level: string; text: string }> {
+  const needle = query.q?.toLowerCase();
+  const out: Array<{ line: number; level: string; text: string }> = [];
+  text.split('\n').forEach((line, index) => {
+    if (!line.trim()) return;
+    const level = levelOf(line);
+    if (query.level && level !== query.level) return;
+    if (needle && !line.toLowerCase().includes(needle)) return;
+    out.push({ line: index + 1, level, text: redact(line) });
+  });
+  return out;
+}
+
+async function readLog(file: string, cap: number): Promise<string> {
+  const info = await stat(join(LOG_DIR, file)).catch(() => null);
+  if (!info) throw notFound('log');
+  const handle = await readFile(join(LOG_DIR, file));
+  return handle.subarray(Math.max(0, handle.length - cap)).toString('utf8');
+}
 
 export const miscRoutes: FastifyPluginAsync = async (app) => {
   app.get('/dashboard', async () => {
@@ -60,14 +106,72 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get('/events', async (request) => {
-    const query = z.object({ victim: z.string().uuid().optional(), kind: z.string().max(48).optional(), limit: z.coerce.number().int().max(500).default(100) }).parse(request.query);
-    const items = await prisma.event.findMany({
-      where: { ...(query.victim ? { victimId: query.victim } : {}), ...(query.kind ? { kind: query.kind } : {}) },
-      orderBy: { createdAt: 'desc' },
-      take: query.limit,
-      include: { victim: { select: { id: true, hostname: true } } }
-    });
-    return { items };
+    const query = z.object({
+      victim: z.string().uuid().optional(),
+      kind: z.string().max(64).optional(),
+      onlyErrors: z.enum(['0', '1']).optional(),
+      cursor: z.string().uuid().optional(),
+      limit: z.coerce.number().int().min(1).max(300).default(120)
+    }).parse(request.query);
+    const where = {
+      ...(query.victim ? { victimId: query.victim } : {}),
+      ...(query.kind ? { kind: query.kind } : {}),
+      ...(query.onlyErrors === '1' ? {
+        OR: [
+          { kind: { in: ['task_failed', 'module_degraded', 'artifact_failed', 'outbox_dropped', 'sandbox_suspected', 'enroll_rejected'] } },
+          { legacy: { contains: 'error', mode: 'insensitive' as const } }
+        ]
+      } : {})
+    };
+    const [rows, facets] = await Promise.all([
+      prisma.event.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        take: query.limit + 1,
+        ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+        include: { victim: { select: { id: true, hostname: true } } }
+      }),
+      prisma.event.groupBy({ by: ['kind'], where, _count: { _all: true }, orderBy: { _count: { kind: 'desc' } }, take: 40 })
+    ]);
+    const page = rows.slice(0, query.limit);
+    const groups = new Map<string, {
+      key: string;
+      kind: string;
+      taskId: string | null;
+      count: number;
+      firstAt: Date;
+      lastAt: Date;
+      victim: { id: string; hostname: string } | null;
+      items: typeof page;
+    }>();
+    for (const row of page) {
+      const data = row.data as { task_id?: string; taskId?: string };
+      const taskId = data.task_id ?? data.taskId ?? null;
+      const bucket = Math.floor(row.createdAt.getTime() / 120_000);
+      const key = `${row.kind}:${taskId ?? '-'}:${bucket}`;
+      const group = groups.get(key) ?? {
+        key,
+        kind: row.kind,
+        taskId,
+        count: 0,
+        firstAt: row.createdAt,
+        lastAt: row.createdAt,
+        victim: row.victim,
+        items: [] as typeof page
+      };
+      group.count += Number((row.data as { count?: number }).count ?? 1);
+      group.firstAt = row.createdAt < group.firstAt ? row.createdAt : group.firstAt;
+      group.lastAt = row.createdAt > group.lastAt ? row.createdAt : group.lastAt;
+      if (group.items.length < 50) group.items.push(row);
+      groups.set(key, group);
+    }
+    return {
+      items: page,
+      groups: [...groups.values()],
+      counts: Object.fromEntries(facets.map((facet) => [facet.kind, facet._count._all])),
+      total: Object.values(Object.fromEntries(facets.map((facet) => [facet.kind, facet._count._all]))).reduce((sum: number, value) => sum + Number(value), 0),
+      next: rows.length > query.limit ? page.at(-1)?.id ?? null : null
+    };
   });
 
   app.get('/audit', async (request) => {
@@ -147,22 +251,32 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
     return { ok: true };
   });
 
+  app.get('/logs/files', async () => {
+    const names = await readdir(LOG_DIR).catch(() => [] as string[]);
+    return { items: names.filter((name) => /^[\w.-]+\.log$/.test(name)).sort() };
+  });
+
   app.get('/logs', async (request) => {
-    const file = (request.query as { file?: string }).file ?? 'api.log';
-    if (!/^[\w.-]+\.log$/.test(file)) throw bad('bad_file', 'invalid log name');
-    const path = join(LOG_DIR, file);
-    const info = await stat(path).catch(() => null);
-    if (!info) throw notFound('log');
-    const size = Math.min(info.size, 512 * 1024);
-    const handle = await readFile(path);
-    return { file, size: info.size, text: handle.subarray(Math.max(0, handle.length - size)).toString('utf8') };
+    const query = logQuery.parse(request.query);
+    const text = await readLog(query.file, 2 * 1024 * 1024);
+    const filtered = filterLog(text, query).reverse();
+    const end = Math.max(0, filtered.length - query.cursor);
+    const start = Math.max(0, end - query.limit);
+    return {
+      file: query.file,
+      size: Buffer.byteLength(text),
+      total: filtered.length,
+      items: filtered.slice(start, end).reverse(),
+      next: start > 0 ? String(query.cursor + (end - start)) : null
+    };
   });
 
   app.get('/logs/download', async (request, reply) => {
-    const file = (request.query as { file?: string }).file ?? 'api.log';
-    if (!/^[\w.-]+\.log$/.test(file)) throw bad('bad_file', 'invalid log name');
-    reply.header('content-type', 'text/plain');
-    return reply.send(createReadStream(join(LOG_DIR, file)));
+    const query = logQuery.parse(request.query);
+    const text = await readLog(query.file, 8 * 1024 * 1024);
+    reply.header('content-type', 'text/plain; charset=utf-8');
+    reply.header('content-disposition', `attachment; filename="${query.file}"`);
+    return filterLog(text, query).map((item) => item.text).join('\n') + '\n';
   });
 
   app.get('/versions', async () => {

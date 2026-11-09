@@ -17,7 +17,7 @@ export const viewport: Viewport = { themeColor: '#0b0d10', width: 'device-width'
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${sans.variable} ${mono.variable} dark`} suppressHydrationWarning>
-      <body className="min-h-screen font-sans text-base">
+      <body className="min-h-screen overflow-x-hidden font-sans text-base">
         {children}
         <Toaster theme="dark" position="bottom-right" closeButton richColors />
       </body>
