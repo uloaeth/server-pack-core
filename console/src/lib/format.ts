@@ -30,7 +30,9 @@ const FLAGS: Record<string, string> = {
 
 export const flag = (code: string | null | undefined): string => (code && FLAGS[code]) || '🏴';
 
-export const osIcon = (os: string): string => (os === 'windows' ? '⊞' : os === 'macos' ? '' : '🐧');
+import { isWindows, isMac } from '@/lib/os';
+
+export const osIcon = (os: string): string => (isWindows(os) ? '⊞' : isMac(os) ? '' : '🐧');
 
 export function copy(text: string): void {
   void navigator.clipboard?.writeText(text);
@@ -41,4 +43,4 @@ export function mask(value: string, visible = 10): string {
   return `${value.slice(0, visible)}…${value.slice(-4)}`;
 }
 
-export const osTone = (os: string) => (os === 'windows' ? 'text-brand' : os === 'macos' ? 'text-ink' : 'text-warn');
+export const osTone = (os: string) => (isWindows(os) ? 'text-brand' : isMac(os) ? 'text-ink' : 'text-warn');

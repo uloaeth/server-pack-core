@@ -389,7 +389,11 @@ async function applyHello(conn: Conn, json: Record<string, unknown>): Promise<vo
     data: {
       hostname: String(json.hostname ?? '').slice(0, 128) || undefined,
       username: String(json.user ?? '').slice(0, 128) || undefined,
-      os: String(json.os ?? '').slice(0, 160) || undefined,
+      os: (() => {
+        const raw = String(json.os ?? '').slice(0, 160);
+        if (!raw) return undefined;
+        return /win/i.test(raw) ? 'windows' : /mac|darwin/i.test(raw) ? 'macos' : /linux/i.test(raw) ? 'linux' : raw;
+      })(),
       agentVersion: agent || undefined,
       status: 'online',
       lastAgentMessageAt: new Date(),

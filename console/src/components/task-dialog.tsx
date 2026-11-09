@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input, Label, Select, Textarea } from '@/components/ui/input';
 import { useApi, mutate } from '@/hooks/useApi';
 import type { Task, Wallet } from '@/lib/types';
+import { isWindows } from '@/lib/os';
 
 type Form = Record<string, unknown>;
 
@@ -128,7 +129,7 @@ export function TaskDialog({
 
   const names = linked ? Object.keys(defaults) : Object.keys(defaults);
   const os = victims?.map((victim) => victim.os).filter(Boolean) ?? [];
-  const windowsHint = WINDOWS_ONLY.has(name) && os.length > 0 && os.every((value) => value !== 'windows');
+  const windowsHint = WINDOWS_ONLY.has(name) && os.length > 0 && os.every((value) => !isWindows(value));
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

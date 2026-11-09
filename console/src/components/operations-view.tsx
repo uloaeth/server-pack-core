@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ErrorState } from '@/components/ui/table';
 import { ACTION_MAP, actionReason, type ActionContext, type ActionDef } from '@/lib/actions';
+import { isWindows } from '@/lib/os';
 import { ApiError } from '@/lib/api';
 import { desktopNotify, onDesktopCommand, setDesktopTitle, setTrayStatus } from '@/lib/desktop';
 import type { Build, Victim } from '@/lib/types';
@@ -101,7 +102,7 @@ export function OperationsView() {
     canWrite,
     offline: !victim?.socket,
     disconnected: !live.connected,
-    windows: victim?.os === 'windows',
+    windows: isWindows(victim?.os),
     agentVersion: victim?.agentVersion
   };
 
@@ -333,7 +334,7 @@ export function OperationsView() {
           victim={menu.victim}
           x={menu.x}
           y={menu.y}
-          context={{ ...context, offline: !menu.victim.socket, windows: menu.victim.os === 'windows', agentVersion: menu.victim.agentVersion }}
+          context={{ ...context, offline: !menu.victim.socket, windows: isWindows(menu.victim.os), agentVersion: menu.victim.agentVersion }}
           onPick={pick}
           onClose={() => setMenu(null)}
         />
