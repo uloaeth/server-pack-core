@@ -165,6 +165,7 @@ export function OperationsView() {
         if (dialog) { setDialog(null); event.preventDefault(); return; }
         if (shellView) { setShellView(null); event.preventDefault(); return; }
         if (bulk) { setBulk(false); event.preventDefault(); return; }
+        if (victim) { setSelected([]); event.preventDefault(); return; }
       }
       if (typing) return;
       if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
@@ -263,7 +264,7 @@ export function OperationsView() {
   const onlineCount = (victims.data?.items ?? []).filter((item) => item.online).length;
 
   return (
-    <div className="relative flex h-[calc(100vh-80px)] min-h-[560px] flex-col overflow-hidden rounded border border-line bg-bg">
+    <div className="relative flex h-[calc(100dvh-6.5rem)] min-h-[540px] flex-col overflow-hidden rounded-xl border border-line/80 bg-panel/20 shadow-panel">
       <Topbar
         title={victim ? victim.hostname : 'Equipos'}
         subtitle={victim ? `${victim.username} · ${victim.os} · ${victim.ip ?? 'sin IP'}` : `${victims.data?.items.length ?? 0} equipos · ${onlineCount} online · consola única de operación`}
@@ -304,7 +305,9 @@ export function OperationsView() {
           )}
         </div>
         {victim ? (
-          <div id="victim-detail" tabIndex={-1} className="flex min-h-0 outline-none">
+          <div className="fixed inset-0 z-40 flex justify-end">
+            <button aria-label="Cerrar detalle" className="absolute inset-0 bg-black/55 backdrop-blur-[2px] animate-in fade-in" onClick={() => setSelected([])} />
+            <div id="victim-detail" tabIndex={-1} className="relative flex h-full w-full min-h-0 outline-none shadow-2xl animate-in slide-in-from-right duration-200 sm:w-[min(880px,calc(100vw-2rem))]">
             <VictimDetail
               victim={victim}
               tab={tab}
@@ -323,6 +326,7 @@ export function OperationsView() {
               onClose={() => setSelected([])}
               onBulk={() => setBulk(true)}
             />
+            </div>
           </div>
         ) : null}
       </div>
@@ -347,7 +351,7 @@ export function OperationsView() {
       {palette ? null : <span className="sr-only" aria-live="polite">{selected.length} seleccionados</span>}
       {selected.length > 0 && !victim ? <Badge className="hidden" /> : null}
       {selected.length === 0 && !palette ? (
-        <p className="pointer-events-none absolute bottom-[232px] left-1/2 hidden -translate-x-1/2 items-center gap-1 rounded border border-line bg-panel/80 px-2 py-1 text-2xs text-muted xl:flex">
+        <p className="pointer-events-none absolute bottom-12 left-1/2 hidden -translate-x-1/2 items-center gap-1 rounded border border-line bg-panel/80 px-2 py-1 text-2xs text-muted xl:flex">
           <Search className="h-3 w-3" /> / para buscar · selecciona una fila y pulsa Enter
         </p>
       ) : null}

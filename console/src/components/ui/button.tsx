@@ -4,21 +4,21 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/cn';
 
 const styles = cva(
-  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-xs font-medium transition-colors focus-ring disabled:pointer-events-none disabled:opacity-45 [&_svg]:size-3.5',
+  'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg text-xs font-semibold transition-all active:scale-[0.98] focus-ring disabled:pointer-events-none disabled:opacity-45 [&_svg]:size-3.5',
   {
     variants: {
       variant: {
-        default: 'bg-brand text-white hover:bg-brand/85',
-        secondary: 'bg-panel text-ink border border-line hover:bg-line/60',
-        ghost: 'text-muted hover:text-ink hover:bg-panel',
+        default: 'bg-gradient-to-b from-brand to-brand/85 text-white shadow-glow hover:brightness-110',
+        secondary: 'border border-line bg-panel-2/80 text-ink hover:border-line hover:bg-panel-2',
+        ghost: 'text-muted hover:bg-panel-2 hover:text-ink',
         destructive: 'bg-bad/15 text-bad border border-bad/40 hover:bg-bad/25',
         outline: 'border border-line text-ink hover:bg-panel'
       },
       size: {
-        default: 'h-8 px-3',
-        sm: 'h-7 px-2',
-        icon: 'h-7 w-7',
-        lg: 'h-9 px-4'
+        default: 'h-9 px-3.5',
+        sm: 'h-7 px-2.5',
+        icon: 'h-8 w-8',
+        lg: 'h-10 px-5'
       }
     },
     defaultVariants: { variant: 'default', size: 'default' }

@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link2, Pause, Play, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Link2, Pause, Play, Trash2 } from 'lucide-react';
 import { useApi } from '@/hooks/useApi';
 import { useLiveContext } from '@/components/live-provider';
 import type { EventRow, Task, Victim } from '@/lib/types';
@@ -42,6 +42,7 @@ export function SessionLog({
   onFiles: () => void;
 }) {
   const [paused, setPaused] = useState(false);
+  const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState<Filter>('all');
   const [liveRows, setLiveRows] = useState<Entry[]>([]);
   const [pending, setPending] = useState(0);
@@ -54,6 +55,9 @@ export function SessionLog({
   const events = useApi<{ items: EventRow[] }>(victim ? `/victims/${victim.id}/events` : '/events?limit=100', { pollMs: 10_000 });
   const tasks = useApi<{ items: Task[] }>(victim ? `/tasks?victim=${victim.id}&limit=60` : '/tasks?limit=60', { pollMs: 8_000 });
 
+  useEffect(() => {
+    setOpen(localStorage.getItem('spc.session.open') === '1');
+  }, []);
   useEffect(() => {
     setLiveRows([]);
     buffer.current = [];
@@ -110,9 +114,9 @@ export function SessionLog({
   }
 
   return (
-    <section className="flex h-[224px] shrink-0 flex-col border-t border-line bg-black/25" aria-label="Log de sesión">
-      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-line/70 px-3">
-        <span className="text-2xs font-medium uppercase tracking-widest text-muted">Log de sesión</span>
+    <section className={cn('flex shrink-0 flex-col border-t border-line/80 bg-panel/60 backdrop-blur transition-[height] duration-200', open ? 'h-[320px]' : 'h-10')} aria-label="Log de sesión">
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-line/60 px-3">
+        <button className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-[0.14em] text-muted hover:text-ink" onClick={() => { const next = !open; setOpen(next); localStorage.setItem('spc.session.open', next ? '1' : '0'); }} aria-expanded={open}>{open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />} Log de sesión</button>
         {victim ? <span className="font-mono text-2xs text-brand">{victim.hostname}</span> : <span className="text-2xs text-muted">sin selección · eventos globales</span>}
         {paused ? <Badge tone="warn">pausado{pending > 0 ? ` +${pending}` : ''}</Badge> : <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-hidden />}
         <div className="ml-auto flex items-center gap-1">
@@ -132,6 +136,7 @@ export function SessionLog({
           </Button>
         </div>
       </div>
+      {open ? <>
       <div
         ref={scroller}
         onScroll={(event) => { stick.current = event.currentTarget.scrollTop < 24; }}
@@ -165,7 +170,8 @@ export function SessionLog({
         ))}
         {paused ? <p className="px-3 py-2 text-2xs text-warn">Log en pausa; al reanudar se añaden {pending} entradas.</p> : null}
       </div>
-      <p className="shrink-0 border-t border-line/60 px-3 py-0.5 text-2xs text-muted/50">Última señal {victim ? `${ago(victim.lastHeartbeatAt)} · ${dateTime(victim.lastHeartbeatAt)}` : '—'} · {entries.length} filas</p>
+      <p className="shrink-0 border-t border-line/60 px-3 py-1 text-2xs text-muted/50">Última señal {victim ? `${ago(victim.lastHeartbeatAt)} · ${dateTime(victim.lastHeartbeatAt)}` : '—'} · {entries.length} filas</p>
+      </> : null}
     </section>
   );
 }

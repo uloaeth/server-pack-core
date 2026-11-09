@@ -44,10 +44,10 @@ export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string;
   }
 
   return (
-    <header className="sticky top-0 z-20 flex h-12 items-center justify-between gap-4 border-b border-line bg-bg/90 px-4 backdrop-blur">
+    <header className="sticky top-0 z-20 flex h-14 items-center justify-between gap-4 border-b border-line/80 bg-bg/80 px-4 backdrop-blur-xl lg:px-5">
       <div className="min-w-0">
-        <h1 className="truncate text-sm font-semibold">{title}</h1>
-        {subtitle ? <p className="truncate text-2xs text-muted">{subtitle}</p> : null}
+        <h1 className="truncate text-base font-semibold tracking-tight">{title}</h1>
+        {subtitle ? <p className="truncate text-2xs text-muted/80">{subtitle}</p> : null}
       </div>
 
       <div className="flex items-center gap-1.5">
@@ -86,7 +86,7 @@ export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string;
                   notifications.data!.items.map((item) => (
                     <Link key={item.id} href={item.link ?? '#'} onClick={() => setBell(false)} className="block border-b border-line/60 px-3 py-2 hover:bg-line/30">
                       <p className="text-xs text-ink">{item.title}</p>
-                      <p className="truncate text-2xs text-muted">{item.body}</p>
+                      <p className="truncate text-2xs text-muted/80">{item.body}</p>
                       <p className="mt-0.5 text-2xs text-muted/70">{ago(item.createdAt)} ago</p>
                     </Link>
                   ))

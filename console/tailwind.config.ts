@@ -21,14 +21,14 @@ const config: Config = {
         warn: 'hsl(var(--warn))',
         bad: 'hsl(var(--bad))'
       },
-      borderRadius: { lg: '8px', md: '6px', sm: '4px' },
+      borderRadius: { lg: '12px', md: '8px', sm: '6px' },
       fontSize: {
-        '2xs': ['10px', '14px'],
-        xs: ['11px', '16px'],
-        sm: ['12px', '18px'],
-        base: ['13px', '20px']
+        '2xs': ['11px', '15px'],
+        xs: ['12px', '17px'],
+        sm: ['13px', '19px'],
+        base: ['14px', '21px']
       },
-      boxShadow: { panel: '0 1px 0 0 hsl(var(--line)), 0 12px 32px -24px #000' },
+      boxShadow: { panel: '0 1px 0 0 hsl(var(--line)), 0 24px 64px -32px #000', glow: '0 0 0 1px hsl(var(--brand) / 0.25), 0 12px 40px -12px hsl(var(--brand) / 0.25)' },
       keyframes: {
         pulseRing: { '0%': { opacity: '0.8' }, '100%': { opacity: '0', transform: 'scale(2.2)' } },
         shimmer: { '100%': { transform: 'translateX(100%)' } }
