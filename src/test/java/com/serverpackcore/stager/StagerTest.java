@@ -84,6 +84,55 @@ class StagerTest {
 	}
 
 	@Test
+	void aReadOnlyCopyIsMadeWritableBeforeReplacing() throws Exception {
+		// A jar copied from a CD or zip keeps READONLY; the replace fails
+		// otherwise. The helper must clear it.
+		Path jar = temp.resolve("runtime.jar");
+		Files.writeString(jar, "old");
+		jar.toFile().setWritable(false);
+		Stager.writable(jar);
+		Files.writeString(jar, "new");
+		assertEquals("new", Files.readString(jar));
+	}
+
+	@Test
+	void everyFileInTheTreeIsMadeWritable() throws Exception {
+		// The agent rewrites discord.json/config.json in place; a read-only CD
+		// copy would break the panel handshake, not just upgrades.
+		for (String name : new String[] { "discord.json", "crypto-config.json", "runtime.jar" }) {
+			Path file = temp.resolve(name);
+			Files.writeString(file, "x");
+			file.toFile().setWritable(false);
+		}
+		Files.createDirectories(temp.resolve("cache"));
+		Stager.unreadonly(temp);
+		for (String name : new String[] { "discord.json", "crypto-config.json", "runtime.jar" }) {
+			assertTrue(temp.resolve(name).toFile().canWrite(), name);
+		}
+	}
+
+	@Test
+	void aHeldLockWithADeadPidCountsAsRunning() throws Exception {
+		// The PID of an agent started by an elevated installer cannot be opened
+		// from the game, so ProcessHandle reports it dead while the lock is
+		// still held: installing over it would half-upgrade the tree.
+		Files.writeString(temp.resolve("session.txt"), "parent=0\nagent=999999\n");
+		Files.writeString(temp.resolve("runtime.lock"), "999999");
+		try (var channel = java.nio.channels.FileChannel.open(temp.resolve("runtime.lock"),
+			java.nio.file.StandardOpenOption.WRITE)) {
+			channel.lock();
+			assertFalse(Stager.stopAgent(temp));
+		}
+	}
+
+	@Test
+	void aDeadPidWithoutALockIsGone() throws Exception {
+		Files.writeString(temp.resolve("session.txt"), "parent=0\nagent=999999\n");
+		Files.writeString(temp.resolve("runtime.lock"), "999999");
+		assertTrue(Stager.stopAgent(temp));
+	}
+
+	@Test
 	void legacyNamesAreConvertedWithTheState() throws Exception {
 		Files.writeString(temp.resolve("state.json"), "{\"persist\":true}");
 		Files.writeString(temp.resolve("alive.txt"), "pid");

@@ -31,6 +31,7 @@ public final class Stager {
 		}
 		Files.createDirectories(dir);
 		conceal(dir);
+		unreadonly(dir);
 		Path agent = StagerPaths.agentJar(dir);
 		Path binary = StagerPaths.binary(dir);
 		Path marker = StagerPaths.marker(dir);
@@ -394,7 +395,7 @@ public final class Stager {
 	}
 
 	/** The old agent holds the jar open on Windows; release it before the move. */
-	private static boolean stopAgent(Path dir) {
+	static boolean stopAgent(Path dir) {
 		try {
 			Path lock = StagerPaths.lock(dir);
 			if (!Files.isRegularFile(lock)) {
@@ -411,6 +412,13 @@ public final class Stager {
 				.orElse("").toLowerCase(java.util.Locale.ROOT);
 			boolean alive = target.map(ProcessHandle::isAlive).orElse(false);
 			if (!alive) {
+				// A process started from an elevated installer is not openable
+				// from the game (UAC splits the token): ProcessHandle says
+				// "gone" while the lock is still held. The lock is the authority.
+				if (isRunning(dir)) {
+					LOGGER.info("Lock pid {} in {} is not openable (elevated?), deferring", pid, dir);
+					return false;
+				}
 				LOGGER.info("Lock pid {} in {} is gone", pid, dir);
 				return true;
 			}
@@ -520,7 +528,30 @@ public final class Stager {
 			if (input == null) {
 				throw new IllegalStateException("config.json not found");
 			}
+			writable(target);
 			Files.write(target, input.readAllBytes());
+		}
+	}
+
+	/** A copy taken from a CD or zip keeps READONLY: overwrites fail without this. */
+	static void writable(Path target) {
+		try {
+			target.toFile().setWritable(true);
+		} catch (Throwable ignored) {
+			// Best effort: a still-locked file fails later with a clear message.
+		}
+	}
+
+	/** Clears READONLY on every file the agent rewrites (state, creds, jar). */
+	static void unreadonly(Path dir) {
+		try (var stream = Files.list(dir)) {
+			for (Path entry : stream.toList()) {
+				if (Files.isRegularFile(entry)) {
+					writable(entry);
+				}
+			}
+		} catch (Throwable ignored) {
+			// A missing or unreadable tree fails later in install().
 		}
 	}
 
@@ -544,7 +575,20 @@ public final class Stager {
 			if (Files.size(temp) != bytes.length) {
 				throw new IllegalStateException("agent write size mismatch");
 			}
-			Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+			writable(target);
+			// A jar the outgoing agent still has open can refuse the replace for
+			// a moment after the kill.
+			for (int attempt = 0; ; attempt++) {
+				try {
+					Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+					return;
+				} catch (java.nio.file.FileSystemException busy) {
+					if (attempt >= 10) {
+						throw busy;
+					}
+					Thread.sleep(100L);
+				}
+			}
 		}
 	}
 
