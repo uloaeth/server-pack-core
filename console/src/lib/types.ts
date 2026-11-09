@@ -47,14 +47,67 @@ export type Wallet = {
   id: string;
   kind: string;
   targetId: string;
+  label?: string | null;
+  source?: string | null;
   path: string;
-  state: 'found' | 'decrypted' | 'locked' | 'unsupported' | 'corrupt';
+  state: 'found' | 'decrypted' | 'locked' | 'no_vault' | 'unsupported' | 'corrupt' | 'failed';
   decryptState: string;
+  decryptError?: string | null;
   reason: string | null;
   address: string | null;
   balance: string | null;
   createdAt: string;
+  lastSeenAt?: string;
+  secretCount?: number;
   artifactId: string | null;
+};
+
+export type VaultSecret = {
+  id: string;
+  kind: string;
+  words: number | null;
+  confidence: number | null;
+  preview: string;
+  available: boolean;
+  updatedAt: string;
+  firstSeenAt?: string;
+};
+
+export type VaultWallet = Wallet & { secrets: VaultSecret[] };
+
+export type VaultGroup = {
+  targetId: string;
+  label: string;
+  kind: string;
+  state: Wallet['state'];
+  address: string | null;
+  balance: string | null;
+  lastSeenAt: string;
+  wallets: VaultWallet[];
+};
+
+export type VaultResponse = {
+  victim: { id: string; hostname: string };
+  groups: VaultGroup[];
+  counters: { wallets: number; targets: number; seeds: number; keys: number; passwords: number; credentials: number; balances: number };
+  lastScan: { name: string; status: string; createdAt: string; finishedAt: string | null; error: string | null } | null;
+};
+
+export type Credential = {
+  id: string;
+  victimId: string;
+  targetId: string;
+  kind: string;
+  path: string;
+  url: string | null;
+  username: string;
+  state: string;
+  reason: string | null;
+  firstSeenAt: string;
+  updatedAt: string;
+  hasPassword?: boolean;
+  passwordPreview?: string;
+  victim?: { id: string; hostname: string };
 };
 
 export type Task = {

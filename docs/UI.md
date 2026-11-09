@@ -8,12 +8,18 @@ acción → tarea. El contrato WS/HTTP y los umbrales T1–T6 no cambian aquí.
 ```
 ┌ Topbar: título, estado live, búsqueda global ─────────────────────────────┐
 ├ Aviso de socket caído / aviso de resultado ──────────────────────────────┤
-├ Filtros: texto, estado, SO, país, etiqueta, build ───────────────────────┤
+├ Filtros: texto, estado, SO, país, etiqueta, material, build ─────────────┤
 │ Tabla de equipos (columnas ordenables)          │ Detalle de la víctima   │
-│  checkbox · equipo · usuario · SO · versión …   │ Resumen/Ficheros/…      │
+│  checkbox · equipo · usuario · SO · versión …   │ Resumen/Bóveda/…        │
 ├ Log de sesión persistente: filtro, pausa, enlaces a tarea/artefacto ─────┤
 └──────────────────────────────────────────────────────────────────────────┘
 ```
+
+- Sidebar: Operación (Equipos, Resumen, Tareas, Builds, Bóveda, Eventos, Logs,
+  Auditoría, Operadores, Ajustes). Ya no hay bloque “Material” duplicado.
+- `/victims?has=wallets|seeds|creds|balances` filtra por material real.
+- `/vault` es un agregado global distinto de Equipos: agrupa por target, filtra
+  por cadena/estado/balance y abre la misma drawer que la bóveda de víctima.
 
 - `/victims` es el centro. `/victims/[id]` redirige a `/victims?select=<id>`
   para conservar enlaces antiguos.
@@ -25,6 +31,11 @@ acción → tarea. El contrato WS/HTTP y los umbrales T1–T6 no cambian aquí.
 Capturas de referencia: [vacío](ui/victims-vacio.png) ·
 [selección](ui/victims-seleccion.png) · [menú](ui/victims-menu.png) ·
 [tarea en curso](ui/victims-tarea.png).
+
+Capturas del rediseño: [resumen](ui/after-victim-resumen.png) ·
+[bóveda](ui/after-victim-boveda.png) · [drawer](ui/after-vault-seed.png) ·
+[bóveda global](ui/after-vault.png) · [eventos](ui/after-events.png) ·
+[logs](ui/after-logs.png) · [móvil](ui/after-mobile.png).
 
 ## Columnas y densidad
 
@@ -159,10 +170,30 @@ pueden copiar desde su pestaña.
 
 ## Detalle y pestañas
 
-Resumen, Ficheros, Keylogger, Portapapeles, Credenciales, Wallets, Tareas,
-Eventos, Monitor y Chat. Cada pestaña vacía explica qué acción la llena y ofrece
-el botón correspondiente. Las vistas de procesos, inicio, programas, TCP y
-ventana activa se renderizan como tablas de solo lectura.
+Resumen, Bóveda, Ficheros, Actividad, Monitor y Chat. Resumen ofrece cuatro
+tarjetas primarias de un clic (Escanear wallets, Buscar seeds, Capturar
+credenciales, Screenshot) con estado, cancelación, “Ver resultados”, último
+escaneo y contadores; el resto vive en “Opciones avanzadas”. Actividad agrupa
+Keylogger, Portapapeles, Credenciales y Eventos. Bóveda agrupa wallets por
+target y abre una drawer con secretos enmascarados, revelado autenticado,
+copiar seed/clave/contraseña y reintento de descifrado.
+
+## Bóveda y eventos
+
+- `WalletSecret` guarda `valueEnc` con `sealSecret`; el listado nunca incluye el
+  valor. `reveal` es autenticado, audita y responde `Cache-Control: no-store`.
+- Rutas normalizadas a minúsculas y `/`; el upsert deduplica por identidad
+  estable y no borra un secreto ausente en un escaneo posterior.
+- `secret_found` se colapsa por `(victimId, kind, sha256(value))` cada 24 h; el
+  valor completo queda solo en la bóveda.
+- La vista de Eventos agrupa por `kind` + tarea + ventana de 2 min, con chips de
+  contador, “solo errores”, JSON saneado y cursor.
+
+## Logs
+
+`/logs` lista ficheros, filtra por nivel y texto, pausa, autoscroll, ajuste de
+línea y descarga con los mismos filtros. El servidor redacta cookies, bearer y
+tokens. La ruta se mantiene versionada con `console/.gitignore` en `/logs/`.
 
 ## Aplicación de escritorio (Tauri 2)
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.7
+
+- Bóveda cifrada por víctima y global: `WalletSecret` y `Credential` aditivos, rutas normalizadas, dedupe por hash e ingestión desde artefactos, resultados y eventos. Los valores solo salen por `reveal` autenticado y auditado (`docs/VAULT.md`).
+- `secret_found` se colapsa por valor y día; los eventos se agrupan por tipo, tarea y ventana de 2 min, con chips, errores y cursor. Ya no se cargan 500 fijos.
+- Ficha de víctima reducida a Resumen, Bóveda, Ficheros, Actividad, Monitor y Chat; acciones primarias de un clic con progreso, cancelación y último escaneo.
+- `/logs` vuelve a estar versionado (`console/.gitignore` → `/logs/`), con nivel, texto, pausa, autoscroll, ajuste y descarga filtrada; cookies y tokens redactados.
+- `has=wallets|seeds|creds|balances` filtra de verdad; sidebar sin el bloque Material duplicado y Bóveda global distinta de Equipos.
+- Scrollbars finas, cabecera y primera columna sticky, tabla con scroll propio y virtualización de listas largas.
+
 ## 0.4.0
 
 - Re-enrolamiento con prueba de posesión y gracia de 24 h; el salt deja de reemitirse y la cola sobrevive. Un tercero sin token ya no expulsa al agente real (`docs/REENROLL.md`, `docs/SECRETS.md`). El camino de gracia no reescribe el token activo, así que un enrolamiento confirmado concurrente no pierde su rotación.

