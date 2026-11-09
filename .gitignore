@@ -56,3 +56,8 @@ dec*/
 
 # log4j del harness de Gradle en la raíz
 /logs/
+
+# Escritorio Tauri
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/node_modules/
