@@ -20,9 +20,10 @@ const levelTone: Record<string, string> = {
 };
 
 export default function LogsPage() {
-  const [file, setFile] = useState('api.log');
-  const [level, setLevel] = useState('');
-  const [q, setQ] = useState('');
+  const initial = typeof window === 'undefined' ? new URLSearchParams() : new URLSearchParams(window.location.search);
+  const [file, setFile] = useState(initial.get('file') || 'api.log');
+  const [level, setLevel] = useState(initial.get('level') ?? '');
+  const [q, setQ] = useState(initial.get('q') ?? '');
   const [paused, setPaused] = useState(false);
   const [autoscroll, setAutoscroll] = useState(true);
   const [wrap, setWrap] = useState(false);
@@ -43,6 +44,14 @@ export default function LogsPage() {
     const node = box.current;
     if (node) node.scrollTop = node.scrollHeight;
   }, [logs.data?.items.length, autoscroll, paused]);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    params.set('file', file);
+    if (level) params.set('level', level);
+    if (q.trim()) params.set('q', q.trim());
+    window.history.replaceState(null, '', `/logs?${params}`);
+  }, [file, level, q]);
 
   const items = logs.data?.items ?? [];
 

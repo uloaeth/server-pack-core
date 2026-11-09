@@ -30,10 +30,11 @@ function title(group: Group): string {
 const CHIPS = ['secret_found', 'seed_found', 'task_failed', 'module_degraded', 'artifact_failed', 'enrolled', 'wallet_decrypted'];
 
 export function EventFeed({ kind, victim, limit = 120, filters = false }: { kind?: string; victim?: string; limit?: number; filters?: boolean }) {
-  const [onlyErrors, setOnlyErrors] = useState(false);
+  const initial = typeof window === 'undefined' ? new URLSearchParams() : new URLSearchParams(window.location.search);
+  const [onlyErrors, setOnlyErrors] = useState(initial.get('onlyErrors') === '1');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [page, setPage] = useState<string | null>(null);
-  const [active, setActive] = useState(kind ?? '');
+  const [active, setActive] = useState(initial.get('kind') ?? '');
   useLiveContext();
   const params = new URLSearchParams({ limit: String(limit) });
   if (victim) params.set('victim', victim);
