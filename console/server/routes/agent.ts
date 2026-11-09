@@ -78,6 +78,26 @@ function signed(victim: { lastHeartbeatAt: Date }): boolean {
 }
 
 export const agentRoutes: FastifyPluginAsync = async (app) => {
+  // Additive v1 probe: no auth, no DB. Lets the operator prove DNS/TLS/reloj
+  // from the Windows machine before blaming the agent.
+  app.get('/preflight', async () => ({
+    ok: true,
+    server_time: Math.floor(Date.now() / 1000),
+    contract: SERVER_CONTRACT
+  }));
+
+  app.addHook('onResponse', async (request, reply) => {
+    if (request.url.split('?')[0] !== '/api/v1/enroll') return;
+    const body = (request.body ?? {}) as { build_id?: string; hostname?: string; agent_version?: string };
+    request.log.info({
+      status: reply.statusCode,
+      ip: request.clientIp,
+      build_id: body.build_id ?? null,
+      hostname: body.hostname ?? null,
+      agent_version: body.agent_version ?? null
+    }, 'enroll response');
+  });
+
   app.post('/enroll', { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     const input = enrollSchema.parse(request.body);
     const build = await prisma.build.findUnique({ where: { tokenHash: sha256hex(input.build_token) } });
