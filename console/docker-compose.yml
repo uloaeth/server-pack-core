@@ -83,6 +83,7 @@ services:
       ROLE: web
       MIGRATE: '0'
       API_ORIGIN: http://api:4000
+    secrets: [database_url]
     depends_on:
       api: { condition: service_started }
     networks: [internal]
