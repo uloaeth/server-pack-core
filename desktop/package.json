@@ -1,0 +1,16 @@
+{
+  "name": "spc-console-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SPC Console desktop shell (Tauri 2)",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:linux": "tauri build --bundles deb,appimage",
+    "build:windows": "tauri build --bundles nsis,msi",
+    "icons": "tauri icon ./src-tauri/icons/source.png"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.1"
+  }
+}

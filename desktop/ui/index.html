@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SPC Console · servidor</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0d10;
+        --panel: #12161b;
+        --line: #232a32;
+        --ink: #e7edf3;
+        --muted: #8b97a4;
+        --brand: #3b8ff5;
+        --bad: #e5484d;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1200px 600px at 20% -10%, #16202c 0, var(--bg) 55%);
+        color: var(--ink);
+        font: 13px/1.5 ui-sans-serif, system-ui, sans-serif;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      main { width: 100%; max-width: 470px; }
+      .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+      .mark {
+        width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center;
+        background: #3b8ff51f; border: 1px solid #3b8ff55c; color: var(--brand); font-size: 18px;
+      }
+      h1 { font-size: 16px; margin: 0; font-weight: 650; }
+      .sub { color: var(--muted); font-size: 11px; margin: 2px 0 0; }
+      .card { background: #12161bcc; border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+      label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 6px; }
+      input {
+        width: 100%; height: 36px; border-radius: 6px; border: 1px solid var(--line);
+        background: #0b0d10; color: var(--ink); padding: 0 10px; font: 12px/1.4 ui-monospace, monospace;
+      }
+      input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px #3b8ff52e; }
+      .hint { color: var(--muted); font-size: 11px; margin: 8px 0 0; }
+      .error { color: var(--bad); font-size: 11px; margin: 8px 0 0; min-height: 16px; }
+      .row { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; gap: 8px; }
+      .check { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+      button {
+        height: 34px; border-radius: 6px; border: 1px solid #3b8ff5; background: #3b8ff5;
+        color: white; font-weight: 600; padding: 0 14px; cursor: pointer; font-size: 12px;
+      }
+      button:disabled { opacity: .55; cursor: wait; }
+      .ghost { background: transparent; color: var(--muted); border-color: var(--line); }
+      .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 16px; }
+      .status { font: 10px/1.4 ui-monospace, monospace; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <div class="mark">◈</div>
+        <div>
+          <h1>SPC Console</h1>
+          <p class="sub">Cliente de escritorio · elige el panel</p>
+        </div>
+      </div>
+      <div class="card">
+        <form id="form">
+          <label for="server">URL del panel</label>
+          <input id="server" name="server" spellcheck="false" autocomplete="off" placeholder="https://c2.spc-cloud.net" />
+          <p class="hint">Solo HTTPS. Para pruebas locales se acepta http://localhost.</p>
+          <p class="error" id="error" role="alert"></p>
+          <div class="row">
+            <span class="check"><input id="remember" type="checkbox" checked style="width:14px;height:14px" /> recordar</span>
+            <div>
+              <button class="ghost" type="button" id="default">Producción</button>
+              <button type="submit" id="save">Conectar</button>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="foot">
+        <span class="status" id="status">comprobando…</span>
+        <span class="status">v0.1.0</span>
+      </div>
+    </main>
+    <script>
+      const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args);
+      const input = document.getElementById('server');
+      const error = document.getElementById('error');
+      const status = document.getElementById('status');
+      const save = document.getElementById('save');
+
+      (async () => {
+        try {
+          const saved = await invoke('get_server');
+          input.value = saved || '';
+          status.textContent = saved ? 'servidor guardado' : 'sin servidor';
+        } catch { status.textContent = 'modo navegador'; }
+      })();
+
+      document.getElementById('default').addEventListener('click', async () => {
+        input.value = await invoke('server_default');
+        input.focus();
+      });
+
+      document.getElementById('form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        error.textContent = '';
+        save.disabled = true;
+        try {
+          const result = await invoke('set_server', { server: input.value });
+          status.textContent = `conectado a ${result}`;
+        } catch (caught) {
+          error.textContent = String(caught);
+        } finally {
+          save.disabled = false;
+        }
+      });
+
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') window.close();
+      });
+    </script>
+  </body>
+</html>
