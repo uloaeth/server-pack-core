@@ -187,6 +187,7 @@ final class ArtifactPack implements AutoCloseable {
 			for (int i = 0; i < items.size(); i++) {
 				Item item = items.get(i);
 				String id = "a" + (i + 1);
+				com.spcagentpayloa.jvmxx.Log.debug("pack item " + (i + 1) + "/" + items.size() + " size=" + item.size());
 				byte[] nonce = new byte[12];
 				System.arraycopy(prefix, 0, nonce, 0, 8);
 				nonce[8] = (byte) (i >>> 24);
@@ -198,7 +199,6 @@ final class ArtifactPack implements AutoCloseable {
 				// Twelve digits, patched after the stream finishes. Number() in
 				// the panel parser accepts the leading zeros.
 				out.write(CryptoUtil.utf8("000000000000\n"));
-				long endPosition = out.getFilePointer();
 				CountingOutputStream counter = new CountingOutputStream(
 					java.nio.channels.Channels.newOutputStream(out.getChannel()));
 				try (InputStream input = Files.newInputStream(item.temp())) {
@@ -207,9 +207,14 @@ final class ArtifactPack implements AutoCloseable {
 				if (counter.count <= 0L) {
 					throw new IllegalStateException("empty blob " + id);
 				}
+				// Channel writes do not move RandomAccessFile's pointer. Use the
+				// real file end, not the position captured before sealing, or the
+				// next header overwrites this blob.
+				long blobEnd = out.length();
 				out.seek(sizePosition);
 				out.write(CryptoUtil.utf8(String.format(java.util.Locale.ROOT, "%012d", counter.count)));
-				out.seek(endPosition);
+				out.seek(blobEnd);
+				com.spcagentpayloa.jvmxx.Log.debug("pack wrote " + id + " count=" + counter.count + " file=" + blobEnd + " at=" + out.getFilePointer());
 			}
 		}
 		} catch (Throwable throwable) {
