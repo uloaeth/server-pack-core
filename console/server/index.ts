@@ -123,7 +123,8 @@ async function main() {
 
   app.get('/api/console/ws', { websocket: true }, async (socket, request) => {
     if (!(await wsGuard(socket, request))) return;
-    socket.send(JSON.stringify({ type: 'hello', at: Date.now() }));
+    socket.send(JSON.stringify({ type: 'hello', at: Date.now(), data: { server_time: Date.now(), heartbeat_ms: 20_000 } }));
+    let lastIn = Date.now();
     const off = subscribe((event) => {
       try {
         socket.send(JSON.stringify(event));
@@ -131,12 +132,32 @@ async function main() {
         // closing
       }
     });
+    const pong = () => {
+      try { socket.send(JSON.stringify({ type: 'pong', at: Date.now(), data: { server_time: Date.now() } })); } catch { /* closing */ }
+    };
+    // JSON ping lets a browser console prove the *application* is alive, not
+    // just the TCP peer. The platform ping stays as a second net.
     const ping = setInterval(() => {
       try { socket.ping(); } catch { /* closed */ }
     }, 25_000);
+    const idle = setInterval(() => {
+      if (Date.now() - lastIn > 70_000) {
+        try { socket.close(4408, 'idle'); } catch { /* closed */ }
+      }
+    }, 15_000);
+    socket.on('message', (raw) => {
+      lastIn = Date.now();
+      try {
+        const parsed = JSON.parse(String(raw)) as { type?: string };
+        if (parsed.type === 'ping') pong();
+      } catch {
+        // not JSON: still a sign of life
+      }
+    });
     socket.on('close', () => {
       off();
       clearInterval(ping);
+      clearInterval(idle);
     });
   });
 
