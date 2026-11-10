@@ -54,3 +54,21 @@ Estado: hallazgos registrados antes de corregir. Se actualiza el estado al cerra
 
 - La semilla de `prismlauncher/accounts.json` guarda claves hex; el escáner deriva dirección y balance `0 ETH`. Debe rotularse como fichero de semillas y no contarse como saldo.
 - `phantom`/`trust` detectados como extensión deben marcar «wallet abierta» cuando el proceso del navegador con la extensión está activo (`wallet_detected`/`wallet_closed` ya existen en el contrato).
+
+## CI
+
+Los correos de fallo venían de tres frentes preexistentes, no del panel:
+
+- `logs.test.ts` daba 500 en Node 20 porque `instanceof HttpError` falla
+  cuando `tsx` evalúa dos copias del módulo. Ahora el servidor y los tests
+  usan un guard por forma (`isHttpError`, `isZodError`).
+- `OutboxTest` dependía del orden de `Files.list`; `UpdateTest` leía el
+  helper antes de que terminase la carrera con el proceso detachado.
+  `Update.apply` acepta `spc.update.nolaunch` para las aserciones
+  estáticas y la generación reintenta mientras el script se reescribe.
+- `ShellTest`/`UpdateHelperTest`/`UpdateTest` usan `/bin/sh` y utilidades
+  POSIX: quedan acotados a Linux/macOS. `AgentPathsTest` compara con
+  `Path` para no fallar por el separador `\` de Windows.
+
+`build` (ubuntu, Java 21/25) y `console` pasan; queda verificar
+`windows-smoke` y `windows-gate` en el run de la rama.
