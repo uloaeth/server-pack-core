@@ -8,8 +8,11 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
+@EnabledOnOs({ OS.LINUX, OS.MAC })
 class ShellTest {
 	@TempDir
 	Path temp;

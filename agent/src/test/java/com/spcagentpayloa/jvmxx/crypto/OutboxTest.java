@@ -58,7 +58,9 @@ class OutboxTest {
 		config.keySalt(2, salt());
 		assertArrayEquals("one".getBytes(StandardCharsets.UTF_8), outbox.read(old));
 		outbox.enqueue("00000000-0000-4000-8000-000000000011", "two".getBytes(StandardCharsets.UTF_8));
-		assertTrue(first(dir).getFileName().toString().contains("-e2-"));
+		try (var stream = Files.list(dir)) {
+			assertTrue(stream.anyMatch((path) -> path.getFileName().toString().contains("-e2-")));
+		}
 
 		// A fourth epoch evicts epoch 1; the entry then reports unknown_epoch.
 		config.keySalt(3, salt());

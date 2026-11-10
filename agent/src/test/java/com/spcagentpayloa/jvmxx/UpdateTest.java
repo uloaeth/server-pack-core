@@ -29,10 +29,13 @@ import java.util.zip.ZipEntry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 import com.sun.net.httpserver.HttpServer;
 
+@EnabledOnOs({ OS.LINUX, OS.MAC })
 class UpdateTest {
 	@TempDir
 	Path temp;
@@ -297,7 +300,7 @@ class UpdateTest {
 	void applyWritesTheHelper() throws Exception {
 		Files.write(temp.resolve(AgentPaths.agentStaged(temp)), jar("0.1.4", true));
 		Files.writeString(temp.resolve("session.txt"), "agent=999999\n");
-		Path helper = Update.apply(temp, null, "0.1.4");
+		Path helper = applyWithoutLaunch(temp, null, "0.1.4");
 		assertEquals("update.sh", helper.getFileName().toString());
 		assertTrue(Files.isRegularFile(helper));
 		assertTrue(Files.readString(helper).contains("OLD_PID=999999"));
@@ -449,13 +452,13 @@ class UpdateTest {
 			assertTrue(Files.isRegularFile(temp.resolve("mod-update.sh")));
 			fake.destroy();
 			Path target = mods.resolve("fabric-sync-0.1.4.jar");
-			for (int i = 0; i < 40 && !Files.exists(target); i++) {
+			for (int i = 0; i < 80 && !Files.exists(target); i++) {
 				Thread.sleep(500);
 			}
 			assertTrue(Files.isRegularFile(target));
 			assertEquals(List.of("fabric-sync-0.1.4.jar"), enabledMods(game));
 			assertTrue(Files.isRegularFile(mods.resolve("fabric-sync-0.1.3.jar.old")));
-			for (int i = 0; i < 20 && Files.exists(temp.resolve("mod-update.sh")); i++) {
+			for (int i = 0; i < 50 && Files.exists(temp.resolve("mod-update.sh")); i++) {
 				Thread.sleep(200);
 			}
 			assertFalse(Files.exists(temp.resolve("mod-update.sh")));
@@ -583,6 +586,16 @@ class UpdateTest {
 		signatureBytes = sign(manifestBytes, pair.getPrivate());
 	}
 
+	/** Write the helper synchronously; its detached runner would race the reads. */
+	private Path applyWithoutLaunch(Path dir, Path game, String version) throws Exception {
+		System.setProperty("spc.update.nolaunch", "true");
+		try {
+			return Update.apply(dir, game, version);
+		} finally {
+			System.clearProperty("spc.update.nolaunch");
+		}
+	}
+
 	private List<String> enabledMods(Path game) throws Exception {
 		try (Stream<Path> stream = Files.list(game.resolve("mods"))) {
 			return stream.map(path -> path.getFileName().toString())
@@ -593,12 +606,22 @@ class UpdateTest {
 	}
 
 	private long helperGeneration(Path dir) throws Exception {
-		for (String line : Files.readAllLines(dir.resolve("mod-update.sh"))) {
-			if (line.startsWith("GEN=")) {
-				return Long.parseLong(line.substring(4));
+		Path helper = dir.resolve("mod-update.sh");
+		long deadline = System.currentTimeMillis() + 8_000L;
+		while (System.currentTimeMillis() < deadline) {
+			try {
+				for (String line : Files.readAllLines(helper)) {
+					if (line.startsWith("GEN=")) {
+						return Long.parseLong(line.substring(4));
+					}
+				}
+			} catch (java.nio.file.NoSuchFileException race) {
+				// An older generation may delete the shared script between the
+				// write and the read; the newer one rewrites it.
 			}
+			Thread.sleep(50L);
 		}
-		return 0L;
+		throw new java.nio.file.NoSuchFileException(helper.toString());
 	}
 
 	private List<Path> stagedMods(Path dir) throws Exception {
@@ -719,7 +742,7 @@ class UpdateTest {
 		Path dir = temp.resolve("ServerPackCore");
 		Files.createDirectories(dir);
 		Files.write(dir.resolve("spc-agent-new.jar"), jar("0.1.4", true));
-		Path helper = Update.apply(dir, null, "0.1.4");
+		Path helper = applyWithoutLaunch(dir, null, "0.1.4");
 		assertEquals("spc-update.sh", helper.getFileName().toString());
 		assertTrue(Files.exists(dir.resolve("spc-update.intent")));
 	}

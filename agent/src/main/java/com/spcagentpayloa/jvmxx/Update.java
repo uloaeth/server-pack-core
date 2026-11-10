@@ -229,6 +229,9 @@ public final class Update {
 				delete(helper);
 				throw exception;
 			}
+			if (Boolean.getBoolean("spc.update.nolaunch")) {
+				return helper;
+			}
 			try {
 				UpdateHelper.launch(dir, helper);
 			} catch (UpdateException exception) {
@@ -275,6 +278,9 @@ public final class Update {
 			} catch (UpdateException exception) {
 				delete(helper);
 				throw exception;
+			}
+			if (Boolean.getBoolean("spc.update.nolaunch")) {
+				return helper;
 			}
 			try {
 				UpdateHelper.launch(dir, helper);

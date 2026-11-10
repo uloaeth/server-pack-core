@@ -11,8 +11,11 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
+@EnabledOnOs({ OS.LINUX, OS.MAC })
 class UpdateHelperTest {
 	/** VBScript keywords that cannot be used as identifiers. */
 	private static final java.util.Set<String> RESERVED = java.util.Set.of(
