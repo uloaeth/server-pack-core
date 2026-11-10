@@ -94,6 +94,7 @@ export const vaultRoutes: FastifyPluginAsync = async (app) => {
     const counters = { wallets: wallets.length, targets: 0, seeds: 0, keys: 0, passwords: 0, credentials, balances: 0 };
     for (const wallet of wallets) {
       const secrets = wallet.secrets.map((secret) => ({ ...maskSecret(secret), id: secret.id, confidence: secret.confidence, updatedAt: secret.updatedAt }));
+      if (wallet.kind === 'seed_file' && !secrets.some((secret) => secret.kind === 'seed')) counters.seeds += 1;
       for (const secret of secrets) {
         if (secret.kind === 'seed') counters.seeds += 1;
         else if (secret.kind === 'private_key' || secret.kind === 'keystore') counters.keys += 1;

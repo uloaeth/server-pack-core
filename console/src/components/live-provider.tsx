@@ -31,10 +31,10 @@ export function LiveProvider({ children, role }: { children: React.ReactNode; ro
     if (refreshTimer.current) return;
     refreshTimer.current = setTimeout(() => {
       refreshTimer.current = null;
-      void fetch('/api/console/victims?status=online&limit=500', { credentials: 'same-origin' })
-        .then((response) => response.ok ? response.json() as Promise<{ items: Array<{ id: string }> }> : null)
+      void fetch('/api/console/victims?status=online&limit=200', { credentials: 'same-origin' })
+        .then((response) => response.ok ? response.json() as Promise<{ items: Array<{ id: string; online?: boolean }> }> : null)
         .then((data) => {
-          if (data) setOnlineIds(new Set(data.items.map((item) => item.id)));
+          if (data) setOnlineIds(new Set(data.items.filter((item) => item.online).map((item) => item.id)));
         })
         .catch(() => undefined);
     }, 250);

@@ -75,7 +75,7 @@ test('counters separate seeds, keys and only positive balances', async () => {
 
   const listing = await app.inject({ method: 'GET', url: `/victims/${victimId}/vault` });
   const body = listing.json() as { counters: { seeds: number; keys: number; balances: number }; groups: Array<{ targetId: string; seedFile: boolean; balanceValue: number }> };
-  assert.equal(body.counters.seeds, 1);
+  assert.equal(body.counters.seeds, 2);
   assert.equal(body.counters.keys, 1);
   assert.equal(body.counters.balances, 1);
   assert.equal(body.groups.find((group) => group.targetId === 'seed-prism')?.seedFile, true);
