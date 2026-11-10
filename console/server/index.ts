@@ -10,7 +10,7 @@ import { mkdir } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import pino from 'pino';
 import { env } from './lib/env';
-import { HttpError } from './lib/errors';
+import { HttpError, isHttpError, isZodError } from './lib/errors';
 import { authenticate, sameOrigin } from './plugins/auth';
 import { allowlisted, clientIp } from './lib/ip';
 import { parseJsonBody } from './lib/http';
@@ -92,10 +92,10 @@ async function main() {
   });
 
   app.setErrorHandler((error, request, reply) => {
-    if (error instanceof ZodError) {
+    if (isZodError(error)) {
       return reply.code(422).send({ error: 'validation', message: error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ') });
     }
-    if (error instanceof HttpError) {
+    if (isHttpError(error)) {
       if (error.retryAfter) reply.header('retry-after', String(error.retryAfter));
       return reply.code(error.status).send({ error: error.code, message: error.message, ...error.data });
     }

@@ -7,7 +7,7 @@ import { ZodError } from 'zod';
 import { prisma } from '../server/lib/db';
 import { hashPassword } from '../server/lib/password';
 import { newTotpSecret } from '../server/lib/totp';
-import { HttpError } from '../server/lib/errors';
+import { isHttpError } from '../server/lib/errors';
 import { authRoutes } from '../server/routes/auth';
 
 async function app() {
@@ -21,10 +21,10 @@ async function app() {
   });
   await server.register(cookie);
   server.setErrorHandler((error, _request, reply) => {
-    if (error instanceof HttpError) {
+    if (isHttpError(error)) {
       return reply.code(error.status).send({ error: error.code, message: error.message });
     }
-    if (error instanceof ZodError) return reply.code(422).send({ error: 'validation' });
+    if (error.name === 'ZodError') return reply.code(422).send({ error: 'validation' });
     return reply.code(500).send({ error: 'internal' });
   });
   await server.register(authRoutes);

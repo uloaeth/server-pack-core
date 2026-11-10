@@ -18,10 +18,10 @@ before(async () => {
   const Fastify = (await import('fastify')).default;
   const { miscRoutes } = await import('../server/routes/misc');
   const { ZodError } = await import('zod');
-  const { HttpError } = await import('../server/lib/errors');
+  const { isHttpError } = await import('../server/lib/errors');
   app = Fastify();
   app.setErrorHandler((error, _request, reply) => {
-    const status = error.name === 'ZodError' ? 422 : error instanceof HttpError ? error.status : 500;
+    const status = error.name === 'ZodError' ? 422 : isHttpError(error) ? error.status : 500;
     return reply.code(status).send({ error: 'request_error', message: error.message });
   });
   await app.register(miscRoutes);

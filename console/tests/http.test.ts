@@ -86,3 +86,13 @@ test('every empty-body mutation accepts application/json with no payload', async
     await app.close();
   }
 });
+
+test('http errors are recognised by shape, not by loader-local instanceof', async () => {
+  const { HttpError, isHttpError, isZodError } = await import('../server/lib/errors');
+  assert.equal(isHttpError(new HttpError(404, 'not_found', 'log not found')), true);
+  assert.equal(isHttpError({ status: 429, code: 'rate', message: 'slow' }), true);
+  assert.equal(isHttpError(new Error('plain')), false);
+  assert.equal(isHttpError(null), false);
+  assert.equal(isZodError({ name: 'ZodError', issues: [] }), true);
+  assert.equal(isZodError(new Error('plain')), false);
+});
