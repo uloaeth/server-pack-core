@@ -65,7 +65,11 @@ Estado encontrado: trabajo a medias, sin compilar. Nada estaba cableado al panel
 
 ## 4. Evidencia visual
 
+- Pasada retro global: formularios hundidos, checkbox clásico, badges cuadrados por tono,
+  pestañas con relieve, filas seleccionadas azules, tarjetas de grupo, contadores
+  blancos, popovers y diálogos con barra de título.
 - `docs/ui/xp-victims.png`: listado con barra de título y estado.
+- `docs/ui/xp-detail.png`: detalle con cabecera azul, pestañas y metadatos densos.
 - `docs/ui/xp-module-menu.png`: las 6 categorías y los 23 módulos.
 - `docs/ui/xp-module-unsupported.png`: modal de módulo sin backend con reintento.
 - `docs/ui/xp-keylogger.png`: captura en vivo y consola cruda.
