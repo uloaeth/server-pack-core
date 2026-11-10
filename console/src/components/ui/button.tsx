@@ -31,7 +31,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, loading, disabled, children, ...props }, ref) => (
-    <button ref={ref} className={cn(styles({ variant, size }), className)} disabled={disabled || loading} {...props}>
+    <button ref={ref} data-xp-button={variant ?? 'default'} className={cn(styles({ variant, size }), className)} disabled={disabled || loading} {...props}>
       {loading ? <span className="h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" /> : null}
       {children}
     </button>

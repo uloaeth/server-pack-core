@@ -13,6 +13,7 @@ import { rotateKey } from '../services/victim';
 import { isOnline } from '../lib/presence';
 import { publish } from '../lib/bus';
 import { dispatchCommand, hasControl } from './ws';
+import { isPreviewable, mimeFor } from '../lib/mime';
 
 function isWindowsOs(os: string | null | undefined): boolean {
   return /^win/i.test((os ?? '').trim());
@@ -441,6 +442,7 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
   app.get('/artifacts/:id/file', async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const filePath = String((request.query as { path?: string }).path ?? '');
+    const inline = (request.query as { inline?: string }).inline === '1';
     if (!filePath) throw notFound('file');
     const artifact = await prisma.artifact.findUnique({ where: { id } });
     if (!artifact || artifact.status !== 'ready') throw notFound('artifact');
@@ -449,9 +451,13 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
     if (!entry) throw notFound('file');
     const full = join(artifactDir(artifact.id), safeRel(entry.path));
     const info = await stat(full);
-    reply.header('content-type', 'application/octet-stream');
+    const mime = mimeFor(entry.path);
+    reply.header('content-type', mime);
     reply.header('content-length', info.size);
-    reply.header('content-disposition', `attachment; filename="${encodeURIComponent(entry.path.split('/').pop() ?? 'file')}"`);
+    reply.header(
+      'content-disposition',
+      `${inline && isPreviewable(mime) ? 'inline' : 'attachment'}; filename="${encodeURIComponent(entry.path.split('/').pop() ?? 'file')}"`
+    );
     return reply.send(createReadStream(full));
   });
 

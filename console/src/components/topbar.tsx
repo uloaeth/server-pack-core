@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Bell, Command, Search, WifiOff, Wifi, RefreshCw } from 'lucide-react';
+import { Bell, Command, Search, ShieldCheck, WifiOff, Wifi, RefreshCw } from 'lucide-react';
 import { useApi, mutate } from '@/hooks/useApi';
 import { useHotkeys } from '@/hooks/useHotkeys';
 import { toast } from 'sonner';
@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import type { Notification, Victim } from '@/lib/types';
 import { ago } from '@/lib/format';
 import { useLiveContext } from '@/components/live-provider';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string; subtitle?: string; onCommand?: () => void; onSlash?: () => void }) {
   const router = useRouter();
@@ -44,13 +45,17 @@ export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string;
   }
 
   return (
-    <header className="sticky top-12 z-20 flex h-14 items-center justify-between gap-4 border-b border-line/80 bg-bg/80 px-4 backdrop-blur-xl lg:top-0 lg:px-5">
-      <div className="min-w-0">
-        <h1 className="truncate text-base font-semibold tracking-tight">{title}</h1>
-        {subtitle ? <p className="truncate text-2xs text-muted/80">{subtitle}</p> : null}
+    <header className="xp-topbar sticky top-12 z-20 flex h-14 items-center justify-between gap-4 border-b border-line/80 bg-bg/80 px-4 backdrop-blur-xl lg:top-0 lg:px-5">
+      <div className="min-w-0 flex items-center gap-2">
+        <span className="xp-topbar-icon" aria-hidden="true"><ShieldCheck /></span>
+        <div className="min-w-0">
+          <h1 className="truncate text-base font-semibold tracking-tight">{title}</h1>
+          {subtitle ? <p className="truncate text-2xs text-muted/80">{subtitle}</p> : null}
+        </div>
       </div>
 
       <div className="flex items-center gap-1.5">
+        <ThemeToggle />
         <Badge tone={bridge.data?.enabled ? 'brand' : 'default'} className="hidden gap-1 sm:inline-flex" title={bridge.data?.error ?? 'Puente de Discord'}>
           <span className="h-1.5 w-1.5 rounded-full bg-current" />discord
         </Badge>
@@ -59,21 +64,21 @@ export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string;
           onClick={status === 'open' ? undefined : reconnect}
           title={status === 'open' ? `Stream activo${lastEventAt ? ` · último evento ${ago(new Date(lastEventAt))}` : ''}` : 'Reconectar el stream'}
           aria-live="polite"
-          className="focus-ring rounded"
+          className="xp-titlebar-btn focus-ring rounded"
         >
           <Badge tone={status === 'open' ? 'ok' : status === 'connecting' ? 'warn' : 'bad'} className="gap-1">
             {status === 'open' ? <Wifi className="h-2.5 w-2.5" /> : status === 'connecting' ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <WifiOff className="h-2.5 w-2.5" />}
             {status === 'open' ? 'en vivo' : status === 'connecting' ? 'conectando' : 'sin stream'}
           </Badge>
         </button>
-        <button onClick={() => setSearch(true)} className="flex h-7 items-center gap-2 rounded border border-line px-2 text-2xs text-muted hover:text-ink" aria-label="Buscar equipos">
+        <button onClick={() => setSearch(true)} className="xp-titlebar-btn flex h-7 items-center gap-2 rounded border border-line px-2 text-2xs text-muted hover:text-ink" aria-label="Buscar equipos">
           <Search className="h-3 w-3" />
           <span className="hidden lg:inline">Buscar</span>
           <span className="hidden items-center gap-0.5 rounded bg-line px-1 font-mono text-2xs lg:flex"><Command className="h-2.5 w-2.5" />K</span>
         </button>
 
         <div className="relative">
-          <button onClick={() => setBell((value) => !value)} className="relative grid h-7 w-7 place-items-center rounded border border-line text-muted hover:text-ink">
+          <button onClick={() => setBell((value) => !value)} className="xp-titlebar-btn relative grid h-7 w-7 place-items-center rounded border border-line text-muted hover:text-ink">
             <Bell className="h-3.5 w-3.5" />
             {(notifications.data?.unread ?? 0) > 0 ? (
               <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-bad px-1 font-mono text-2xs text-white">

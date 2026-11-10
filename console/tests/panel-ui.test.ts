@@ -12,6 +12,8 @@ let fireEvent: typeof import('@testing-library/react').fireEvent;
 let cleanup: typeof import('@testing-library/react').cleanup;
 let Table: typeof import('../src/components/victim-table').VictimTable;
 let Menu: typeof import('../src/components/action-menu').ActionMenu;
+let ModuleMenu: typeof import('../src/components/module-menu').ModuleMenu;
+let ResultDialog: typeof import('../src/components/module-result-dialog').ModuleResultDialog;
 let Bulk: typeof import('../src/components/bulk-dialog').BulkPreview;
 let Status: typeof import('../src/components/ui/table');
 let useHotkeys: typeof import('../src/hooks/useHotkeys').useHotkeys;
@@ -35,6 +37,8 @@ before(async () => {
   cleanup = testing.cleanup;
   Table = (await import('../src/components/victim-table')).VictimTable;
   Menu = (await import('../src/components/action-menu')).ActionMenu;
+  ModuleMenu = (await import('../src/components/module-menu')).ModuleMenu;
+  ResultDialog = (await import('../src/components/module-result-dialog')).ModuleResultDialog;
   Bulk = (await import('../src/components/bulk-dialog')).BulkPreview;
   Status = await import('../src/components/ui/table');
   useHotkeys = (await import('../src/hooks/useHotkeys')).useHotkeys;
@@ -165,5 +169,100 @@ test('error y vacío ofrecen reintento', () => {
   assert.ok(screen.getByText('agent_offline'));
   fireEvent.click(screen.getByText('reintentar'));
   assert.equal(retried, 1);
+  view.unmount();
+});
+
+
+test('el menú contextual lista las 6 categorías y los 23 módulos aunque algunos no estén soportados', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => ({ ok: true, json: async () => ({ items: [] }) })) as unknown as typeof fetch;
+  let picked = '';
+  const view = render(createElement(ModuleMenu, {
+    victim: victim('a', 'ALFA'),
+    x: 10,
+    y: 10,
+    context: { canWrite: true, offline: false, disconnected: false, windows: true, agentVersion: '0.3.7' },
+    onPickModule: (entry) => { picked = entry.id; },
+    onPickAction: () => undefined,
+    onReopen: () => undefined,
+    onClose: () => undefined
+  }));
+  for (const name of ['Sesión y Control', 'Credenciales y Recuperación', 'Sistema y Archivos', 'Captura y Datos', 'Sigilo y Evasión', 'Payload y Despliegue']) {
+    assert.ok(screen.getByRole('menuitem', { name: new RegExp(name) }), name);
+  }
+  const hvnc = screen.getByRole('menuitem', { name: /Hidden VNC/ });
+  assert.equal(hvnc.getAttribute('data-disabled'), 'true');
+  assert.match(hvnc.getAttribute('title') ?? '', /HVNC/);
+  fireEvent.click(screen.getByRole('menuitem', { name: /Remote Shell/ }));
+  assert.equal(picked, 'remote-shell');
+  view.unmount();
+  globalThis.fetch = original;
+});
+
+test('el buscador del menú filtra módulos sin perder los no soportados', () => {
+  const view = render(createElement(ModuleMenu, {
+    victim: victim('a', 'ALFA'),
+    x: 10,
+    y: 10,
+    context: { canWrite: true, offline: false, disconnected: false, windows: true, agentVersion: '0.3.7' },
+    onPickModule: () => undefined,
+    onPickAction: () => undefined,
+    onReopen: () => undefined,
+    onClose: () => undefined
+  }));
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'geolocation' } });
+  assert.ok(screen.getByRole('menuitem', { name: /Geolocation/ }));
+  assert.equal(screen.queryByRole('menuitem', { name: /Sesión y Control/ }), null);
+  view.unmount();
+});
+
+
+test('el modal de un módulo sin backend muestra código, motivo y reintento', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => ({ ok: true, json: async () => ({ items: [] }) })) as unknown as typeof fetch;
+  const entry = (await import('../src/lib/modules')).MODULES_BY_ID.get('hvnc')!;
+  render(createElement(ResultDialog, {
+    open: true,
+    victim: victim('a', 'ALFA'),
+    entry,
+    onClose: () => undefined
+  }));
+  assert.ok(screen.getByRole('dialog', { name: /Hidden VNC/ }));
+  assert.ok(screen.getByText(/not_implemented/));
+  assert.ok(screen.getAllByText(/no expone un servidor de escritorio oculto/).length > 0);
+  assert.ok(screen.getByRole('button', { name: /Reintentar/ }));
+  cleanup();
+  globalThis.fetch = original;
+});
+
+test('el modal pide entrada y ofrece Aceptar/Cancelar antes de ejecutar', async () => {
+  const entry = (await import('../src/lib/modules')).MODULES_BY_ID.get('remote-shell')!;
+  render(createElement(ResultDialog, {
+    open: true,
+    victim: victim('a', 'ALFA'),
+    entry,
+    onClose: () => undefined
+  }));
+  assert.ok(screen.getByLabelText('Comando'));
+  assert.ok(screen.getByRole('button', { name: /Aceptar/ }));
+  assert.ok(screen.getByRole('button', { name: /Cancelar/ }));
+});
+
+
+test('el menú conserva las acciones clásicas en su propio bloque', () => {
+  let action = '';
+  const view = render(createElement(ModuleMenu, {
+    victim: victim('a', 'ALFA'),
+    x: 10,
+    y: 10,
+    context: { canWrite: true, offline: false, disconnected: false, windows: true, agentVersion: '0.3.7' },
+    onPickModule: () => undefined,
+    onPickAction: (picked) => { action = picked.id; },
+    onReopen: () => undefined,
+    onClose: () => undefined
+  }));
+  fireEvent.click(screen.getByRole('menuitem', { name: /Acciones del panel/ }));
+  fireEvent.click(screen.getByRole('menuitem', { name: /Abrir detalle/ }));
+  assert.equal(action, 'open');
   view.unmount();
 });

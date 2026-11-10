@@ -10,6 +10,7 @@ import { cn } from '@/lib/cn';
 import { mutate } from '@/hooks/useApi';
 import type { Role } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { Button } from '@/components/ui/button';
 
 const nav = [
@@ -60,11 +61,11 @@ export function Sidebar({
         id="spc-nav"
         aria-label="Navegación principal"
         className={cn(
-          'fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-line/80 bg-panel/95 backdrop-blur-xl transition-transform duration-200 lg:w-[232px] lg:translate-x-0 lg:bg-panel/55',
+          'xp-sidebar fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-line/80 bg-panel/95 backdrop-blur-xl transition-transform duration-200 lg:w-[232px] lg:translate-x-0 lg:bg-panel/55',
           open ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
         )}
       >
-        <div className="flex h-16 items-center gap-2.5 border-b border-line/80 px-4">
+        <div className="xp-brand flex h-16 items-center gap-2.5 border-b border-line/80 px-4">
           <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand/30 to-brand/5 text-brand shadow-glow">
             <ShieldCheck className="h-4 w-4" />
           </div>
@@ -104,9 +105,12 @@ export function Sidebar({
               <p className="truncate text-2xs text-muted">{email}</p>
               <Badge tone={role === 'admin' ? 'brand' : role === 'operator' ? 'ok' : 'default'} className="mt-1">{role}</Badge>
             </div>
-            <button onClick={logout} title="Cerrar sesión" aria-label="Cerrar sesión" className="rounded p-1.5 text-muted hover:bg-line hover:text-bad">
-              <LogOut className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              <ThemeToggle />
+              <button onClick={logout} title="Cerrar sesión" aria-label="Cerrar sesión" className="rounded p-1.5 text-muted hover:bg-line hover:text-bad">
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
       </aside>

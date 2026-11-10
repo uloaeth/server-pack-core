@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import { Toaster } from 'sonner';
+import { THEME_BOOTSTRAP } from '@/lib/theme';
 import './globals.css';
 
 const sans = Inter({ subsets: ['latin'], variable: '--font-sans', display: 'swap' });
@@ -17,9 +18,12 @@ export const viewport: Viewport = { themeColor: '#0b0d10', width: 'device-width'
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" className={`${sans.variable} ${mono.variable} dark`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
+      </head>
       <body className="min-h-screen overflow-x-hidden font-sans text-base">
         {children}
-        <Toaster theme="dark" position="bottom-right" closeButton richColors />
+        <Toaster theme="system" position="bottom-right" closeButton richColors />
       </body>
     </html>
   );

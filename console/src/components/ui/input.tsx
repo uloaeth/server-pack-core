@@ -6,6 +6,7 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
   ({ className, ...props }, ref) => (
     <input
       ref={ref}
+      data-xp-input=""
       className={cn(
         'h-8 w-full rounded-md border border-line bg-bg px-2.5 text-xs text-ink placeholder:text-muted/70 focus-ring disabled:opacity-50',
         className
@@ -20,6 +21,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
   ({ className, ...props }, ref) => (
     <textarea
       ref={ref}
+      data-xp-input=""
       className={cn('min-h-20 w-full rounded-md border border-line bg-bg p-2.5 text-xs focus-ring', className)}
       {...props}
     />

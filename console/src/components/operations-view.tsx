@@ -9,11 +9,14 @@ import { VictimFilters } from '@/components/victim-filters';
 import { VictimTable, readSavedSort, type SortState } from '@/components/victim-table';
 import { VictimDetail, type DetailTab } from '@/components/victim-detail';
 import { SessionLog } from '@/components/session-log';
-import { ActionMenu } from '@/components/action-menu';
 import { CommandPalette } from '@/components/command-palette';
 import { ParamDialog } from '@/components/param-dialog';
 import { BulkDialog } from '@/components/bulk-dialog';
 import { ShellViewDialog } from '@/components/shell-view-dialog';
+import { ModuleMenu } from '@/components/module-menu';
+import { ModuleResultDialog } from '@/components/module-result-dialog';
+import type { ModuleEntry } from '@/lib/modules';
+import type { Task } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ErrorState } from '@/components/ui/table';
@@ -78,6 +81,7 @@ export function OperationsView() {
   const [palette, setPalette] = useState(false);
   const [dialog, setDialog] = useState<ActionDef | null>(null);
   const [shellView, setShellView] = useState<ActionDef | null>(null);
+  const [result, setResult] = useState<{ victim: Victim; entry: ModuleEntry; reopenTask?: Task } | null>(null);
   const [bulk, setBulk] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [cursor, setCursor] = useState(0);
@@ -186,8 +190,18 @@ export function OperationsView() {
     return () => { document.body.style.overflow = ''; };
   }, [Boolean(victim)]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const openMenu = useCallback((victimRow: Victim, x: number, y: number) => {
+  const openModuleMenu = useCallback((victimRow: Victim, x: number, y: number) => {
     setMenu({ victim: victimRow, x, y });
+  }, []);
+
+  const pickModule = useCallback((victimRow: Victim, entry: ModuleEntry) => {
+    setResult({ victim: victimRow, entry });
+    setMenu(null);
+  }, []);
+
+  const reopenModule = useCallback((victimRow: Victim, entry: ModuleEntry, task: Task) => {
+    setResult({ victim: victimRow, entry, reopenTask: task });
+    setMenu(null);
   }, []);
 
   useEffect(() => {
@@ -196,6 +210,7 @@ export function OperationsView() {
       const typing = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
       if (event.key === 'Escape') {
         if (menu) { setMenu(null); event.preventDefault(); return; }
+        if (result) { setResult(null); event.preventDefault(); return; }
         if (palette) { setPalette(false); event.preventDefault(); return; }
         if (dialog) { setDialog(null); event.preventDefault(); return; }
         if (shellView) { setShellView(null); event.preventDefault(); return; }
@@ -209,7 +224,7 @@ export function OperationsView() {
         if (row && current) {
           event.preventDefault();
           const rect = row.getBoundingClientRect();
-          openMenu(current, Math.min(rect.left + 120, window.innerWidth - 40), rect.top);
+          openModuleMenu(current, Math.min(rect.left + 120, window.innerWidth - 40), rect.top);
         }
         return;
       }
@@ -230,7 +245,7 @@ export function OperationsView() {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cursor, victims.data, menu, palette, dialog, shellView, bulk, victim, focusSearch, openDetail, openMenu]);
+  }, [cursor, victims.data, menu, result, palette, dialog, shellView, bulk, victim, focusSearch, openDetail, openModuleMenu]);
 
   async function runDirect(action: ActionDef, victimRow: Victim) {
     if (!action.resolve) return;
@@ -313,7 +328,7 @@ export function OperationsView() {
   const onlineCount = (victims.data?.items ?? []).filter((item) => item.online).length;
 
   return (
-    <div className="relative flex h-[calc(100dvh-6.5rem)] min-h-[540px] flex-col overflow-hidden rounded-xl border border-line/80 bg-panel/20 shadow-panel">
+    <div className="xp-window relative flex h-[calc(100dvh-6.5rem)] min-h-[540px] flex-col overflow-hidden rounded-xl border border-line/80 bg-panel/20 shadow-panel">
       <Topbar
         title={victim ? victim.hostname : 'Equipos'}
         subtitle={victim ? `${victim.username} · ${victim.os} · ${victim.ip ?? 'sin IP'}` : `${victims.data?.items.length ?? 0} equipos · ${onlineCount} online · ! = módulo degradado`}
@@ -353,7 +368,7 @@ export function OperationsView() {
               onSelect={setSelected}
               onSort={setSort}
               onOpen={openDetail}
-              onMenu={openMenu}
+              onMenu={openModuleMenu}
               onBulk={() => setBulk(true)}
             />
           )}
@@ -388,19 +403,42 @@ export function OperationsView() {
 
       <SessionLog victim={victim} onInspect={() => setTab('actividad')} onFiles={() => setTab('ficheros')} />
 
+      <div className="xp-statusbar xp-window-statusbar" role="status" aria-live="polite">
+        <span>{ordered.length} equipos</span>
+        <span>·</span>
+        <span>{onlineCount} online</span>
+        <span>·</span>
+        <span>{live.connected ? 'stream activo' : 'sin stream'}</span>
+        <span className="ml-auto">clic derecho: módulos · Shift+F10</span>
+      </div>
+
       {menu ? (
-        <ActionMenu
+        <ModuleMenu
           victim={menu.victim}
           x={menu.x}
           y={menu.y}
-          context={{ ...context, offline: !menu.victim.socket, windows: isWindows(menu.victim.os), agentVersion: menu.victim.agentVersion }}
-          onPick={pick}
+          context={{
+            ...context,
+            offline: !menu.victim.socket,
+            windows: isWindows(menu.victim.os),
+            agentVersion: menu.victim.agentVersion
+          }}
+          onPickModule={(entry) => pickModule(menu.victim, entry)}
+          onPickAction={(action) => pick(action, menu.victim)}
+          onReopen={(entry, task) => reopenModule(menu.victim, entry, task)}
           onClose={() => setMenu(null)}
         />
       ) : null}
       {palette ? <CommandPalette victim={victim} context={context} onPick={(action) => { setPalette(false); pick(action, victim ?? undefined); }} onClose={() => setPalette(false)} /> : null}
       {dialog && victim ? <ParamDialog action={dialog} victim={victim} onClose={() => setDialog(null)} onQueued={(name) => { setNotice({ tone: 'ok', text: `${name} encolada en ${victim.hostname}.` }); victims.refresh(); }} /> : null}
       {shellView && victim ? <ShellViewDialog action={shellView} victim={victim} onClose={() => setShellView(null)} /> : null}
+      <ModuleResultDialog
+        open={Boolean(result)}
+        victim={result?.victim ?? victim}
+        entry={result?.entry ?? null}
+        reopenTask={result?.reopenTask ?? null}
+        onClose={() => setResult(null)}
+      />
       <BulkDialog open={bulk} victims={selectedVictims} onClose={() => setBulk(false)} onQueued={() => victims.refresh()} />
 
       {palette ? null : <span className="sr-only" aria-live="polite">{selected.length} seleccionados</span>}
