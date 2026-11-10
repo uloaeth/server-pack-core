@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input, Label, Select } from '@/components/ui/input';
 import { Empty, SkeletonRows, Table, TD, TH, THead, TR } from '@/components/ui/table';
 import { dateTime } from '@/lib/format';
+import { humanError } from '@/lib/errors';
 
 type Row = { id: string; email: string; role: 'admin' | 'operator' | 'viewer'; disabled: boolean; totpEnabled: boolean; lastLoginAt: string | null };
 
@@ -31,7 +32,7 @@ export default function OperatorsPage() {
       setForm({ email: '', password: '', role: 'viewer' });
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'No se pudo completar');
+      toast.error(humanError(caught) || 'No se pudo completar');
     } finally {
       setBusy(false);
     }
@@ -44,7 +45,7 @@ export default function OperatorsPage() {
       toast.success(row.disabled ? 'Operator enabled' : 'Operator disabled');
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'update failed');
+      toast.error(humanError(caught) || 'update failed');
     } finally {
       setRowBusy('');
     }
@@ -58,7 +59,7 @@ export default function OperatorsPage() {
       toast.success('Operator deleted');
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'delete failed');
+      toast.error(humanError(caught) || 'delete failed');
     } finally {
       setRowBusy('');
     }

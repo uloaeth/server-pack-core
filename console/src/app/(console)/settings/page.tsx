@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input, Label } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { dateTime } from '@/lib/format';
+import { humanError } from '@/lib/errors';
 
 type Me = { email: string; role: string; totpEnabled: boolean; lastLoginAt: string | null };
 type Session = { id: string; ip: string | null; userAgent: string | null; createdAt: string; expiresAt: string; current: boolean };
@@ -31,7 +32,7 @@ export default function SettingsPage() {
       toast.success('Password changed — sign in again');
       location.href = '/login';
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'failed');
+      toast.error(humanError(caught) || 'failed');
     } finally {
       setBusy(false);
     }
@@ -44,7 +45,7 @@ export default function SettingsPage() {
       toast.success('Session revoked');
       sessions.refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'No se pudo revocar');
+      toast.error(humanError(caught) || 'No se pudo revocar');
     } finally {
       setSessionBusy('');
     }

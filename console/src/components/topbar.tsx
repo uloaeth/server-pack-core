@@ -13,6 +13,7 @@ import type { Notification, Victim } from '@/lib/types';
 import { ago } from '@/lib/format';
 import { useLiveContext } from '@/components/live-provider';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { humanError } from '@/lib/errors';
 
 export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string; subtitle?: string; onCommand?: () => void; onSlash?: () => void }) {
   const router = useRouter();
@@ -40,7 +41,7 @@ export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string;
       await mutate('/notifications/read', 'POST', { ids: [] });
       notifications.refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'failed');
+      toast.error(humanError(caught) || 'failed');
     }
   }
 

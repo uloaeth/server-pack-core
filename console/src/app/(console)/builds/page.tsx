@@ -14,6 +14,7 @@ import { Input, Label, Select } from '@/components/ui/input';
 import { Empty, SkeletonRows, Table, TD, TH, THead, TR } from '@/components/ui/table';
 import { copy, dateTime, short } from '@/lib/format';
 import type { Build } from '@/lib/types';
+import { humanError } from '@/lib/errors';
 
 export default function BuildsPage() {
   const { data, loading, refresh, error } = useApi<{ items: Build[] }>('/builds', { pollMs: 15_000 });
@@ -35,7 +36,7 @@ export default function BuildsPage() {
       setOpen(false);
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'No se pudo crear');
+      toast.error(humanError(caught) || 'No se pudo crear');
     } finally {
       setBusy('');
     }
@@ -48,7 +49,7 @@ export default function BuildsPage() {
       toast.success('JAR compilado');
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'No se pudo compilar');
+      toast.error(humanError(caught) || 'No se pudo compilar');
     } finally {
       setBusy('');
     }
@@ -62,7 +63,7 @@ export default function BuildsPage() {
       toast.success('Build revocado');
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'No se pudo revocar');
+      toast.error(humanError(caught) || 'No se pudo revocar');
     } finally {
       setBusy('');
     }
@@ -82,7 +83,7 @@ export default function BuildsPage() {
           action: { label: 'Abrir víctimas', onClick: () => window.open(`/victims?build=${build.id}`, '_blank') }
         });
       } else {
-        toast.error(caught instanceof Error ? caught.message : 'No se pudo eliminar');
+        toast.error(humanError(caught) || 'No se pudo eliminar');
       }
     } finally {
       setBusy('');
@@ -97,7 +98,7 @@ export default function BuildsPage() {
       toast.success('Pánico aplicado');
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'No se pudo aplicar el pánico');
+      toast.error(humanError(caught) || 'No se pudo aplicar el pánico');
     }
   }
 
@@ -108,7 +109,7 @@ export default function BuildsPage() {
       toast.success('Enrolamiento reabierto; las víctimas deben re-enrolar');
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'No se pudo restaurar');
+      toast.error(humanError(caught) || 'No se pudo restaurar');
     }
   }
 
@@ -122,7 +123,7 @@ export default function BuildsPage() {
       setReassignFor(null);
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'No se pudo reasignar');
+      toast.error(humanError(caught) || 'No se pudo reasignar');
     } finally {
       setBusy('');
     }

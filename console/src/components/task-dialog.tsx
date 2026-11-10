@@ -7,6 +7,7 @@ import { Input, Label, Select, Textarea } from '@/components/ui/input';
 import { useApi, mutate } from '@/hooks/useApi';
 import type { Task, Wallet } from '@/lib/types';
 import { isWindows } from '@/lib/os';
+import { humanError } from '@/lib/errors';
 
 type Form = Record<string, unknown>;
 
@@ -103,7 +104,7 @@ export function TaskDialog({
         }
       }
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'listing failed');
+      toast.error(humanError(caught) || 'listing failed');
     } finally {
       setLsBusy(false);
     }
@@ -121,7 +122,7 @@ export function TaskDialog({
       toast.success(`Queued ${chosen} on ${victimIds.length} victim(s)`);
       onOpenChange(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Queue failed');
+      toast.error(humanError(error) || 'Queue failed');
     } finally {
       setBusy(false);
     }

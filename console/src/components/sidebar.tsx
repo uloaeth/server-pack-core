@@ -12,6 +12,7 @@ import type { Role } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Button } from '@/components/ui/button';
+import { humanError } from '@/lib/errors';
 
 const nav = [
   { href: '/victims', label: 'Equipos', icon: Cpu },
@@ -47,7 +48,7 @@ export function Sidebar({
     try {
       await mutate('/auth/logout', 'POST');
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'No se pudo cerrar sesión');
+      toast.error(humanError(caught) || 'No se pudo cerrar sesión');
       return;
     }
     router.push('/login');

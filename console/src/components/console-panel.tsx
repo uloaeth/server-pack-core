@@ -10,6 +10,7 @@ import { Empty, SkeletonRows } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import type { Task } from '@/lib/types';
 import { dateTime } from '@/lib/format';
+import { humanError } from '@/lib/errors';
 
 export function ConsolePanel({ victimId }: { victimId: string }) {
   const [command, setCommand] = useState('');
@@ -30,7 +31,7 @@ export function ConsolePanel({ victimId }: { victimId: string }) {
       setCommand('');
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'command failed');
+      toast.error(humanError(caught) || 'command failed');
     } finally {
       setBusy(false);
     }

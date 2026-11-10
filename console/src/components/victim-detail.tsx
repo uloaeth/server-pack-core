@@ -21,6 +21,7 @@ import { EventFeed } from '@/components/event-feed';
 import { ChatPanel } from '@/components/chat-panel';
 import { MonitorPanel } from '@/components/monitor-panel';
 import { cn } from '@/lib/cn';
+import { humanError } from '@/lib/errors';
 import { ACTION_MAP } from '@/lib/actions';
 
 export type DetailTab = 'resumen' | 'boveda' | 'ficheros' | 'actividad' | 'monitor' | 'chat';
@@ -165,7 +166,7 @@ export function VictimDetail({
       toast.success('Acción encolada');
       tasks.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo encolar');
+      toast.error(humanError(error));
     } finally {
       setStarting('');
     }
@@ -178,7 +179,7 @@ export function VictimDetail({
       await mutate(`/tasks/${id}/cancel`, 'POST');
       tasks.refresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo cancelar');
+      toast.error(humanError(error));
     }
   }
 

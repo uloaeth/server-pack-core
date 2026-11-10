@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, SkeletonRows, Table, TD, TH, THead, TR } from '@/components/ui/table';
 import { ago, dateTime } from '@/lib/format';
+import { humanError } from '@/lib/errors';
 
 const tone = (status: string) => status === 'done' ? 'ok' : status === 'error' ? 'bad' : status === 'running' ? 'warn' : status === 'cancelled' ? 'default' : 'brand';
 
@@ -29,7 +30,7 @@ export function TaskList({ victim, status }: { victim?: string; status?: string 
       await mutate(`/tasks/${id}/reschedule`, 'POST', { not_before: new Date(Date.now() + minutes * 60_000).toISOString() });
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'failed');
+      toast.error(humanError(caught) || 'failed');
     } finally {
       setBusy('');
     }
@@ -41,7 +42,7 @@ export function TaskList({ victim, status }: { victim?: string; status?: string 
       await mutate(`/tasks/${id}/${kind}`, 'POST');
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'failed');
+      toast.error(humanError(caught) || 'failed');
     } finally {
       setBusy('');
     }
@@ -55,7 +56,7 @@ export function TaskList({ victim, status }: { victim?: string; status?: string 
       toast.success('Task deleted');
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'delete failed');
+      toast.error(humanError(caught) || 'delete failed');
     } finally {
       setBusy('');
     }

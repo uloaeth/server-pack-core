@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Empty, ErrorState, SkeletonRows, Table, TD, TH, THead, TR } from '@/components/ui/table';
+import { humanError } from '@/lib/errors';
 
 const tone = (state: string) => state === 'found' ? 'ok' : state === 'empty' ? 'warn' : 'default';
 
@@ -29,7 +30,7 @@ export function CredentialTable({ victimId, global = false }: { victimId?: strin
       setRevealed((current) => ({ ...current, [row.id]: data.value }));
       return data.value;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo revelar');
+      toast.error(humanError(error) || 'No se pudo revelar');
       return null;
     }
   }

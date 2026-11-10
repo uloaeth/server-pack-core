@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { mutate } from '@/hooks/useApi';
 import { useRole } from '@/components/live-provider';
+import { humanError } from '@/lib/errors';
 
 export function FileTree({ artifacts, onDeleted }: { artifacts: Artifact[]; onDeleted?: () => void }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -23,7 +24,7 @@ export function FileTree({ artifacts, onDeleted }: { artifacts: Artifact[]; onDe
       toast.success('Artifact deleted');
       onDeleted?.();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'delete failed');
+      toast.error(humanError(caught) || 'delete failed');
     } finally {
       setBusy('');
     }

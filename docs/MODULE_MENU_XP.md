@@ -71,6 +71,8 @@ Estado encontrado: trabajo a medias, sin compilar. Nada estaba cableado al panel
 - `docs/ui/xp-victims.png`: listado con barra de título y estado.
 - `docs/ui/xp-detail.png`: detalle lateral sin ocultar el listado.
 - `docs/ui/xp-dashboard.png`: contadores hundidos y bandeja de eventos.
+- `docs/ui/toast.png`: aviso de socket con estética XP.
+- `docs/ui/vps-vacia.png`: panel recién vaciado, listo para la primera víctima.
 - `docs/ui/xp-module-menu.png`: las 6 categorías y los 23 módulos.
 - `docs/ui/xp-module-unsupported.png`: modal de módulo sin backend con reintento.
 - `docs/ui/xp-keylogger.png`: captura en vivo y consola cruda.

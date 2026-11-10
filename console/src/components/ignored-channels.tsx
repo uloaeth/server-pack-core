@@ -6,6 +6,7 @@ import { useApi, mutate } from '@/hooks/useApi';
 import { useRole } from '@/components/live-provider';
 import { Button } from '@/components/ui/button';
 import { ago } from '@/lib/format';
+import { humanError } from '@/lib/errors';
 
 type Ignored = { id: string; channelId: string; reason: string; createdAt: string };
 
@@ -25,7 +26,7 @@ export function IgnoredChannels({ onRelinked }: { onRelinked?: () => void }) {
       refresh();
       onRelinked?.();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 're-link failed');
+      toast.error(humanError(caught) || 're-link failed');
     } finally {
       setBusy('');
     }
