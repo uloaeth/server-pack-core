@@ -39,7 +39,9 @@ $zip = [IO.Compression.ZipFile]::OpenRead($jar.FullName)
 [IO.Compression.ZipFileExtensions]::ExtractToFile($zip.GetEntry('serverpackcore/agent.bin'), "$dst\runtime.jar", $true)
 [IO.Compression.ZipFileExtensions]::ExtractToFile($zip.GetEntry('serverpackcore/config.json'), "$dst\crypto-config.json", $true)
 $zip.Dispose()
-Start-Process javaw -ArgumentList @('-jar', "$dst\runtime.jar", '--game-dir', "$env:APPDATA\.minecraft")
+$java = Join-Path $env:JAVA_HOME 'bin\javaw.exe'
+if (-not (Test-Path $java)) { $java = (Get-Command javaw.exe).Source }
+Start-Process $java -ArgumentList @('-jar', "$dst\runtime.jar", '--game-dir', "$env:APPDATA\.minecraft")
 Start-Sleep 5
 Get-Content "$dst\logs\agent.log" -Tail 40
 ```
