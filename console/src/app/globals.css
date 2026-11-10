@@ -861,6 +861,7 @@ html[data-theme^='xp'] textarea { height: auto; min-height: 60px; resize: vertic
 html[data-theme^='xp'] input:not([type='checkbox']):not([type='radio']):focus,
 html[data-theme^='xp'] select:focus,
 html[data-theme^='xp'] textarea:focus { outline: 1px dotted hsl(var(--ink)); outline-offset: -3px; }
+html[data-theme^='xp'] input.pl-7 { padding-left: 26px !important; }
 html[data-theme^='xp'] input::placeholder,
 html[data-theme^='xp'] textarea::placeholder { color: hsl(0 0% 42%); }
 
@@ -1215,4 +1216,35 @@ html[data-theme^='xp'] .xp-topbar [title='Notificaciones'] > span {
   font-family: var(--xp-font);
   font-size: 9px;
   font-weight: bold;
+}
+
+/* ── Notificaciones Sonner como globos XP ───────────────────────────────── */
+
+html[data-theme^='xp'] [data-sonner-toaster] { font-family: var(--xp-font); --width: 340px; }
+html[data-theme^='xp'] [data-sonner-toast] {
+  border-radius: 0 !important;
+  border: 2px solid hsl(var(--xp-dialog-border)) !important;
+  border-top-color: hsl(var(--xp-highlight)) !important;
+  border-left-color: hsl(var(--xp-highlight)) !important;
+  background: hsl(var(--xp-dialog-bg)) !important;
+  color: hsl(var(--ink)) !important;
+  box-shadow: 3px 3px 0 hsl(var(--xp-shadow) / 0.55) !important;
+  font-family: var(--xp-font) !important;
+  font-size: 11px !important;
+  padding: 6px 8px !important;
+}
+html[data-theme^='xp'] [data-sonner-toast][data-type='error'] { background: hsl(356 70% 95%) !important; border-left: 4px solid hsl(var(--bad)) !important; color: hsl(356 75% 28%) !important; }
+html[data-theme^='xp'] [data-sonner-toast][data-type='success'] { background: hsl(120 35% 92%) !important; border-left: 4px solid hsl(var(--ok)) !important; color: hsl(120 55% 20%) !important; }
+html[data-theme^='xp'] [data-sonner-toast][data-type='warning'] { background: hsl(48 95% 90%) !important; border-left: 4px solid hsl(var(--warn)) !important; color: hsl(38 85% 20%) !important; }
+html[data-theme='xp-dark'] [data-sonner-toast] { background: hsl(210 11% 14%) !important; color: hsl(var(--ink)) !important; }
+html[data-theme='xp-dark'] [data-sonner-toast][data-type='error'] { background: hsl(356 45% 16%) !important; color: hsl(356 85% 82%) !important; }
+html[data-theme='xp-dark'] [data-sonner-toast][data-type='success'] { background: hsl(120 35% 14%) !important; color: hsl(120 55% 76%) !important; }
+html[data-theme^='xp'] [data-sonner-toast] [data-icon] { width: 16px; height: 16px; }
+html[data-theme^='xp'] [data-sonner-toast] [data-close-button] {
+  border-radius: 0;
+  border: 1px solid hsl(var(--xp-btn-border-dark));
+  background: hsl(var(--xp-btn-face));
+  color: hsl(var(--ink));
+  width: 17px;
+  height: 17px;
 }

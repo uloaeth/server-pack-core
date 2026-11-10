@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, Copy, Eye, EyeOff, FolderOpen, KeyRound, RefreshCw, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { api, ApiError } from '@/lib/api';
+import { api } from '@/lib/api';
+import { humanError } from '@/lib/errors';
 import { useApi, mutate } from '@/hooks/useApi';
 import type { Credential, VaultWallet } from '@/lib/types';
 import { ago, balanceNumber, balanceTone, copy, dateTime, mask } from '@/lib/format';
@@ -84,7 +85,7 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
       setRevealed((current) => ({ ...current, [credential ? `c:${id}` : secretId]: data.value }));
       return data.value;
     } catch (caught) {
-      toast.error(caught instanceof ApiError ? caught.message : 'No se pudo revelar');
+      toast.error(humanError(caught));
       return null;
     } finally {
       setBusy('');
@@ -110,7 +111,7 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
       copy(value);
       toast.success(`${kind === 'seed' ? 'Seed' : kind === 'private_key' ? 'Clave' : 'Contraseña'} copiada`);
     } catch (caught) {
-      toast.error(caught instanceof ApiError ? caught.message : 'No se pudo copiar');
+      toast.error(humanError(caught));
     }
   }
 
@@ -121,7 +122,7 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
       toast.success('Reintento de descifrado encolado');
       wallet.refresh();
     } catch (caught) {
-      toast.error(caught instanceof ApiError ? caught.message : 'No se pudo reintentar');
+      toast.error(humanError(caught));
     } finally {
       setBusy('');
     }
@@ -134,7 +135,7 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-label={data ? `Bóveda ${data.targetId}` : 'Bóveda'}>
-      <button aria-label="Cerrar bóveda" className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
+      <button aria-label="Cerrar bóveda" className="absolute inset-0 bg-black/25 backdrop-blur-[1px]" onClick={onClose} />
       <div ref={panel} tabIndex={-1} className="drawer-panel relative outline-none animate-in slide-in-from-right duration-200">
         <header className="shrink-0 border-b border-line/80 p-4">
           <div className="flex items-start gap-2">
@@ -160,7 +161,7 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
             <Button size="sm" variant="secondary" disabled={!key} onClick={() => key && copyKind(key.id, key.kind)}><KeyRound className="h-3 w-3" /> Copiar clave</Button>
             <Button size="sm" variant="secondary" disabled={!password} onClick={() => password && copyKind(password.id, password.kind)}><Copy className="h-3 w-3" /> Copiar contraseña</Button>
             <Button size="sm" variant="secondary" loading={busy === 'retry'} onClick={retry}><RefreshCw className="h-3 w-3" /> Reintentar descifrado</Button>
-            <Button size="sm" variant="ghost" onClick={() => { copy(data?.path ?? ''); toast.success('Ruta copiada'); }}><FolderOpen className="h-3 w-3" /> Abrir carpeta</Button>
+            <Button size="sm" variant="ghost" onClick={() => { copy(data?.path ?? ''); toast.success('Ruta copiada'); }}><FolderOpen className="h-3 w-3" /> Copiar ruta</Button>
           </div>
         </header>
 
@@ -171,6 +172,11 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
             <>
               <section>
                 <p className="mb-2 text-2xs uppercase tracking-wide text-muted">Secretos</p>
+                {data?.kind === 'seed_file' ? (
+                  <p className="mb-2 rounded border border-warn/40 bg-warn/10 p-3 text-xs text-warn">
+                    Fichero de semillas: el contenido está en la ruta y en el artefacto del escaneo; no es una frase mnemónica.
+                  </p>
+                ) : null}
                 {data?.secrets.length === 0 ? (
                   <p className="rounded border border-line p-3 text-xs text-muted">Sin secretos. Pulsa Escanear wallets o Reintentar descifrado.</p>
                 ) : data?.secrets.map((secret) => {

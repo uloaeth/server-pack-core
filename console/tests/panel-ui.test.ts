@@ -304,3 +304,10 @@ test('cada módulo abre un modal con su título, soportado o no', async () => {
   }
   globalThis.fetch = original;
 });
+
+
+test('la tabla de equipos ya no pinta columnas de checkbox', () => {
+  const view = render(createElement(Table, { items: [victim('a', 'ALFA')], loading: false, selected: [], sort: { id: 'seen', dir: 'desc' }, onSelect: () => undefined, onSort: () => undefined, onOpen: () => undefined, onMenu: () => undefined, onBulk: () => undefined }));
+  assert.equal(screen.queryByRole('checkbox'), null);
+  view.unmount();
+});
