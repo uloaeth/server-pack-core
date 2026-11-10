@@ -82,8 +82,23 @@ export type VaultGroup = {
   state: Wallet['state'];
   address: string | null;
   balance: string | null;
+  balanceValue?: number;
+  seedFile?: boolean;
+  secretKinds?: string[];
   lastSeenAt: string;
   wallets: VaultWallet[];
+};
+
+export type VaultSecretRow = {
+  id: string;
+  kind: string;
+  preview: string;
+  words: number | null;
+  confidence: number | null;
+  source: string | null;
+  updatedAt: string;
+  wallet: { id: string; targetId: string; kind: string; path: string; state: string };
+  victim: { id: string; hostname: string };
 };
 
 export type VaultResponse = {

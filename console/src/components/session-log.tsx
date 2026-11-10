@@ -51,6 +51,7 @@ export function SessionLog({
   const stick = useRef(true);
   const live = useLiveContext();
   const last = live.events[0];
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const events = useApi<{ items: EventRow[] }>(victim ? `/victims/${victim.id}/events` : '/events?limit=100', { pollMs: 10_000 });
   const tasks = useApi<{ items: Task[] }>(victim ? `/tasks?victim=${victim.id}&limit=60` : '/tasks?limit=60', { pollMs: 8_000 });
@@ -66,8 +67,8 @@ export function SessionLog({
 
   useEffect(() => {
     if (!last || last.type !== 'task.update' || (victim && last.victimId && last.victimId !== victim.id)) return;
-    tasks.refresh();
-    events.refresh();
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => { tasks.refresh(); events.refresh(); }, 600);
     const data = last.data as { id?: string; status?: string; name?: string; error?: string };
     if (data.id) {
       const row: Entry = {
@@ -80,6 +81,8 @@ export function SessionLog({
       else setLiveRows((current) => [row, ...current].slice(0, 80));
     }
   }, [last?.at]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => { if (refreshTimer.current) clearTimeout(refreshTimer.current); }, []);
 
   const entries = useMemo(() => {
     const merged: Entry[] = [

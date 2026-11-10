@@ -37,7 +37,7 @@ export function Empty({ title, hint, action }: { title: string; hint?: string; a
   );
 }
 
-export function ErrorState({ title = 'Request failed', message, retry }: { title?: string; message?: string; retry?: () => void }) {
+export function ErrorState({ title = 'No se pudo cargar', message, retry }: { title?: string; message?: string; retry?: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-6 py-14 text-center">
       <Badge tone="bad">error</Badge>
@@ -45,7 +45,7 @@ export function ErrorState({ title = 'Request failed', message, retry }: { title
       {message ? <p className="max-w-md break-all font-mono text-2xs text-muted">{message}</p> : null}
       {retry ? (
         <button onClick={retry} className="mt-1 rounded border border-line px-2 py-1 text-xs hover:bg-panel">
-          retry
+          reintentar
         </button>
       ) : null}
     </div>

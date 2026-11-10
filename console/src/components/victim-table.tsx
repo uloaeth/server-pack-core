@@ -164,7 +164,7 @@ export function VictimTable({
                   <TD className="h-10" onClick={(event) => event.stopPropagation()}>
                     <input type="checkbox" aria-label={`Seleccionar ${victim.hostname}`} checked={isSelected} onChange={() => pick(victim, index, { shiftKey: false } as React.MouseEvent)} />
                   </TD>
-                  {columns.includes('host') ? <TD className="h-10"><span className="text-ink">{victim.hostname}</span><span className="ml-2 text-2xs text-muted/60">{short(victim.id, 8)}</span>{victim.health ? <Badge tone="bad" title={`módulo degradado: ${victim.health}`}>!</Badge> : null}</TD> : null}
+                  {columns.includes('host') ? <TD className="h-10"><span className="text-ink" title={victim.hostname}>{victim.hostname}</span><span className="ml-2 hidden text-2xs text-muted/60 xl:inline">{short(victim.id, 8)}</span>{victim.health ? <Badge tone="bad" title={`Módulo degradado en los últimos 10 min: ${victim.health}. Revisa Actividad del equipo.`} aria-label={`Módulo degradado: ${victim.health}`}>!</Badge> : null}</TD> : null}
                   {columns.includes('user') ? <TD className="h-10 text-muted">{victim.username}</TD> : null}
                   {columns.includes('os') ? <TD className="h-10"><span className={osTone(victim.os)}>{osIcon(victim.os)} {victim.os}</span><span className="ml-1 text-2xs text-muted/60">{victim.osVersion.split('.')[0]}</span></TD> : null}
                   {columns.includes('version') ? <TD className="h-10 text-2xs text-muted">{victim.agentVersion || '—'}</TD> : null}

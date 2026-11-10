@@ -28,7 +28,7 @@ export default function AuditPage() {
         <Card>
           {error ? <p className="p-3 text-xs text-bad">{error.message}</p> : loading ? <SkeletonRows rows={14} cols={5} /> : (data?.items ?? []).length === 0 ? <Empty title="No audit rows" /> : (
             <Table>
-              <THead><TR><TH>At</TH><TH>Operator</TH><TH>Action</TH><TH>Entity</TH><TH>IP</TH><TH>Data</TH></TR></THead>
+              <THead><TR><TH>Fecha</TH><TH>Operador</TH><TH>Acción</TH><TH>Entidad</TH><TH>IP</TH><TH>Datos</TH></TR></THead>
               <tbody>
                 {data!.items.map((row) => (
                   <TR key={row.id}>

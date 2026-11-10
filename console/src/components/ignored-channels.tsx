@@ -35,7 +35,7 @@ export function IgnoredChannels({ onRelinked }: { onRelinked?: () => void }) {
     <div className="flex flex-wrap items-center gap-1.5 border-b border-line bg-warn/5 px-3 py-2 text-2xs">
       <span className="text-warn">Ignored channels</span>
       {items.map((item) => (
-        <span key={item.channelId} className="flex items-center gap-1 rounded border border-line px-1.5 py-0.5" title={`${item.reason} · ${ago(item.createdAt)} ago`}>
+        <span key={item.channelId} className="flex items-center gap-1 rounded border border-line px-1.5 py-0.5" title={`${item.reason} · ${ago(item.createdAt)}`}>
           <Trash2 className="h-2.5 w-2.5 text-muted" />
           <span className="font-mono">{item.channelId}</span>
           <Button size="sm" variant="ghost" className="h-5 px-1" loading={busy === item.channelId} disabled={busy === item.channelId} onClick={() => relink(item)}>

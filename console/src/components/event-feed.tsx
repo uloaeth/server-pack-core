@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react';
 import { useApi } from '@/hooks/useApi';
@@ -35,7 +35,20 @@ export function EventFeed({ kind, victim, limit = 120, filters = false }: { kind
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [page, setPage] = useState<string | null>(null);
   const [active, setActive] = useState(initial.get('kind') ?? '');
-  useLiveContext();
+  const live = useLiveContext();
+  const lastEvent = live.events[0];
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!lastEvent || lastEvent.type !== 'event.new') return;
+    if (victim && lastEvent.victimId && lastEvent.victimId !== victim) return;
+    const eventKind = String(lastEvent.data.kind ?? '');
+    if (active && eventKind !== active) return;
+    if (onlyErrors && !/fail|error/.test(eventKind)) return;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => refresh(), 700);
+    return () => { if (timer.current) clearTimeout(timer.current); };
+  }, [lastEvent?.at]); // eslint-disable-line react-hooks/exhaustive-deps
   const params = new URLSearchParams({ limit: String(limit) });
   if (victim) params.set('victim', victim);
   if (active) params.set('kind', active);
@@ -44,7 +57,7 @@ export function EventFeed({ kind, victim, limit = 120, filters = false }: { kind
   const { data, loading, error, refresh } = useApi<{ items: EventRow[]; groups: Group[]; counts: Record<string, number>; total: number; next: string | null }>(`/events?${params}`, { pollMs: 15_000 });
 
   if (loading && !data) return <SkeletonRows rows={8} cols={3} />;
-  if (error) return <ErrorState message={error.message} retry={refresh} />;
+  if (error && !data) return <ErrorState message={error.message} retry={refresh} />;
   const groups = data?.groups ?? [];
 
   return (
@@ -62,6 +75,7 @@ export function EventFeed({ kind, victim, limit = 120, filters = false }: { kind
         </div>
       ) : null}
 
+      {error ? <p className="rounded border border-warn/30 bg-warn/10 px-2 py-1 text-2xs text-warn">Sin refresco: {error.message}. Se reintenta solo.</p> : null}
       {groups.length === 0 ? <Empty title="Sin eventos" hint="La actividad del agente y los hallazgos aparecen aquí, agrupados." /> : (
         <ol className="divide-y divide-line/60">
           {groups.map((group) => {
@@ -75,7 +89,7 @@ export function EventFeed({ kind, victim, limit = 120, filters = false }: { kind
                   <span className={cn('text-xs text-ink', group.kind === 'secret_found' && 'text-ok')}>{title(group)}</span>
                   {group.taskId ? <span className="font-mono text-2xs text-muted">task {group.taskId.slice(0, 8)}</span> : null}
                   <span className="ml-auto shrink-0 text-2xs text-muted/70">
-                    {group.victim ? <Link href={`/victims?select=${group.victim.id}&tab=actividad`} className="text-brand" onClick={(event) => event.stopPropagation()}>{group.victim.hostname}</Link> : 'system'} · {ago(group.lastAt)} ago
+                    {group.victim ? <Link href={`/victims?select=${group.victim.id}&tab=actividad`} className="text-brand" onClick={(event) => event.stopPropagation()}>{group.victim.hostname}</Link> : 'system'} · {ago(group.lastAt)}
                   </span>
                 </button>
                 {isOpen ? (
@@ -89,7 +103,7 @@ export function EventFeed({ kind, victim, limit = 120, filters = false }: { kind
                             <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-black/30 p-1.5 font-mono text-2xs text-muted">{JSON.stringify(item.data, null, 2)}</pre>
                           </details>
                         ) : null}
-                        <p className="mt-1 text-2xs text-muted/60">{ago(item.createdAt)} ago{item.victim ? ` · ${item.victim.hostname}` : ''}</p>
+                        <p className="mt-1 text-2xs text-muted/60">{ago(item.createdAt)}{item.victim ? ` · ${item.victim.hostname}` : ''}</p>
                       </div>
                     ))}
                   </div>

@@ -163,7 +163,7 @@ test('error y vacío ofrecen reintento', () => {
   const view = render(createElement(Status.ErrorState, { title: 'No se pudo cargar', message: 'agent_offline', retry: () => { retried += 1; } }));
   assert.ok(screen.getByText('No se pudo cargar'));
   assert.ok(screen.getByText('agent_offline'));
-  fireEvent.click(screen.getByText('retry'));
+  fireEvent.click(screen.getByText('reintentar'));
   assert.equal(retried, 1);
   view.unmount();
 });

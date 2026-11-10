@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { Sidebar } from '@/components/sidebar';
+import { ConsoleShell } from '@/components/console-shell';
 import { LiveProvider } from '@/components/live-provider';
 import type { Operator } from '@/lib/types';
 
@@ -19,10 +19,7 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
   if (!operator) redirect('/login');
   return (
     <LiveProvider role={operator.role}>
-      <Sidebar email={operator.email} role={operator.role} version="1.0.0" />
-      <div className="ml-[232px] min-h-screen min-w-0">
-        <main className="mx-auto min-w-0 max-w-[1760px] p-4 lg:p-5">{children}</main>
-      </div>
+      <ConsoleShell email={operator.email} role={operator.role}>{children}</ConsoleShell>
     </LiveProvider>
   );
 }

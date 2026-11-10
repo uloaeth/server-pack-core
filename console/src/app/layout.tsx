@@ -8,7 +8,7 @@ const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', displ
 
 export const metadata: Metadata = {
   title: { default: 'SPC Console', template: '%s · SPC' },
-  description: 'Self-hosted command console',
+  description: 'Consola de operación autoalojada',
   robots: { index: false, follow: false }
 };
 
@@ -16,7 +16,7 @@ export const viewport: Viewport = { themeColor: '#0b0d10', width: 'device-width'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable} dark`} suppressHydrationWarning>
+    <html lang="es" className={`${sans.variable} ${mono.variable} dark`} suppressHydrationWarning>
       <body className="min-h-screen overflow-x-hidden font-sans text-base">
         {children}
         <Toaster theme="dark" position="bottom-right" closeButton richColors />

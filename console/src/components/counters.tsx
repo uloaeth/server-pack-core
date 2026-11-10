@@ -15,11 +15,11 @@ export function Counters({ data, loading }: { data: Dashboard | null; loading: b
     { label: 'Errores 24 h', value: data?.counters.failures ?? 0, icon: Activity, href: '/events', tone: 'text-bad' }
   ];
   return (
-    <div className="grid grid-cols-7 gap-2">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
       {items.map((item) => (
         <Link key={item.label} href={item.href} className="rounded-lg border border-line bg-panel p-3 transition-colors hover:border-line/80 hover:bg-panel/70">
           <div className="flex items-center justify-between text-muted">
-            <span className="text-2xs uppercase tracking-wide">{item.label}</span>
+            <span className="min-w-0 truncate text-2xs uppercase tracking-wide">{item.label}</span>
             <item.icon className="h-3.5 w-3.5" />
           </div>
           <p className={cn('num mt-2 text-2xl font-semibold', loading ? 'text-muted' : item.tone)}>

@@ -78,6 +78,16 @@ html { scrollbar-width: thin; scrollbar-color: hsl(var(--line)) transparent; }
 }
 
 .leaflet-container { background: hsl(var(--panel)); font: inherit; }
-.leaflet-tile { filter: grayscale(0.4) brightness(0.72) contrast(1.1); }
+.leaflet-tile-pane { filter: invert(0.92) hue-rotate(180deg) brightness(0.82) contrast(0.92) saturate(0.55); }
 .leaflet-control-attribution { background: hsl(var(--panel) / 0.8) !important; color: hsl(var(--muted)) !important; }
 .leaflet-control-attribution a { color: hsl(var(--brand)) !important; }
+.leaflet-bar a { background: hsl(var(--panel)) !important; color: hsl(var(--ink)) !important; border-color: hsl(var(--line)) !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

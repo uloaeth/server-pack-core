@@ -87,7 +87,7 @@ export function TaskList({ victim, status }: { victim?: string; status?: string 
             {victim ? null : <TD className="font-mono text-2xs">{task.victim?.hostname ?? '—'}</TD>}
             <TD><Badge tone={tone(task.status)}>{task.status}</Badge></TD>
             <TD className="num text-muted">{task.attempts}</TD>
-            <TD className="num text-2xs text-muted">{dateTime(task.createdAt)} <span className="text-muted/60">({ago(task.createdAt)} ago)</span></TD>
+            <TD className="num text-2xs text-muted">{dateTime(task.createdAt)} <span className="text-muted/60">({ago(task.createdAt)})</span></TD>
             <TD>
               <div className="flex justify-end gap-1">
                 {task.status === 'queued' ? <Button size="icon" variant="ghost" title="delay 10 min" loading={busy === task.id} disabled={!canWrite || busy === task.id} onClick={() => reschedule(task.id, 10)}><Clock className="h-3 w-3" /></Button> : null}

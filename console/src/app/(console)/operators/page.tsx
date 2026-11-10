@@ -31,7 +31,7 @@ export default function OperatorsPage() {
       setForm({ email: '', password: '', role: 'viewer' });
       refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'failed');
+      toast.error(caught instanceof Error ? caught.message : 'No se pudo completar');
     } finally {
       setBusy(false);
     }
@@ -75,7 +75,7 @@ export default function OperatorsPage() {
           </div>
           {error ? <p className="p-3 text-xs text-bad">{error.message}</p> : loading ? <SkeletonRows rows={5} cols={5} /> : (data?.items ?? []).length === 0 ? <Empty title="No operators" /> : (
             <Table>
-              <THead><TR><TH>Email</TH><TH>Role</TH><TH>TOTP</TH><TH>Last login</TH><TH>State</TH><TH /></TR></THead>
+              <THead><TR><TH>Correo</TH><TH>Rol</TH><TH>TOTP</TH><TH>Último acceso</TH><TH>Estado</TH><TH><span className="sr-only">Acciones</span></TH></TR></THead>
               <tbody>
                 {data!.items.map((row) => (
                   <TR key={row.id}>
@@ -99,7 +99,7 @@ export default function OperatorsPage() {
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-          <DialogTitle>New operator</DialogTitle>
+          <DialogTitle>Nuevo operador</DialogTitle>
           <form onSubmit={create} className="mt-3 space-y-2">
             <div><Label>Email</Label><Input type="email" required value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></div>
             <div><Label>Password</Label><Input type="password" required value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></div>

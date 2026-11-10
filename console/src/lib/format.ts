@@ -1,3 +1,5 @@
+import { isWindows, isMac } from '@/lib/os';
+
 export function bytes(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -6,18 +8,18 @@ export function bytes(value: number): string {
 }
 
 export function ago(date: string | Date | null | undefined): string {
-  if (!date) return 'never';
+  if (!date) return 'nunca';
   const ms = Date.now() - new Date(date).getTime();
-  if (ms < 5_000) return 'now';
-  if (ms < 60_000) return `${Math.floor(ms / 1000)}s`;
-  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m`;
-  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h`;
-  if (ms < 30 * 86_400_000) return `${Math.floor(ms / 86_400_000)}d`;
-  return new Date(date).toLocaleDateString('en-GB');
+  if (ms < 5_000) return 'ahora';
+  if (ms < 60_000) return `${Math.floor(ms / 1000)} s`;
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} min`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)} h`;
+  if (ms < 30 * 86_400_000) return `${Math.floor(ms / 86_400_000)} d`;
+  return new Date(date).toLocaleDateString('es-ES');
 }
 
 export const dateTime = (date: string | Date | null | undefined): string =>
-  date ? new Date(date).toLocaleString('en-GB', { hour12: false }) : '—';
+  date ? new Date(date).toLocaleString('es-ES', { hour12: false, dateStyle: 'short', timeStyle: 'medium' }) : '—';
 
 export const short = (value: string | null | undefined, length = 8): string =>
   value ? value.replace(/-/g, '').slice(0, length) : '—';
@@ -28,11 +30,27 @@ const FLAGS: Record<string, string> = {
   IN: '🇮🇳', CN: '🇨🇳', JP: '🇯🇵', KR: '🇰🇷', AU: '🇦🇺', SG: '🇸🇬', AE: '🇦🇪', IL: '🇮🇱'
 };
 
-export const flag = (code: string | null | undefined): string => (code && FLAGS[code]) || '🏴';
+export const flag = (code: string | null | undefined): string => (code && FLAGS[code]) || '🏳️';
 
-import { isWindows, isMac } from '@/lib/os';
+export function osIcon(os: string): string {
+  return isWindows(os) ? '⊞' : isMac(os) ? '🍎' : '🐧';
+}
 
-export const osIcon = (os: string): string => (isWindows(os) ? '⊞' : isMac(os) ? '' : '🐧');
+/** A balance is only highlighted when it is strictly positive. */
+export function balanceNumber(value: string | null | undefined): number {
+  if (!value) return 0;
+  const match = String(value).match(/([\d.,]+)/);
+  if (!match) return 0;
+  let raw = match[1]!;
+  if (raw.includes('.') && raw.includes(',')) raw = raw.replace(/,/g, '');
+  else if (raw.includes(',')) raw = raw.replace(',', '.');
+  return Number.isFinite(Number(raw)) ? Number(raw) : 0;
+}
+
+export function balanceTone(value: string | number | null | undefined): string {
+  const number = typeof value === 'number' ? value : balanceNumber(value);
+  return number > 0 ? 'text-warn' : 'text-muted/70';
+}
 
 export function copy(text: string): void {
   void navigator.clipboard?.writeText(text);

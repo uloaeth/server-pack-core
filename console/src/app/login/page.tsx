@@ -1,6 +1,6 @@
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import QRCode from 'qrcode';
 import { ShieldCheck } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
@@ -9,8 +9,12 @@ import { Input, Label } from '@/components/ui/input';
 
 type Step = 'password' | 'setup' | 'totp';
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const params = useSearchParams();
+  const nextParam = params.get('next');
+  const next = nextParam && nextParam.startsWith('/') ? nextParam : '/victims';
+  const expired = params.get('expired') === '1';
   const [step, setStep] = useState<Step>('password');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -34,15 +38,15 @@ export default function LoginPage() {
         setQr(await QRCode.toDataURL(result.uri!, { margin: 1, width: 220, color: { dark: '#e6e8eb', light: '#101216' } }));
         setStep('setup');
       } else {
-        router.push('/victims');
+        router.push(next);
         router.refresh();
       }
     } catch (caught) {
       if (caught instanceof ApiError && caught.code === 'totp_required') {
         setStep('totp');
-        setError('Enter the 6-digit code from your authenticator.');
+        setError('Introduce el código de 6 dígitos de tu autenticador.');
       } else {
-        setError(caught instanceof ApiError ? caught.message : 'Login failed');
+        setError(caught instanceof ApiError ? caught.message : 'No se pudo entrar');
       }
     } finally {
       setBusy(false);
@@ -58,7 +62,7 @@ export default function LoginPage() {
       router.push('/victims');
       router.refresh();
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : 'Invalid code');
+      setError(caught instanceof ApiError ? caught.message : 'Código no válido');
     } finally {
       setBusy(false);
     }
@@ -73,48 +77,49 @@ export default function LoginPage() {
           </div>
           <div>
             <h1 className="text-sm font-semibold">SPC Console</h1>
-            <p className="font-mono text-2xs text-muted">restricted access</p>
+            <p className="font-mono text-2xs text-muted">acceso restringido</p>
           </div>
         </div>
 
+        {expired ? <p className="mb-3 rounded border border-warn/40 bg-warn/10 p-2 text-2xs text-warn">La sesión caducó. Vuelve a entrar; te devolvemos a donde estabas.</p> : null}
         {step === 'password' ? (
           <form onSubmit={submitPassword} className="space-y-3">
             <div>
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">Correo</Label>
               <Input id="email" type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.target.value)} />
             </div>
             <div>
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">Contraseña</Label>
               <Input id="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
             </div>
             {error ? <p className="rounded border border-bad/40 bg-bad/10 p-2 font-mono text-2xs text-bad">{error}</p> : null}
-            <Button className="w-full" size="lg" loading={busy}>Continue</Button>
+            <Button className="w-full" size="lg" loading={busy}>Continuar</Button>
           </form>
         ) : null}
 
         {step === 'totp' ? (
           <form onSubmit={submitPassword} className="space-y-3">
-            <p className="text-xs text-muted">Two-factor is mandatory. Code for <span className="font-mono">{email}</span></p>
+            <p className="text-xs text-muted">El segundo factor es obligatorio. Código para <span className="font-mono">{email}</span></p>
             <div>
               <Label htmlFor="code">TOTP</Label>
               <Input id="code" inputMode="numeric" autoComplete="one-time-code" maxLength={8} required autoFocus value={code} onChange={(event) => setCode(event.target.value)} />
             </div>
             {error ? <p className="rounded border border-bad/40 bg-bad/10 p-2 text-2xs text-bad">{error}</p> : null}
-            <Button className="w-full" size="lg" loading={busy}>Verify</Button>
+            <Button className="w-full" size="lg" loading={busy}>Verificar</Button>
           </form>
         ) : null}
 
         {step === 'setup' ? (
           <form onSubmit={enableTotp} className="space-y-3">
-            <p className="text-xs text-muted">First login: scan and confirm a code to enable TOTP.</p>
+            <p className="text-xs text-muted">Primer acceso: escanea y confirma un código para activar TOTP.</p>
             {qr ? <img src={qr} alt="TOTP QR" className="mx-auto rounded border border-line" /> : null}
             <p className="break-all rounded border border-line bg-bg p-2 font-mono text-2xs">{secret}</p>
             <div>
-              <Label htmlFor="setup-code">Code</Label>
+              <Label htmlFor="setup-code">Código</Label>
               <Input id="setup-code" inputMode="numeric" maxLength={8} required autoFocus value={code} onChange={(event) => setCode(event.target.value)} />
             </div>
             {error ? <p className="rounded border border-bad/40 bg-bad/10 p-2 text-2xs text-bad">{error}</p> : null}
-            <Button className="w-full" size="lg" loading={busy}>Enable and sign in</Button>
+            <Button className="w-full" size="lg" loading={busy}>Activar y entrar</Button>
           </form>
         ) : null}
 
@@ -122,4 +127,8 @@ export default function LoginPage() {
       </div>
     </main>
   );
+}
+
+export default function LoginPage() {
+  return <Suspense fallback={<main className="grid min-h-screen place-items-center bg-bg p-6 grid-bg"><p className="text-xs text-muted">Cargando…</p></main>}><LoginForm /></Suspense>;
 }
