@@ -52,12 +52,16 @@ switch ($Scenario) {
     # Constrained Language Mode: CIM must return empty, never throw.
     # SPC_AGENT is optional so the script also works outside CI.
     $env:SPC_AGENT = if ($env:SPC_AGENT) { $env:SPC_AGENT } else { Join-Path $root 'agent' }
-    powershell -NoProfile -Command @'
+    # Resolve the path outside the constrained shell: under CLM the nested
+    # `$env:` expansion was reaching Java as a literal.
+    $gateDir = Join-Path $env:RUNNER_TEMP 'spc-gate-clm'
+    $gateScript = @'
 $ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'
 Set-Location $env:SPC_AGENT
-& .\..\gradlew.bat windowsGate --no-daemon -q -Pgate=cim -PgateDir="$env:RUNNER_TEMP\spc-gate-clm"
+& .\..\gradlew.bat windowsGate --no-daemon -q -Pgate=cim "-PgateDir={0}"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-'@
+'@ -f $gateDir
+    powershell -NoProfile -Command $gateScript
     if ($LASTEXITCODE -ne 0) { throw 'CLM gate failed' }
   }
   'uninstall' {
