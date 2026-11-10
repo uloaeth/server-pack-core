@@ -17,7 +17,7 @@ export function Counters({ data, loading }: { data: Dashboard | null; loading: b
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
       {items.map((item) => (
-        <Link key={item.label} href={item.href} className="rounded-lg border border-line bg-panel p-3 transition-colors hover:border-line/80 hover:bg-panel/70">
+        <Link key={item.label} href={item.href} className="xp-stat rounded-lg border border-line bg-panel p-3 transition-colors hover:border-line/80 hover:bg-panel/70">
           <div className="flex items-center justify-between text-muted">
             <span className="min-w-0 truncate text-2xs uppercase tracking-wide">{item.label}</span>
             <item.icon className="h-3.5 w-3.5" />

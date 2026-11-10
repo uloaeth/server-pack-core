@@ -374,30 +374,38 @@ export function OperationsView() {
           )}
         </div>
         {victim ? (
-          <div className="fixed inset-0 z-40 flex justify-end">
-            <button aria-label="Cerrar detalle" className="absolute inset-0 bg-black/55 backdrop-blur-[2px] animate-in fade-in" onClick={() => setSelected([])} />
-            <div id="victim-detail" tabIndex={-1} className="relative flex h-full w-full min-h-0 outline-none shadow-2xl animate-in slide-in-from-right duration-200 sm:w-[min(880px,calc(100vw-2rem))]">
-            <VictimDetail
-              victim={victim}
-              tab={tab}
-              onTab={setTab}
-              onRun={runInline}
-              onAction={(id) => {
-                const action = ACTION_MAP.get(id);
-                if (!action) return;
-                setSelected([victim.id]);
-                const reason = actionReason(action, victim, context);
-                if (reason) { setNotice({ tone: 'warn', text: `${action.label}: ${reason}.` }); return; }
-                if (action.dialog) { setDialog(action); return; }
-                if (action.view) { setShellView(action); return; }
-                if (action.id === 'revoke') { void revoke(victim); return; }
-                void runDirect(action, victim);
-              }}
-              onClose={() => setSelected([])}
-              onBulk={() => setBulk(true)}
+          <>
+            <button
+              aria-label="Cerrar detalle"
+              className="fixed inset-0 z-30 bg-black/55 backdrop-blur-[2px] animate-in fade-in lg:hidden"
+              onClick={() => setSelected([])}
             />
+            <div
+              id="victim-detail"
+              tabIndex={-1}
+              className="relative z-40 flex h-full min-h-0 w-full shrink-0 outline-none max-lg:fixed max-lg:inset-0 lg:w-[min(640px,48%)] lg:border-l lg:border-line lg:shadow-[-2px_0_0_hsl(var(--xp-dark))] animate-in slide-in-from-right duration-200"
+            >
+              <VictimDetail
+                victim={victim}
+                tab={tab}
+                onTab={setTab}
+                onRun={runInline}
+                onAction={(id) => {
+                  const action = ACTION_MAP.get(id);
+                  if (!action) return;
+                  setSelected([victim.id]);
+                  const reason = actionReason(action, victim, context);
+                  if (reason) { setNotice({ tone: 'warn', text: `${action.label}: ${reason}.` }); return; }
+                  if (action.dialog) { setDialog(action); return; }
+                  if (action.view) { setShellView(action); return; }
+                  if (action.id === 'revoke') { void revoke(victim); return; }
+                  void runDirect(action, victim);
+                }}
+                onClose={() => setSelected([])}
+                onBulk={() => setBulk(true)}
+              />
             </div>
-          </div>
+          </>
         ) : null}
       </div>
 

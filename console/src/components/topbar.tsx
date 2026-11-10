@@ -78,7 +78,7 @@ export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string;
         </button>
 
         <div className="relative">
-          <button onClick={() => setBell((value) => !value)} className="xp-titlebar-btn relative grid h-7 w-7 place-items-center rounded border border-line text-muted hover:text-ink">
+          <button onClick={() => setBell((value) => !value)} className="xp-titlebar-btn relative grid h-7 w-7 place-items-center rounded border border-line text-muted hover:text-ink" title="Notificaciones" aria-label="Notificaciones">
             <Bell className="h-3.5 w-3.5" />
             {(notifications.data?.unread ?? 0) > 0 ? (
               <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-bad px-1 font-mono text-2xs text-white">
@@ -108,7 +108,7 @@ export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string;
             </div>
           ) : null}
         </div>
-        <span className="hidden font-mono text-2xs text-muted 2xl:inline">{events.length} evt</span>
+        <span className="xp-titlebar-tray font-mono text-2xs" title="Eventos recibidos en esta sesión">{events.length} evt</span>
       </div>
 
       <Dialog open={search} onOpenChange={setSearch}>

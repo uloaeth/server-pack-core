@@ -266,3 +266,41 @@ test('el menú conserva las acciones clásicas en su propio bloque', () => {
   assert.equal(action, 'open');
   view.unmount();
 });
+
+
+test('los 23 módulos del menú son seleccionables, incluidos los no soportados', async () => {
+  const { MODULE_REGISTRY } = await import('../src/lib/modules');
+  const picked: string[] = [];
+  const view = render(createElement(ModuleMenu, {
+    victim: victim('a', 'ALFA'),
+    x: 10,
+    y: 10,
+    context: { canWrite: true, offline: false, disconnected: false, windows: true, agentVersion: '0.3.7' },
+    onPickModule: (entry) => { picked.push(entry.id); },
+    onPickAction: () => undefined,
+    onReopen: () => undefined,
+    onClose: () => undefined
+  }));
+  for (const entry of MODULE_REGISTRY) {
+    fireEvent.click(screen.getByRole('menuitem', { name: new RegExp(entry.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }));
+  }
+  assert.deepEqual(picked, MODULE_REGISTRY.map((entry) => entry.id));
+  view.unmount();
+});
+
+test('cada módulo abre un modal con su título, soportado o no', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => ({ ok: true, json: async () => ({ items: [] }) })) as unknown as typeof fetch;
+  const { MODULE_REGISTRY } = await import('../src/lib/modules');
+  for (const entry of MODULE_REGISTRY) {
+    const view = render(createElement(ResultDialog, {
+      open: true,
+      victim: victim('a', 'ALFA'),
+      entry,
+      onClose: () => undefined
+    }));
+    assert.ok(screen.getByRole('dialog', { name: new RegExp(entry.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }), entry.id);
+    view.unmount();
+  }
+  globalThis.fetch = original;
+});

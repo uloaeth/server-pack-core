@@ -42,7 +42,7 @@ export function VictimFilters({
   const clear = () => { setQ(''); setOs(''); setStatus(''); setCountry(''); setTag(''); setBuild(''); setHas(''); };
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-3 py-1.5">
+    <div className="sticky top-[104px] z-10 flex flex-wrap items-center gap-1.5 border-b border-line bg-bg px-3 py-1.5 lg:top-14">
       <div className="relative w-64">
         <Search className="pointer-events-none absolute left-2 top-1.5 h-3.5 w-3.5 text-muted/60" />
         <Input

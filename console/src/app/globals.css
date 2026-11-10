@@ -1193,3 +1193,26 @@ html[data-theme^='xp'] .animate-shimmer { animation: none; width: 100%; backgrou
 html[data-theme^='xp'] .leaflet-tile-pane { filter: sepia(0.32) saturate(0.72) brightness(1.04) contrast(0.9); }
 html[data-theme^='xp'] .leaflet-control-attribution { background: hsl(var(--xp-face) / 0.9) !important; color: hsl(var(--ink)) !important; }
 html[data-theme^='xp'] .leaflet-bar a { background: hsl(var(--xp-btn-face)) !important; border-color: hsl(var(--xp-dark)) !important; color: hsl(var(--ink)) !important; box-shadow: inset 1px 1px 0 hsl(var(--xp-highlight)); }
+
+/* Bandeja de estado del título: el extremo derecho siempre es explicable. */
+html[data-theme^='xp'] .xp-titlebar-tray {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid hsl(var(--xp-btn-border-dark));
+  border-top-color: hsl(var(--xp-btn-border-light));
+  border-left-color: hsl(var(--xp-btn-border-light));
+  background: hsl(var(--xp-btn-face));
+  color: hsl(var(--ink));
+  font-size: 9px;
+}
+html[data-theme^='xp'] .xp-topbar [title='Notificaciones'] > span {
+  border-radius: 0;
+  border: 1px solid hsl(0 0% 100% / 0.7);
+  background: hsl(var(--bad));
+  color: #fff;
+  font-family: var(--xp-font);
+  font-size: 9px;
+  font-weight: bold;
+}
