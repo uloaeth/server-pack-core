@@ -7,15 +7,20 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PersistenceTest {
-	private static final String COMMAND =
-		"\"C:\\Windows\\System32\\wscript.exe\" //nologo \"C:\\Users\\John Doe\\startup.vbs\"";
+	private static final String COMMAND = "\"C:\\Users\\John Doe\\startup.vbs\"";
 
 	/** reg.exe re-parses its own command line: quotes must arrive backslash-escaped. */
 	@Test
 	void regValueEscapesQuotes() {
-		assertEquals(
-			"\\\"C:\\Windows\\System32\\wscript.exe\\\" //nologo \\\"C:\\Users\\John Doe\\startup.vbs\\\"",
-			Persistence.regValue(COMMAND));
+		assertEquals("\\\"C:\\Users\\John Doe\\startup.vbs\\\"", Persistence.regValue(COMMAND));
+	}
+
+	/** La asociación .vbs evita el prefijo wscript.exe que marcaba Defender. */
+	@Test
+	void runValueUsesTheVbsAssociation() {
+		String value = Persistence.runCommand(java.nio.file.Path.of("C:\\Users\\John Doe\\startup.vbs"));
+		assertEquals(COMMAND, value);
+		assertFalse(value.contains("wscript.exe"));
 	}
 
 	@Test

