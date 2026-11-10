@@ -58,9 +58,10 @@ switch ($Scenario) {
     $gateScript = @'
 $ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'
 Set-Location $env:SPC_AGENT
-& .\..\gradlew.bat windowsGate --no-daemon -q -Pgate=cim "-PgateDir={0}"
+& .\..\gradlew.bat windowsGate --no-daemon -q -Pgate=cim "-PgateDir=__GATE__"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-'@ -f $gateDir
+'@
+    $gateScript = $gateScript.Replace('__GATE__', $gateDir)
     powershell -NoProfile -Command $gateScript
     if ($LASTEXITCODE -ne 0) { throw 'CLM gate failed' }
   }
