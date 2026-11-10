@@ -13,6 +13,7 @@ export function DialogContent({ className, children, ...props }: React.Component
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/65 data-[state=open]:animate-in data-[state=open]:fade-in" />
       <DialogPrimitive.Content
+        data-xp-dialog=""
         className={cn(
           'fixed left-1/2 top-1/2 z-50 max-h-[88dvh] w-[min(94vw,820px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-line bg-panel p-5 shadow-2xl',
           className
@@ -20,7 +21,7 @@ export function DialogContent({ className, children, ...props }: React.Component
         {...props}
       >
         {children}
-        <DialogPrimitive.Close className="absolute right-2 top-2 rounded p-1 text-muted hover:bg-line hover:text-ink">
+        <DialogPrimitive.Close className="xp-dialog-close absolute right-2 top-2 rounded p-1 text-muted hover:bg-line hover:text-ink" aria-label="Cerrar">
           <X className="h-4 w-4" />
         </DialogPrimitive.Close>
       </DialogPrimitive.Content>

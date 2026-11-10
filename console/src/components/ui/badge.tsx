@@ -16,5 +16,5 @@ const badge = cva('inline-flex items-center gap-1 rounded-full border px-2 py-0.
 });
 
 export function Badge({ className, tone, ...props }: React.HTMLAttributes<HTMLSpanElement> & VariantProps<typeof badge>) {
-  return <span className={cn(badge({ tone }), className)} {...props} />;
+  return <span data-xp-badge="" data-tone={tone ?? 'default'} className={cn(badge({ tone }), className)} {...props} />;
 }

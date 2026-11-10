@@ -61,4 +61,4 @@ export function mask(value: string, visible = 10): string {
   return `${value.slice(0, visible)}…${value.slice(-4)}`;
 }
 
-export const osTone = (os: string) => (isWindows(os) ? 'text-brand' : isMac(os) ? 'text-ink' : 'text-warn');
+export const osTone = (_os: string) => 'text-ink';

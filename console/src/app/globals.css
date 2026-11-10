@@ -828,3 +828,368 @@ html[data-theme='xp-dark'] .xp-history { background: hsl(210 12% 8%); }
 .xp-raw summary { cursor: default; font-size: 10px; color: hsl(var(--muted)); padding: 1px 0; }
 .xp-raw summary::marker { color: hsl(var(--xp-face-dark)); }
 .xp-raw .xp-dialog-console { max-height: 220px; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PASADA RETRO GLOBAL
+   Todo lo que no sea un menú/diálogo propio se adapta aquí: formularios,
+   botones, badges, pestañas, tablas, tarjetas, popovers y avisos. Sin tocar
+   densidad, scroll, ordenación ni atajos.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+html[data-theme^='xp'] .rounded-full { border-radius: 0; }
+html[data-theme^='xp'] .shadow-xl,
+html[data-theme^='xp'] .shadow-2xl { box-shadow: 2px 2px 0 hsl(var(--xp-shadow) / 0.55); }
+
+/* ── Formularios: campo blanco hundido ───────────────────────────────────── */
+
+html[data-theme^='xp'] input:not([type='checkbox']):not([type='radio']):not([type='range']),
+html[data-theme^='xp'] select,
+html[data-theme^='xp'] textarea {
+  min-height: 22px;
+  height: 22px;
+  padding: 1px 4px;
+  border-radius: 0;
+  border: 2px inset hsl(var(--xp-btn-border-dark));
+  background: hsl(0 0% 100%);
+  color: hsl(0 0% 0%);
+  font-family: var(--xp-font);
+  font-size: 11px;
+  box-shadow: none;
+  outline: none;
+}
+html[data-theme^='xp'] textarea { height: auto; min-height: 60px; resize: vertical; }
+html[data-theme^='xp'] input:not([type='checkbox']):not([type='radio']):focus,
+html[data-theme^='xp'] select:focus,
+html[data-theme^='xp'] textarea:focus { outline: 1px dotted hsl(var(--ink)); outline-offset: -3px; }
+html[data-theme^='xp'] input::placeholder,
+html[data-theme^='xp'] textarea::placeholder { color: hsl(0 0% 42%); }
+
+html[data-theme^='xp-dark'] input:not([type='checkbox']):not([type='radio']):not([type='range']),
+html[data-theme^='xp-dark'] select,
+html[data-theme^='xp-dark'] textarea {
+  background: hsl(210 12% 8%);
+  color: hsl(var(--ink));
+  border-color: hsl(var(--xp-btn-border-dark));
+}
+html[data-theme^='xp-dark'] input::placeholder,
+html[data-theme^='xp-dark'] textarea::placeholder { color: hsl(210 8% 50%); }
+
+html[data-theme^='xp'] select {
+  padding-right: 2px;
+  background: hsl(0 0% 100%);
+  color: hsl(0 0% 0%);
+}
+html[data-theme^='xp-dark'] select { background: hsl(210 12% 8%); color: hsl(var(--ink)); }
+
+html[data-theme^='xp'] input[type='checkbox'],
+html[data-theme^='xp'] input[type='radio'] {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  border: 2px inset hsl(var(--xp-btn-border-dark));
+  background: hsl(0 0% 100%);
+  vertical-align: -2px;
+}
+html[data-theme^='xp'] input[type='checkbox']:checked::after {
+  content: '✓';
+  font: bold 10px/1 var(--xp-font);
+  color: hsl(0 0% 0%);
+  transform: translateY(-1px);
+}
+html[data-theme^='xp'] input[type='radio'] { border-radius: 50%; }
+html[data-theme^='xp'] input[type='radio']:checked::after { content: ''; width: 5px; height: 5px; border-radius: 50%; background: hsl(0 0% 0%); }
+html[data-theme^='xp-dark'] input[type='checkbox'],
+html[data-theme^='xp-dark'] input[type='radio'] { background: hsl(210 12% 8%); }
+html[data-theme^='xp-dark'] input[type='checkbox']::after { color: hsl(var(--ink)); }
+
+/* ── Botones clásicos (todos los que no son parte del menú/diálogo) ──────── */
+
+html[data-theme^='xp'] button:not(.xp-menu-item):not(.xp-icon-btn):not(.xp-item-history):not(.xp-history-row):not(.chip):not(.xp-stat):not([role='tab']):not(.xp-dialog-close):not(.xp-dialog-btn):not(.xp-btn-classic):not(.xp-theme-toggle) {
+  border-radius: 0;
+  border: 1px solid hsl(var(--xp-btn-border-dark));
+  border-top-color: hsl(var(--xp-btn-border-light));
+  border-left-color: hsl(var(--xp-btn-border-light));
+  background: linear-gradient(180deg, hsl(var(--xp-light)), hsl(var(--xp-btn-face)));
+  color: hsl(var(--ink));
+  font-family: var(--xp-font);
+  font-size: 11px;
+}
+html[data-theme^='xp'] button:not(.xp-menu-item):not(.xp-icon-btn):not(.xp-item-history):not(.xp-history-row):not(.chip):not(.xp-stat):not([role='tab']):not(.xp-dialog-close):not(.xp-dialog-btn):not(.xp-btn-classic):not(.xp-theme-toggle):active {
+  border-color: hsl(var(--xp-btn-border-light));
+  border-top-color: hsl(var(--xp-btn-border-dark));
+  border-left-color: hsl(var(--xp-btn-border-dark));
+  background: hsl(var(--xp-btn-face));
+}
+html[data-theme^='xp'] button:disabled { color: hsl(var(--muted)); }
+
+html[data-theme^='xp'] [data-xp-button] {
+  min-width: 0;
+  height: 22px;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 0;
+  font-weight: normal;
+  box-shadow: none;
+}
+html[data-theme^='xp'] [data-xp-button][data-xp-size='icon'] { width: 22px; padding: 0; }
+html[data-theme^='xp'] [data-xp-button][data-xp-size='lg'] { height: 26px; min-height: 26px; padding: 0 12px; }
+html[data-theme^='xp'] [data-xp-button='default'],
+html[data-theme^='xp'] [data-xp-button='primary'] {
+  background: linear-gradient(180deg, hsl(214 90% 64%), hsl(216 80% 40%));
+  border-color: hsl(216 85% 28%);
+  border-top-color: hsl(214 95% 78%);
+  border-left-color: hsl(214 95% 78%);
+  color: #fff;
+  font-weight: bold;
+}
+html[data-theme^='xp'] [data-xp-button='destructive'] { color: hsl(var(--bad)); }
+html[data-theme^='xp'] [data-xp-button='ghost'] {
+  background: linear-gradient(180deg, hsl(var(--xp-light)), hsl(var(--xp-btn-face)));
+  border-color: hsl(var(--xp-btn-border-dark));
+  border-top-color: hsl(var(--xp-btn-border-light));
+  border-left-color: hsl(var(--xp-btn-border-light));
+  color: hsl(var(--ink));
+}
+
+/* Los botones de ordenación del encabezado no llevan bisel. */
+html[data-theme^='xp'] th button {
+  height: auto !important;
+  min-height: 0;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  box-shadow: none;
+}
+html[data-theme^='xp'] th button:hover { text-decoration: underline; }
+
+/* ── Badges: etiquetas cuadradas, no píldoras ──────────────────────────��── */
+
+html[data-theme^='xp'] [data-xp-badge] {
+  padding: 0 4px;
+  border-radius: 0;
+  border: 1px solid hsl(var(--xp-btn-border-dark));
+  box-shadow: inset 1px 1px 0 hsl(var(--xp-highlight) / 0.7);
+  font-family: var(--xp-font);
+  font-size: 9px;
+  font-weight: bold;
+  letter-spacing: 0;
+  line-height: 14px;
+}
+html[data-theme^='xp'] [data-xp-badge][data-tone='default'] { background: hsl(var(--xp-face)); color: hsl(var(--xp-face-dark)); }
+html[data-theme^='xp'] [data-xp-badge][data-tone='brand'] { background: hsl(214 85% 85%); border-color: hsl(216 70% 42%); color: hsl(216 80% 25%); }
+html[data-theme^='xp'] [data-xp-badge][data-tone='ok'] { background: hsl(120 45% 82%); border-color: hsl(120 55% 32%); color: hsl(120 65% 20%); }
+html[data-theme^='xp'] [data-xp-badge][data-tone='warn'] { background: hsl(48 95% 78%); border-color: hsl(38 80% 35%); color: hsl(38 85% 20%); }
+html[data-theme^='xp'] [data-xp-badge][data-tone='bad'] { background: hsl(356 70% 48%); border-color: hsl(356 80% 28%); color: #fff; }
+html[data-theme^='xp'] .xp-topbar [data-xp-badge] { border-color: hsl(0 0% 100% / 0.55); box-shadow: none; }
+
+/* ── Pestañas con relieve clásico ───────────────────────────────────────── */
+
+html[data-theme^='xp'] [role='tablist'] {
+  height: auto;
+  gap: 1px;
+  padding: 3px 4px 0;
+  background: hsl(var(--xp-face));
+  border-bottom: 1px solid hsl(var(--xp-dark));
+}
+html[data-theme^='xp'] [role='tab'] {
+  height: 23px;
+  padding: 2px 10px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 0;
+  background: transparent;
+  color: hsl(var(--ink));
+  font-size: 11px;
+}
+html[data-theme^='xp'] [role='tab']:hover { text-decoration: underline; }
+html[data-theme^='xp'] [role='tab'][data-state='active'] {
+  background: hsl(var(--xp-dialog-bg));
+  border-color: hsl(var(--xp-dark));
+  border-top-color: hsl(var(--xp-highlight));
+  border-left-color: hsl(var(--xp-highlight));
+  font-weight: bold;
+}
+html[data-theme^='xp'] [role='tab'][data-state='active']::after { display: none; }
+
+/* ── Tablas ─────────────────────────────────────────────────────────────── */
+
+html[data-theme^='xp'] thead tr {
+  background: linear-gradient(180deg, hsl(var(--xp-light)), hsl(var(--xp-btn-face)));
+  border-bottom: 1px solid hsl(var(--xp-dark));
+}
+html[data-theme^='xp'] th {
+  height: 26px;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  border-right: 1px solid hsl(var(--xp-dark) / 0.35);
+}
+html[data-theme^='xp'] td { height: 26px; border-bottom: 1px solid hsl(var(--xp-dark) / 0.25); }
+html[data-theme^='xp'] tbody tr[aria-selected='true'] {
+  background: hsl(var(--xp-menu-hover));
+  color: #fff;
+}
+html[data-theme^='xp'] tbody tr[aria-selected='true'] :is(td, span, a, .text-ink, .text-muted, .text-xs, .text-2xs, .text-ok, .text-warn, .text-bad, .text-brand) { color: #fff; }
+html[data-theme^='xp'] tbody tr[aria-selected='true'] [data-xp-badge] { box-shadow: none; }
+html[data-theme^='xp'] tbody tr:focus-visible { outline: 1px dotted hsl(var(--ink)); outline-offset: -2px; }
+html[data-theme^='xp'] tbody tr:hover:not([aria-selected='true']) { background: hsl(var(--xp-menu-hover) / 0.12); }
+html[data-theme^='xp'] .table-sticky tbody tr > :first-child { background: hsl(var(--xp-face)); }
+html[data-theme^='xp'] .table-sticky thead tr > :first-child { background: hsl(var(--xp-btn-face)); }
+html[data-theme^='xp'] .table-sticky tbody tr[aria-selected='true'] > :first-child { background: hsl(var(--xp-menu-hover)); }
+
+/* ── Tarjetas, grupos y contadores ──────────────────────────────────────── */
+
+html[data-theme^='xp'] .xp-card {
+  background: hsl(var(--xp-face));
+  border: 1px solid hsl(var(--xp-dark)) !important;
+  box-shadow: inset 1px 1px 0 hsl(var(--xp-highlight));
+  border-radius: 0 !important;
+}
+html[data-theme^='xp'] .xp-card-icon {
+  width: 24px;
+  height: 24px;
+  border: 1px solid hsl(var(--xp-dark));
+  background: hsl(var(--xp-face));
+  box-shadow: inset 1px 1px 0 hsl(var(--xp-highlight));
+  border-radius: 0 !important;
+}
+html[data-theme^='xp'] .xp-card-icon svg { width: 14px; height: 14px; }
+html[data-theme^='xp'] .xp-stat {
+  background: hsl(0 0% 100%);
+  border: 2px inset hsl(var(--xp-btn-border-dark)) !important;
+  box-shadow: none;
+  border-radius: 0 !important;
+}
+html[data-theme^='xp'] .xp-stat p:first-child { font-size: 9px; text-transform: uppercase; }
+html[data-theme^='xp'] .xp-stat p:last-child { font-family: var(--xp-font); font-size: 15px; font-weight: bold; }
+html[data-theme^='xp-dark'] .xp-stat { background: hsl(210 12% 8%); }
+
+html[data-theme^='xp'] .xp-notice {
+  border-radius: 0 !important;
+  border-left-width: 4px !important;
+  box-shadow: inset 1px 1px 0 hsl(var(--xp-highlight) / 0.45);
+}
+html[data-theme^='xp'] .xp-notice-bad { background: hsl(356 70% 94%); }
+html[data-theme^='xp'] .xp-notice-warn { background: hsl(48 90% 90%); }
+html[data-theme^='xp-dark'] .xp-notice-bad { background: hsl(356 50% 16%); }
+html[data-theme^='xp-dark'] .xp-notice-warn { background: hsl(38 50% 16%); }
+
+/* ── Cabecera del detalle ───────────────────────────────────────────────── */
+
+html[data-theme^='xp'] [data-xp-drawer-head] {
+  background: linear-gradient(180deg, hsl(var(--xp-title-to)), hsl(var(--xp-title-from)));
+  border-bottom: 1px solid hsl(var(--xp-dark));
+  backdrop-filter: none;
+  padding: 6px 8px;
+}
+html[data-theme^='xp'] [data-xp-drawer-head] > div:first-child > div > p:first-child,
+html[data-theme^='xp'] [data-xp-drawer-head] > div:first-child > div > p:nth-child(2) { color: #fff; }
+html[data-theme^='xp'] [data-xp-drawer-head] [data-xp-badge] { box-shadow: none; border-color: hsl(0 0% 100% / 0.6); }
+html[data-theme^='xp'] [data-xp-drawer-head] .text-muted:not([data-xp-badge]) { color: hsl(0 0% 100% / 0.88); }
+html[data-theme^='xp'] [data-xp-drawer-head] [data-xp-button] {
+  background: hsl(0 0% 100% / 0.16);
+  border-color: hsl(0 0% 100% / 0.55);
+  color: #fff;
+}
+
+html[data-theme^='xp'] dl dt { font-weight: bold; color: hsl(var(--ink)); }
+html[data-theme^='xp'] dl dd { font-family: var(--xp-mono); font-size: 10px; }
+
+/* ── Chips, kbd y enlaces ───────────────────────────────────────────────── */
+
+html[data-theme^='xp'] .chip {
+  border-radius: 0;
+  border: 1px solid hsl(var(--xp-btn-border-dark));
+  border-top-color: hsl(var(--xp-btn-border-light));
+  border-left-color: hsl(var(--xp-btn-border-light));
+  background: linear-gradient(180deg, hsl(var(--xp-light)), hsl(var(--xp-btn-face)));
+  padding: 0 6px;
+  font-size: 10px;
+}
+html[data-theme^='xp'] .chip[data-active='true'] {
+  background: hsl(var(--xp-menu-hover));
+  border-color: hsl(var(--xp-dark));
+  color: #fff;
+}
+html[data-theme^='xp'] kbd {
+  border: 1px solid hsl(var(--xp-btn-border-dark));
+  border-top-color: hsl(var(--xp-btn-border-light));
+  border-left-color: hsl(var(--xp-btn-border-light));
+  background: hsl(var(--xp-light));
+  padding: 0 3px;
+  border-radius: 0;
+  font-family: var(--xp-mono);
+  font-size: 9px;
+}
+
+/* ── Diálogos Radix (búsqueda, parámetros, confirmaciones) ───────────────── */
+
+html[data-theme^='xp'] [data-xp-dialog] {
+  padding-top: 34px;
+  border-radius: 0;
+  border: 2px solid hsl(var(--xp-dialog-border));
+  border-top-color: hsl(var(--xp-highlight));
+  border-left-color: hsl(var(--xp-highlight));
+  background: hsl(var(--xp-dialog-bg));
+  box-shadow: 4px 4px 0 hsl(var(--xp-shadow) / 0.6);
+  backdrop-filter: none;
+}
+html[data-theme^='xp'] [data-xp-dialog]::before {
+  content: 'SPC Console';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 23px;
+  padding: 0 6px;
+  background: linear-gradient(90deg, hsl(var(--xp-title-from)), hsl(var(--xp-title-to)));
+  color: #fff;
+  font: bold 11px/23px var(--xp-font);
+}
+html[data-theme^='xp'] [data-xp-dialog] > .xp-dialog-close {
+  top: 2px;
+  right: 3px;
+  width: 19px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid hsl(0 0% 100% / 0.65);
+  background: hsl(0 0% 100% / 0.16);
+  color: #fff;
+}
+html[data-theme^='xp'] [data-xp-dialog] > .xp-dialog-close:hover { background: hsl(var(--bad)); }
+
+/* ── Popovers / dropdowns ───────────────────────────────────────────────── */
+
+html[data-theme^='xp'] [data-xp-popover] {
+  min-width: 160px;
+  padding: 2px;
+  border-radius: 0;
+  border: 1px solid hsl(var(--xp-menu-border));
+  border-top-color: hsl(var(--xp-highlight));
+  border-left-color: hsl(var(--xp-highlight));
+  background: hsl(var(--xp-menu-bg));
+  box-shadow: 2px 2px 0 hsl(var(--xp-shadow) / 0.55);
+  font-size: 11px;
+}
+html[data-theme^='xp'] [data-xp-popover-item] {
+  border-radius: 0;
+  padding: 2px 6px;
+  color: hsl(var(--ink));
+}
+html[data-theme^='xp'] [data-xp-popover-item][data-highlighted] { background: hsl(var(--xp-menu-hover)); color: #fff; }
+
+/* ── Progreso y separadores ─────────────────────────────────────────────── */
+
+html[data-theme^='xp'] .bg-warn\/20 { background: hsl(0 0% 100%); border: 1px solid hsl(var(--xp-dark)); }
+html[data-theme^='xp'] .animate-shimmer { animation: none; width: 100%; background: hsl(var(--xp-menu-hover)); }
+
+/* Mapas: tinte sepia de la época en lugar del invertido moderno. */
+html[data-theme^='xp'] .leaflet-tile-pane { filter: sepia(0.32) saturate(0.72) brightness(1.04) contrast(0.9); }
+html[data-theme^='xp'] .leaflet-control-attribution { background: hsl(var(--xp-face) / 0.9) !important; color: hsl(var(--ink)) !important; }
+html[data-theme^='xp'] .leaflet-bar a { background: hsl(var(--xp-btn-face)) !important; border-color: hsl(var(--xp-dark)) !important; color: hsl(var(--ink)) !important; box-shadow: inset 1px 1px 0 hsl(var(--xp-highlight)); }

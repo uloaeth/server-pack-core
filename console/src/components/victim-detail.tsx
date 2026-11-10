@@ -36,7 +36,7 @@ function OpenWallets({ victim }: { victim: Victim }) {
   }, [last?.at]); // eslint-disable-line react-hooks/exhaustive-deps
   const items = data?.items ?? [];
   return (
-    <section className="rounded-lg border border-line bg-panel/30 p-2">
+    <section className="xp-card rounded-lg border border-line bg-panel/30 p-2">
       <div className="flex items-center gap-2">
         <p className="text-2xs uppercase tracking-wide text-muted">Wallets abiertas ahora</p>
         <span className="ml-auto text-2xs text-muted/60">se refresca con el agente</span>
@@ -78,9 +78,9 @@ function ActionCard({
 }) {
   const busy = state === 'queued' || state === 'running';
   return (
-    <div className={cn('flex flex-col rounded-xl border border-line bg-panel/50 p-3', busy && 'border-warn/40', state === 'done' && 'border-ok/40')}>
+    <div className={cn('xp-card flex flex-col rounded-xl border border-line bg-panel/50 p-3', busy && 'border-warn/40', state === 'done' && 'border-ok/40')}>
       <div className="flex items-start gap-2">
-        <div className={cn('grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-panel-2 text-muted', state === 'done' && 'bg-ok/10 text-ok', busy && 'bg-warn/10 text-warn')}>
+        <div className={cn('xp-card-icon grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-panel-2 text-muted', state === 'done' && 'bg-ok/10 text-ok', busy && 'bg-warn/10 text-warn')}>
           {state === 'done' ? <CheckCircle2 className="h-5 w-5" /> : busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Icon className="h-5 w-5" />}
         </div>
         <div className="min-w-0 flex-1">
@@ -184,7 +184,7 @@ export function VictimDetail({
 
   return (
     <aside className="flex h-full min-h-0 w-full flex-col bg-panel" aria-label={`Detalle de ${victim.hostname}`}>
-      <div className="shrink-0 border-b border-line/80 bg-panel/80 p-4 backdrop-blur">
+      <div data-xp-drawer-head className="shrink-0 border-b border-line/80 bg-panel/80 p-4 backdrop-blur">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <p className="truncate font-mono text-base font-semibold text-ink">{victim.hostname}</p>
@@ -241,7 +241,7 @@ export function VictimDetail({
                 ['wallets', counters?.wallets], ['targets', counters?.targets], ['seeds', counters?.seeds],
                 ['claves', counters?.keys], ['contraseñas', counters?.passwords], ['creds', counters?.credentials]
               ].map(([label, value]) => (
-                <button key={label} className="rounded-lg border border-line bg-panel/40 px-2 py-1.5 text-left hover:bg-panel-2" onClick={() => onTab('boveda')}>
+                <button key={label} className="xp-stat rounded-lg border border-line bg-panel/40 px-2 py-1.5 text-left hover:bg-panel-2" onClick={() => onTab('boveda')}>
                   <p className="text-2xs text-muted">{label}</p>
                   <p className="num text-lg text-ink">{value ?? '—'}</p>
                 </button>
@@ -264,11 +264,11 @@ export function VictimDetail({
               <dt className="text-muted">Grupo</dt><dd>{victim.tags.length ? victim.tags.map((tag) => <Badge key={tag} className="mr-1">{tag}</Badge>) : '—'}</dd>
             </dl>
 
-            {victim.health ? <p className="rounded border border-bad/30 bg-bad/10 p-2 text-2xs text-bad"><AlertTriangle className="mr-1 inline h-3 w-3" />Módulo degradado en los últimos 10 min: <span className="font-mono">{victim.health}</span>. Revisa la pestaña Actividad antes de fiarte del escaneo.</p> : null}
-            {!victim.socket ? <p className="rounded border border-warn/30 bg-warn/10 p-2 text-2xs text-warn">Sin socket de control: las acciones se rechazarán con <span className="font-mono">agent_offline</span>. El estado online solo refleja el último heartbeat.</p> : null}
-            {lastScan?.error ? <p className="rounded border border-bad/30 bg-bad/10 p-2 text-2xs text-bad"><AlertTriangle className="mr-1 inline h-3 w-3" />{lastScan.error}</p> : null}
+            {victim.health ? <p className="xp-notice xp-notice-bad rounded border border-bad/30 bg-bad/10 p-2 text-2xs text-bad"><AlertTriangle className="mr-1 inline h-3 w-3" />Módulo degradado en los últimos 10 min: <span className="font-mono">{victim.health}</span>. Revisa la pestaña Actividad antes de fiarte del escaneo.</p> : null}
+            {!victim.socket ? <p className="xp-notice xp-notice-warn rounded border border-warn/30 bg-warn/10 p-2 text-2xs text-warn">Sin socket de control: las acciones se rechazarán con <span className="font-mono">agent_offline</span>. El estado online solo refleja el último heartbeat.</p> : null}
+            {lastScan?.error ? <p className="xp-notice xp-notice-bad rounded border border-bad/30 bg-bad/10 p-2 text-2xs text-bad"><AlertTriangle className="mr-1 inline h-3 w-3" />{lastScan.error}</p> : null}
 
-            <details className="rounded-lg border border-line bg-panel/30 p-2">
+            <details className="xp-card rounded-lg border border-line bg-panel/30 p-2">
               <summary className="cursor-pointer text-xs text-muted">Opciones avanzadas</summary>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <Button size="sm" variant="secondary" disabled={offline} onClick={() => onAction('scan')}>Opciones de escaneo</Button>
