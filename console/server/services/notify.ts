@@ -85,7 +85,7 @@ export async function notifyVictimNew(victim: { id: string; hostname: string; os
   await notify({
     kind: 'victim_new',
     victimId: victim.id,
-    title: 'New victim',
+    title: 'Nuevo equipo',
     body: `${victim.hostname} · ${victim.os}${victim.country ? ` · ${victim.country}` : ''}`,
     link: `/victims/${victim.id}`
   });

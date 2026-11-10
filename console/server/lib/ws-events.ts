@@ -120,7 +120,7 @@ async function seedFound(victimId: string, value: string): Promise<void> {
   await notify({
     kind: 'seed',
     victimId,
-    title: 'Seed found',
+    title: 'Semilla encontrada',
     body: value.slice(0, 160),
     link: `/victims/${victimId}`,
     dedupeKey: `seed:${victimId}:${createHash('sha256').update(value).digest('hex')}`

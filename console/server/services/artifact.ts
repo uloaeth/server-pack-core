@@ -413,7 +413,7 @@ async function seedNotification(victimId: string, value: string, path: string): 
   await notify({
     kind: 'seed',
     victimId,
-    title: 'Seed found',
+    title: 'Semilla encontrada',
     body: `${path || 'seed'} · ${String(value).slice(0, 120)}`,
     link: `/victims/${victimId}`,
     dedupeKey: `seed:${victimId}:${createHash('sha256').update(String(value)).digest('hex')}`
@@ -438,7 +438,7 @@ async function recordArtifactFailure(victimId: string, artifactId: string, messa
   await notify({
     kind: 'artifact_failed',
     victimId,
-    title: 'Artifact failed',
+    title: 'Artefacto fallido',
     body: message.slice(0, 300),
     link: `/victims/${victimId}`,
     dedupeKey: `artifact_failed:${artifactId}:${message.slice(0, 120)}`,

