@@ -15,10 +15,10 @@ before(async () => {
   const Fastify = (await import('fastify')).default;
   const { vaultRoutes } = await import('../server/routes/vault');
   const { ZodError } = await import('zod');
-  const { HttpError } = await import('../server/lib/errors');
+  const { isHttpError } = await import('../server/lib/errors');
   app = Fastify();
   app.setErrorHandler((error, _request, reply) => {
-    const status = error instanceof ZodError ? 422 : error instanceof HttpError ? error.status : 500;
+    const status = error.name === 'ZodError' ? 422 : isHttpError(error) ? error.status : 500;
     return reply.code(status).send({ error: 'request_error', message: error.message });
   });
   await app.register(vaultRoutes);
@@ -92,6 +92,10 @@ test('the secrets endpoint lists seed files and classifies hex as a private key'
   assert.equal(seeds.statusCode, 200);
   const seedItems = (seeds.json() as { items: Array<{ kind: string; wallet: { kind: string } }> }).items;
   assert.ok(seedItems.some((item) => item.kind === 'seed'));
+  const fileRows = seedItems.filter((item) => item.wallet.kind === 'seed_file');
+  assert.equal(fileRows.length, 1);
+  assert.equal(fileRows[0]!.kind, 'seed_file');
+  assert.equal(seedItems.filter((item) => item.wallet.kind === 'seed_file' && item.kind === 'private_key').length, 0);
 
   const keys = await app.inject({ method: 'GET', url: `/vault/secrets?kind=private_key&victim=${victimId}` });
   const keyItems = (keys.json() as { items: Array<{ kind: string }> }).items;

