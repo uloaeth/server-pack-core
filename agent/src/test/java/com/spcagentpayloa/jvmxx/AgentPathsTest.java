@@ -25,7 +25,7 @@ class AgentPathsTest {
 		assertEquals("runtime.jar", AgentPaths.agentJar(dir).getFileName().toString());
 		assertEquals("update-new.jar", AgentPaths.agentStaged(dir).getFileName().toString());
 		assertEquals("update.intent", AgentPaths.intent(dir).getFileName().toString());
-		assertEquals("logs/update.log", dir.relativize(AgentPaths.log(dir)).toString());
+		assertEquals(Path.of("logs", "update.log"), dir.relativize(AgentPaths.log(dir)));
 		assertEquals("Java Runtime Update", AgentPaths.task(dir));
 		assertEquals("startup.vbs", AgentPaths.launcher(dir).getFileName().toString());
 	}

@@ -68,7 +68,7 @@ export default function SeedsPage() {
                 {(data!.items).map((row) => (
                   <TR key={row.id}>
                     <TD><Badge tone={row.kind === 'seed' ? 'ok' : row.kind === 'seed_file' ? 'warn' : 'brand'}>{KIND_LABEL[row.kind] ?? row.kind}</Badge>{row.words ? <span className="ml-1 text-2xs text-muted">{row.words} palabras</span> : null}</TD>
-                    <TD className="max-w-[150px] truncate font-mono text-xs sm:max-w-[360px]" title={row.preview}>{row.preview}</TD>
+                    <TD className="max-w-[150px] truncate font-mono text-xs sm:max-w-[360px]" title={row.preview}>{row.kind === 'seed_file' ? row.wallet.targetId : row.preview}</TD>
                     <TD className="hidden max-w-[320px] truncate font-mono text-2xs text-muted lg:table-cell" title={row.wallet.path}>{row.wallet.targetId} · {row.wallet.path}</TD>
                     <TD className="hidden sm:table-cell"><Link className="font-mono text-brand" href={`/victims?select=${row.victim.id}&tab=boveda`}>{row.victim.hostname}</Link></TD>
                     <TD className="hidden num text-2xs text-muted sm:table-cell">{dateTime(row.updatedAt)}</TD>
