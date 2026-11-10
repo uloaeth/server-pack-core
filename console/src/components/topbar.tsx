@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { Bell, Command, Search, ShieldCheck, WifiOff, Wifi, RefreshCw } from 'lucide-react';
+import { Bell, Command, Search, WifiOff, Wifi, RefreshCw } from 'lucide-react';
 import { useApi, mutate } from '@/hooks/useApi';
 import { useHotkeys } from '@/hooks/useHotkeys';
 import { toast } from 'sonner';
@@ -13,6 +13,7 @@ import type { Notification, Victim } from '@/lib/types';
 import { ago } from '@/lib/format';
 import { useLiveContext } from '@/components/live-provider';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { SpiderLogo } from '@/components/spider-logo';
 import { humanError } from '@/lib/errors';
 
 export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string; subtitle?: string; onCommand?: () => void; onSlash?: () => void }) {
@@ -48,7 +49,7 @@ export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string;
   return (
     <header className="xp-topbar sticky top-12 z-20 flex h-14 items-center justify-between gap-4 border-b border-line/80 bg-bg/80 px-4 backdrop-blur-xl lg:top-0 lg:px-5">
       <div className="min-w-0 flex items-center gap-2">
-        <span className="xp-topbar-icon" aria-hidden="true"><ShieldCheck /></span>
+        <span className="xp-topbar-icon" aria-hidden="true"><SpiderLogo /></span>
         <div className="min-w-0">
           <h1 className="truncate text-base font-semibold tracking-tight">{title}</h1>
           {subtitle ? <p className="truncate text-2xs text-muted/80">{subtitle}</p> : null}

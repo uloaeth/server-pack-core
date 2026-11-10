@@ -1248,3 +1248,15 @@ html[data-theme^='xp'] [data-sonner-toast] [data-close-button] {
   width: 17px;
   height: 17px;
 }
+
+/* Logotipo pixel de araña. */
+.xp-logo-tile {
+  border: 1px solid hsl(var(--xp-shadow));
+  border-top-color: hsl(var(--xp-highlight));
+  border-left-color: hsl(var(--xp-highlight));
+  background: linear-gradient(180deg, hsl(0 0% 100%), hsl(var(--xp-btn-face)));
+  color: hsl(0 0% 8%);
+  box-shadow: none;
+}
+.xp-logo-mark { width: 20px; height: 20px; color: hsl(0 0% 8%); image-rendering: pixelated; filter: none; }
+html[data-theme^='xp'] .xp-topbar-icon svg { width: 17px; height: 17px; filter: drop-shadow(1px 1px 0 hsl(0 0% 0% / 0.55)); }

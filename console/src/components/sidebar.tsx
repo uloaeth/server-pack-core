@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Activity, Boxes, ClipboardList, Cpu, FileClock, LayoutDashboard, LogOut,
-  ScrollText, Settings, ShieldCheck, Sparkles, Users, Wallet, X
+  ScrollText, Settings, Sparkles, Users, Wallet, X
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/cn';
@@ -11,6 +11,7 @@ import { mutate } from '@/hooks/useApi';
 import type { Role } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { SpiderLogo } from '@/components/spider-logo';
 import { Button } from '@/components/ui/button';
 import { humanError } from '@/lib/errors';
 
@@ -67,8 +68,8 @@ export function Sidebar({
         )}
       >
         <div className="xp-brand flex h-16 items-center gap-2.5 border-b border-line/80 px-4">
-          <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand/30 to-brand/5 text-brand shadow-glow">
-            <ShieldCheck className="h-4 w-4" />
+          <div className="xp-logo-tile grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand/30 to-brand/5 text-brand shadow-glow">
+            <SpiderLogo className="xp-logo-mark" />
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold leading-none tracking-tight">SPC Console</p>

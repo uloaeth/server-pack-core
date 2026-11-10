@@ -1,8 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { Menu, ShieldCheck } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { Sidebar } from '@/components/sidebar';
+import { SpiderLogo } from '@/components/spider-logo';
 import { Button } from '@/components/ui/button';
 import type { Role } from '@/lib/types';
 import pkg from '../../package.json';
@@ -26,7 +27,7 @@ export function ConsoleShell({ children, email, role }: { children: React.ReactN
       <div className="lg:ml-[232px] min-h-screen min-w-0">
         <div className="xp-mobilebar sticky top-0 z-30 flex h-12 items-center gap-2 border-b border-line/80 bg-bg/90 px-3 backdrop-blur-xl lg:hidden">
           <Button size="icon" variant="ghost" onClick={() => setOpen(true)} aria-label="Abrir menú" aria-expanded={open} aria-controls="spc-nav"><Menu className="h-4 w-4" /></Button>
-          <ShieldCheck className="h-4 w-4 text-brand" />
+          <SpiderLogo className="h-4 w-4 text-brand" />
           <span className="text-xs font-semibold tracking-tight">SPC Console</span>
         </div>
         <main id="spc-main" tabIndex={-1} className="xp-shell mx-auto min-w-0 max-w-[1760px] p-3 outline-none lg:p-5">{children}</main>
