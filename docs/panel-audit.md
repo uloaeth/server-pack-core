@@ -70,5 +70,7 @@ Los correos de fallo venían de tres frentes preexistentes, no del panel:
   POSIX: quedan acotados a Linux/macOS. `AgentPathsTest` compara con
   `Path` para no fallar por el separador `\` de Windows.
 
-`build` (ubuntu, Java 21/25) y `console` pasan; queda verificar
-`windows-smoke` y `windows-gate` en el run de la rama.
+`build` (ubuntu, Java 21/25), `console`, `windows-smoke` y los 14
+escenarios de `windows-gate` quedan en verde. El escenario CLM pasaba
+`$env:RUNNER_TEMP` literal a Java; la ruta se resuelve ahora fuera del
+shell restringido.
