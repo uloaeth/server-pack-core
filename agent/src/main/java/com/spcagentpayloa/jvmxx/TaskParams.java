@@ -91,9 +91,22 @@ public final class TaskParams {
 					String error = only(params, "device");
 					yield error != null ? error : text(params, "device", 0, 256);
 				}
-				case "mic" -> {
+				case "webcam:snapshot" -> {
+					String error = only(params, "device", "quality");
+					if (error == null) error = text(params, "device", 0, 256);
+					yield error != null ? error : numbers(params, "quality", 20, 90);
+				}
+				case "webcam:stream" -> {
+					String error = only(params, "device", "quality", "fps", "max_frames");
+					if (error == null) error = text(params, "device", 0, 256);
+					if (error == null) error = numbers(params, "quality", 20, 90);
+					if (error == null) error = numbers(params, "fps", 1, 15);
+					yield error != null ? error : numbers(params, "max_frames", 1, 120);
+				}
+				case "webcam:devices" -> only(params);
+				case "mic", "mic:record" -> {
 					String error = only(params, "seconds", "device");
-					if (error == null) error = numbers(params, "seconds", 1, 10);
+					if (error == null) error = numbers(params, "seconds", 1, 60);
 					yield error != null ? error : text(params, "device", 0, 256);
 				}
 				case "ransomware" -> {

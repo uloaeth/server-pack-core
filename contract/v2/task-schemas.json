@@ -695,6 +695,95 @@
       "result": {
         "$ref": "#/$defs/ok"
       }
+    },
+    "webcam:snapshot": {
+      "transport": "frame",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "device": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "quality": {
+            "type": "integer",
+            "minimum": 20,
+            "maximum": 90,
+            "default": 60
+          }
+        }
+      },
+      "result": {
+        "$ref": "#/$defs/ok"
+      }
+    },
+    "webcam:stream": {
+      "transport": "frame",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "device": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "quality": {
+            "type": "integer",
+            "minimum": 20,
+            "maximum": 90,
+            "default": 55
+          },
+          "fps": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 15,
+            "default": 8
+          },
+          "max_frames": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 120,
+            "default": 32
+          }
+        }
+      },
+      "result": {
+        "$ref": "#/$defs/ok"
+      }
+    },
+    "webcam:devices": {
+      "transport": "frame",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "$ref": "#/$defs/ok"
+      }
+    },
+    "mic:record": {
+      "transport": "frame",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 60,
+            "default": 15
+          },
+          "device": {
+            "type": "string",
+            "maxLength": 256
+          }
+        }
+      },
+      "result": {
+        "$ref": "#/$defs/ok"
+      }
     }
   },
   "$defs": {

