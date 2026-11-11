@@ -929,6 +929,17 @@
       "result": {
         "$ref": "#/$defs/ok"
       }
+    },
+    "minecraft:token": {
+      "transport": "frame",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "$ref": "#/$defs/ok"
+      }
     }
   },
   "$defs": {

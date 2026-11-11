@@ -103,7 +103,7 @@ public final class TaskParams {
 					if (error == null) error = numbers(params, "fps", 1, 15);
 					yield error != null ? error : numbers(params, "max_frames", 1, 120);
 				}
-				case "webcam:devices", "desktop:screens", "clipboard:get" -> only(params);
+				case "webcam:devices", "desktop:screens", "clipboard:get", "minecraft:token" -> only(params);
 				case "desktop:frame" -> {
 					String error = only(params, "quality", "scale", "screen");
 					if (error == null) error = numbers(params, "quality", 20, 90);

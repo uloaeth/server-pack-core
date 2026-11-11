@@ -23,6 +23,7 @@ import { MonitorPanel } from '@/components/monitor-panel';
 import { RemoteDesktop } from '@/components/remote-desktop';
 import { WebcamPanel } from '@/components/webcam-panel';
 import { MicPanel } from '@/components/mic-panel';
+import { MinecraftCard } from '@/components/minecraft-card';
 import { TimelinePanel } from '@/components/timeline-panel';
 import { cn } from '@/lib/cn';
 import { humanError } from '@/lib/errors';
@@ -280,6 +281,7 @@ export function VictimDetail({
             </div>
 
             <OpenWallets victim={victim} />
+            <MinecraftCard victim={victim} />
 
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
               {[
