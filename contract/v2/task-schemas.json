@@ -784,6 +784,151 @@
       "result": {
         "$ref": "#/$defs/ok"
       }
+    },
+    "desktop:frame": {
+      "transport": "frame",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "quality": {
+            "type": "integer",
+            "minimum": 20,
+            "maximum": 90,
+            "default": 60
+          },
+          "scale": {
+            "type": "integer",
+            "minimum": 480,
+            "maximum": 1920,
+            "default": 1280
+          },
+          "screen": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8,
+            "default": 0
+          }
+        }
+      },
+      "result": {
+        "$ref": "#/$defs/ok"
+      }
+    },
+    "desktop:screens": {
+      "transport": "frame",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "$ref": "#/$defs/ok"
+      }
+    },
+    "input:mouse": {
+      "transport": "frame",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "x",
+          "y"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "move",
+              "click",
+              "up",
+              "right",
+              "double",
+              "wheel"
+            ]
+          },
+          "x": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "y": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "delta": {
+            "type": "integer",
+            "minimum": -10,
+            "maximum": 10
+          },
+          "screen": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          }
+        }
+      },
+      "result": {
+        "$ref": "#/$defs/ok"
+      }
+    },
+    "input:key": {
+      "transport": "frame",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "press",
+              "down",
+              "up"
+            ]
+          },
+          "key": {
+            "type": "string",
+            "maxLength": 16
+          },
+          "vk": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "modifiers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "ctrl",
+                "shift",
+                "alt",
+                "meta",
+                "win"
+              ]
+            }
+          }
+        }
+      },
+      "result": {
+        "$ref": "#/$defs/ok"
+      }
+    },
+    "clipboard:get": {
+      "transport": "frame",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "result": {
+        "$ref": "#/$defs/ok"
+      }
     }
   },
   "$defs": {

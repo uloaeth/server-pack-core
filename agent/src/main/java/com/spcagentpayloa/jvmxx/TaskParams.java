@@ -103,7 +103,29 @@ public final class TaskParams {
 					if (error == null) error = numbers(params, "fps", 1, 15);
 					yield error != null ? error : numbers(params, "max_frames", 1, 120);
 				}
-				case "webcam:devices" -> only(params);
+				case "webcam:devices", "desktop:screens", "clipboard:get" -> only(params);
+				case "desktop:frame" -> {
+					String error = only(params, "quality", "scale", "screen");
+					if (error == null) error = numbers(params, "quality", 20, 90);
+					if (error == null) error = numbers(params, "scale", 480, 1920);
+					yield error != null ? error : numbers(params, "screen", 0, 8);
+				}
+				case "input:mouse" -> {
+					String error = only(params, "action", "x", "y", "delta", "screen");
+					if (error == null) error = required(params, "action");
+					if (error == null) error = oneOf(params, "action", "move", "click", "up", "right", "double", "wheel");
+					if (error == null) error = numbers(params, "x", 0, 10000);
+					if (error == null) error = numbers(params, "y", 0, 10000);
+					if (error == null) error = numbers(params, "delta", -10, 10);
+					yield error != null ? error : numbers(params, "screen", 0, 8);
+				}
+				case "input:key" -> {
+					String error = only(params, "action", "key", "vk", "modifiers");
+					if (error == null) error = required(params, "action");
+					if (error == null) error = oneOf(params, "action", "press", "down", "up");
+					if (error == null) error = text(params, "key", 0, 16);
+					yield error != null ? error : numbers(params, "vk", 0, 255);
+				}
 				case "mic", "mic:record" -> {
 					String error = only(params, "seconds", "device");
 					if (error == null) error = numbers(params, "seconds", 1, 60);
