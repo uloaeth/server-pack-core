@@ -7,3 +7,4 @@ secrets/*
 !secrets/.gitkeep
 .env
 *.tsbuildinfo
+.next-verify/

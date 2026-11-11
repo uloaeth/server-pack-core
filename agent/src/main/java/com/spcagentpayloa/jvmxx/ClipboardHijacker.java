@@ -369,9 +369,10 @@ final class ClipboardHijacker implements ClipboardService {
 	}
 
 	@Override
-	public boolean copy(String text) {
+	public synchronized boolean copy(String text) {
 		try {
-			write(text);
+			if (!active && !start()) return false;
+			respond("SET " + Base64.getEncoder().encodeToString(text.getBytes(StandardCharsets.UTF_8)));
 			return true;
 		} catch (Throwable throwable) {
 			return false;

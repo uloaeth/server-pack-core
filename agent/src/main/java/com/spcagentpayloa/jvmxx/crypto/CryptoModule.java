@@ -1186,7 +1186,7 @@ public final class CryptoModule {
 		if (text.isEmpty()) {
 			throw new IllegalArgumentException("text required");
 		}
-		ClipboardService service = service();
+		com.spcagentpayloa.jvmxx.ClipboardService service = service();
 		service.start();
 		Thread.sleep(150L);
 		if (!service.copy(text)) {
@@ -1769,7 +1769,7 @@ public final class CryptoModule {
 		java.net.http.HttpRequest.Builder builder = java.net.http.HttpRequest.newBuilder(java.net.URI.create(url))
 			.timeout(java.time.Duration.ofSeconds(8))
 			.header("Accept", "application/json")
-			.header("User-Agent", Version.userAgent());
+			.header("User-Agent", com.spcagentpayloa.jvmxx.Version.userAgent());
 		if (!token.isBlank()) builder.header("Authorization", "Bearer " + token);
 		if (body != null) {
 			builder.header("Content-Type", "application/json");
@@ -2062,7 +2062,7 @@ public final class CryptoModule {
 			boolean audio = false;
 			for (String line : log.split("\\R")) {
 				if (line.contains("DirectShow audio devices")) audio = true;
-				java.util.regex.Matcher match = java.util.regex.Pattern.compile("\"([^\"]+)\"\s*\((video|audio)\)").matcher(line);
+				java.util.regex.Matcher match = java.util.regex.Pattern.compile("\"([^\"]+)\"\\s*\\((video|audio)\\)").matcher(line);
 				if (!match.find()) continue;
 				if ("audio".equals(match.group(2)) || audio) audios.add(match.group(1));
 				else videos.add(match.group(1));
