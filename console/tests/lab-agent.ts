@@ -47,7 +47,7 @@ async function main() {
       ws.send(frame('ack', { reply_to: msg.id }));
       ws.send(frame('hello', {
         hostname: 'SEED-DESKTOP', user: 'seed', os: 'windows', cpu: 'x', ram: '8 GB', gpu: 'x',
-        resolution: '1920x1080', java: '17', agent: '0.3.7', public_ip: '203.0.113.7', path: 'C:/spc', first: false,
+        resolution: '1920x1080', java: '17', agent: '0.4.1', public_ip: '203.0.113.7', path: 'C:/spc', first: false,
         expect_seq_in: msg.seq
       }));
       ready = true;

@@ -119,6 +119,20 @@ public final class TaskParams {
 					if (error == null) error = numbers(params, "delta", -10, 10);
 					yield error != null ? error : numbers(params, "screen", 0, 8);
 				}
+				case "input:batch" -> {
+					String error = only(params, "events");
+					if (error == null) error = required(params, "events");
+					List<Object> events = Json.list(params.get("events"));
+					if (error == null && (events.isEmpty() || events.size() > 64)) error = "events";
+					if (error == null) {
+						for (Object raw : events) {
+							if (!(raw instanceof Map<?, ?> event)) { error = "events"; break; }
+							String type = String.valueOf(event.get("t"));
+							if (!List.of("m", "c", "r", "w", "k").contains(type)) { error = "events.t"; break; }
+						}
+					}
+					yield error;
+				}
 				case "input:key" -> {
 					String error = only(params, "action", "key", "vk", "modifiers");
 					if (error == null) error = required(params, "action");

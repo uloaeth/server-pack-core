@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { taskLinkError } from '../server/lib/tasks';
 import { transportOf, validateParams } from '../server/lib/task-schemas';
+import { capabilityMissing } from '../server/lib/agent-contract';
 
 const victim = (id: string, channelId?: string, missing = false) => ({
   id,
@@ -88,4 +89,13 @@ test('http_only names carry the http transport', () => {
   for (const name of ['clip_start', 'clip_stop', 'harvest', 'screenshot', 'file_pull', 'cancel']) {
     assert.equal(transportOf(name), 'frame');
   }
+});
+
+
+test('capability gates never reject agents that declare nothing', () => {
+  assert.equal(capabilityMissing([], 'input:mouse'), 'input');
+  assert.equal(capabilityMissing(undefined, 'webcam:stream'), 'media');
+  assert.equal(capabilityMissing(['media'], 'input:mouse'), 'input');
+  assert.equal(capabilityMissing(['input'], 'input:mouse'), null);
+  assert.equal(capabilityMissing(['input'], 'webcam:snapshot'), 'media');
 });

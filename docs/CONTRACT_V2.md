@@ -47,6 +47,6 @@ adelanta a su feature.
 
 ## Límite actual
 
-`SUPPORTED_CAPABILITIES` está vacío porque F2 no ha empezado: la intersección
-real es `[]` y ninguna acción v2 se pinta todavía. Es el estado correcto para
-no ofrecer lo que el agente no ejecuta.
+`SUPPORTED_CAPABILITIES` contiene ya `input` y `media`. El gate solo se aplica
+a víctimas con `contractVersion >= 2`; las v1 se gatean por versión en la ruta,
+de modo que un agente que no declara nada no se rechaza con 501.

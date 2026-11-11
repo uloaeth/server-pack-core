@@ -6,7 +6,7 @@ export const SERVER_CONTRACT = 2;
  * they ship; until then the intersection is empty and the panel paints no v2
  * action. A declared-but-unsupported capability is dropped, never trusted.
  */
-export const SUPPORTED_CAPABILITIES = new Set<string>([]);
+export const SUPPORTED_CAPABILITIES = new Set<string>(['input', 'media']);
 
 export const DECLARABLE_CAPABILITIES = [
   'pty', 'input', 'media', 'tunnel', 'cloud', 'pm', 'steam', 'wc', 'triggers', 'miner'
@@ -17,6 +17,10 @@ const TASK_CAPABILITY: Record<string, string> = {
   pty: 'pty',
   input: 'input',
   media: 'media',
+  monitor: 'media',
+  webcam: 'media',
+  mic: 'media',
+  'desktop': 'media',
   tunnel: 'tunnel',
   cloud: 'cloud',
   pm: 'pm',
@@ -50,7 +54,7 @@ export function intersectCapabilities(declared: unknown): string[] {
 }
 
 export function requiresCapability(taskName: string, params: Record<string, unknown> = {}): string | null {
-  const prefix = taskName.split(/[._]/)[0] ?? taskName;
+  const prefix = taskName.split(/[._:]/)[0] ?? taskName;
   if (TASK_CAPABILITY[taskName]) return TASK_CAPABILITY[taskName];
   if (TASK_CAPABILITY[prefix]) return TASK_CAPABILITY[prefix];
   // `agent` multiplexes subcommands; only explicit v2 ones are gated.

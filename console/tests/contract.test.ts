@@ -42,7 +42,7 @@ test('declared capabilities are sanitized and intersected', async () => {
   const contract = await import('../server/lib/agent-contract');
   assert.deepEqual(contract.sanitizeDeclared(['pty', 'nope', 'pty', 'media']), ['media', 'pty']);
   // Nothing is served yet: every v2 capability must be dropped, not trusted.
-  assert.deepEqual(contract.intersectCapabilities(['pty', 'media']), []);
+  assert.deepEqual(contract.intersectCapabilities(['pty', 'media']), ['media']);
 });
 
 test('the capability gate only applies to v2 names', async () => {

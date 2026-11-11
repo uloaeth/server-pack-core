@@ -26,6 +26,8 @@ async function main() {
   const page = await context.newPage();
   let frames = 0;
   const inputs: Array<{ name: string; params: Record<string, unknown> }> = [];
+  let mouseEvents = 0;
+  let keyEvents = 0;
   let forceError = false;
 
   await page.route('**/api/console/tasks**', async (route) => {
@@ -36,7 +38,11 @@ async function main() {
       const body = JSON.parse(request.postData() ?? '{}') as { name?: string; params?: Record<string, unknown> };
       if (body.name === 'desktop:frame') { frames++; return route.fulfill({ status: 201, json: { items: [{ id: 'frame-1' }] } }); }
       if (body.name === 'desktop:screens') return route.fulfill({ status: 201, json: { items: [{ id: 'screens-1' }] } });
-      if (body.name?.startsWith('input:')) { inputs.push({ name: body.name, params: body.params ?? {} }); return route.fulfill({ status: 201, json: { items: [{ id: `input-${inputs.length}` }] } }); }
+      if (body.name?.startsWith('input:')) {
+        inputs.push({ name: body.name, params: body.params ?? {} });
+        for (const event of (body.params?.events as Array<{ t: string }> | undefined) ?? []) { if (event.t === 'k') keyEvents++; else mouseEvents++; }
+        return route.fulfill({ status: 201, json: { items: [{ id: `input-${inputs.length}` }] } });
+      }
       return route.fulfill({ status: 201, json: { items: [{ id: 'other' }] } });
     }
     if (url.searchParams.get('name') === 'desktop:frame') {
@@ -62,8 +68,9 @@ async function main() {
   await box.click({ position: { x: 240, y: 140 } });
   await box.press('a');
   await page.waitForTimeout(600);
-  const mouse = inputs.filter((item) => item.name === 'input:mouse').length;
-  const keys = inputs.filter((item) => item.name === 'input:key').length;
+  const batches = inputs.filter((item) => item.name === 'input:batch').length;
+  const mouse = mouseEvents;
+  const keys = keyEvents;
   await page.screenshot({ path: '../docs/ui/after5-desktop.png' });
 
   await page.getByRole('button', { name: 'pausa', exact: true }).click();
@@ -78,7 +85,7 @@ async function main() {
   const errorVisible = await page.locator('[data-desktop-error]').count();
   await page.screenshot({ path: '../docs/ui/after5-desktop-error.png' });
 
-  console.log(JSON.stringify({ framesBefore: before, latencyBadge: latency > 0, screenSelector: screenSelector > 0, mouseInputs: mouse, keyInputs: keys, paused, errorVisible }, null, 2));
+  console.log(JSON.stringify({ framesBefore: before, latencyBadge: latency > 0, screenSelector: screenSelector > 0, inputBatches: batches, mouseEvents: mouse, keyEvents: keys, paused, errorVisible }, null, 2));
   await browser.close();
   await prisma.$disconnect();
 }

