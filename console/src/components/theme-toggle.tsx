@@ -24,7 +24,7 @@ export function ThemeToggle() {
       title={theme === 'xp-dark' ? 'Tema XP claro' : 'Tema XP oscuro'}
     >
       {theme === 'xp-dark' ? <Sun /> : <Moon />}
-      <span className="hidden lg:inline">{theme === 'xp-dark' ? 'Claro' : 'Oscuro'}</span>
+      <span className="hidden sm:inline">{theme === 'xp-dark' ? 'Claro' : 'Oscuro'}</span>
     </button>
   );
 }

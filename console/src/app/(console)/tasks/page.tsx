@@ -24,12 +24,12 @@ function TasksInner() {
     <>
       <Topbar title="Task queue" subtitle="lease-based · timeout enforced server-side" />
       <div className="space-y-2 pt-3">
-        <div className="flex items-center gap-2">
-          <Select defaultValue={status} onChange={(event) => { location.href = `/tasks?status=${event.target.value}`; }}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select defaultValue={status} aria-label="Estado de la tarea" className="w-full sm:w-auto" onChange={(event) => { location.href = `/tasks?status=${event.target.value}`; }}>
             <option value="">all states</option><option value="queued">queued</option><option value="running">running</option><option value="done">done</option><option value="error">error</option><option value="cancelled">cancelled</option>
           </Select>
           <Button size="sm" variant="secondary" onClick={() => location.reload()}><RefreshCw className="h-3 w-3" /> refresh</Button>
-          <Button size="sm" className="ml-auto" onClick={() => setDialog(true)} disabled={selected.length === 0 || !canWrite}><Plus className="h-3 w-3" /> queue ({selected.length})</Button>
+          <Button size="sm" className="ml-auto shrink-0" onClick={() => setDialog(true)} disabled={selected.length === 0 || !canWrite}><Plus className="h-3 w-3" /> queue ({selected.length})</Button>
         </div>
         <Card>
           <div className="border-b border-line p-2">

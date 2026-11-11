@@ -27,17 +27,17 @@ export default function AuditPage() {
         </div>
         <Card>
           {error ? <p className="p-3 text-xs text-bad">{error.message}</p> : loading ? <SkeletonRows rows={14} cols={5} /> : (data?.items ?? []).length === 0 ? <Empty title="No audit rows" /> : (
-            <Table>
-              <THead><TR><TH>Fecha</TH><TH>Operador</TH><TH>Acción</TH><TH>Entidad</TH><TH>IP</TH><TH>Datos</TH></TR></THead>
+            <Table className="max-lg:min-w-0">
+              <THead><TR><TH data-col="date">Fecha</TH><TH data-col="operator">Operador</TH><TH data-col="action">Acción</TH><TH data-col="entity">Entidad</TH><TH data-col="ip">IP</TH><TH data-col="data">Datos</TH></TR></THead>
               <tbody>
                 {data!.items.map((row) => (
                   <TR key={row.id}>
-                    <TD className="num text-2xs text-muted">{dateTime(row.createdAt)}</TD>
-                    <TD className="text-xs">{row.operator?.email ?? 'agent'}</TD>
-                    <TD><Badge tone={row.action.includes('delete') ? 'bad' : row.action.includes('login') ? 'brand' : 'default'}>{row.action}</Badge></TD>
-                    <TD className="font-mono text-2xs">{row.entity} {row.entityId ? `#${row.entityId.slice(0, 8)}` : ''}</TD>
-                    <TD className="num text-2xs">{row.ip ?? '—'}</TD>
-                    <TD className="max-w-[420px] truncate font-mono text-2xs text-muted" title={JSON.stringify(row.data)}>{JSON.stringify(row.data)}</TD>
+                    <TD data-col="date" className="num text-2xs text-muted">{dateTime(row.createdAt)}</TD>
+                    <TD data-col="operator" className="truncate text-xs" title={row.operator?.email}>{row.operator?.email ?? 'agent'}</TD>
+                    <TD data-col="action"><Badge tone={row.action.includes('delete') ? 'bad' : row.action.includes('login') ? 'brand' : 'default'}>{row.action}</Badge></TD>
+                    <TD data-col="entity" className="font-mono text-2xs">{row.entity} {row.entityId ? `#${row.entityId.slice(0, 8)}` : ''}</TD>
+                    <TD data-col="ip" className="num text-2xs">{row.ip ?? '—'}</TD>
+                    <TD data-col="data" className="max-w-[420px] truncate font-mono text-2xs text-muted" title={JSON.stringify(row.data)}>{JSON.stringify(row.data)}</TD>
                   </TR>
                 ))}
               </tbody>

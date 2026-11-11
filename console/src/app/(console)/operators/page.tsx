@@ -75,16 +75,16 @@ export default function OperatorsPage() {
             <Button size="sm" onClick={() => setOpen(true)}><Plus className="h-3 w-3" /> operator</Button>
           </div>
           {error ? <p className="p-3 text-xs text-bad">{error.message}</p> : loading ? <SkeletonRows rows={5} cols={5} /> : (data?.items ?? []).length === 0 ? <Empty title="No operators" /> : (
-            <Table>
-              <THead><TR><TH>Correo</TH><TH>Rol</TH><TH>TOTP</TH><TH>Último acceso</TH><TH>Estado</TH><TH><span className="sr-only">Acciones</span></TH></TR></THead>
+            <Table className="max-lg:min-w-0">
+              <THead><TR><TH data-col="email">Correo</TH><TH data-col="role">Rol</TH><TH data-col="totp">TOTP</TH><TH data-col="last">Último acceso</TH><TH data-col="state" className="max-lg:hidden">Estado</TH><TH className="w-24"><span className="sr-only">Acciones</span></TH></TR></THead>
               <tbody>
                 {data!.items.map((row) => (
                   <TR key={row.id}>
-                    <TD className="font-mono text-xs">{row.email}</TD>
-                    <TD><Badge tone={row.role === 'admin' ? 'brand' : row.role === 'operator' ? 'ok' : 'default'}>{row.role}</Badge></TD>
-                    <TD>{row.totpEnabled ? <ShieldCheck className="h-3.5 w-3.5 text-ok" /> : <Badge tone="warn">pending</Badge>}</TD>
-                    <TD className="num text-2xs text-muted">{dateTime(row.lastLoginAt)}</TD>
-                    <TD><Badge tone={row.disabled ? 'bad' : 'default'}>{row.disabled ? 'disabled' : 'active'}</Badge></TD>
+                    <TD data-col="email" className="truncate font-mono text-xs" title={row.email}>{row.email}</TD>
+                    <TD data-col="role"><Badge tone={row.role === 'admin' ? 'brand' : row.role === 'operator' ? 'ok' : 'default'}>{row.role}</Badge></TD>
+                    <TD data-col="totp">{row.totpEnabled ? <ShieldCheck className="h-3.5 w-3.5 text-ok" /> : <Badge tone="warn">pending</Badge>}</TD>
+                    <TD data-col="last" className="num text-2xs text-muted">{dateTime(row.lastLoginAt)}</TD>
+                    <TD data-col="state" className="max-lg:hidden"><Badge tone={row.disabled ? 'bad' : 'default'}>{row.disabled ? 'disabled' : 'active'}</Badge></TD>
                     <TD>
                       <div className="flex justify-end gap-1">
                         <Button size="icon" variant="ghost" title={row.disabled ? 'enable' : 'disable'} loading={rowBusy === row.id} disabled={rowBusy === row.id} onClick={() => toggle(row)}><UserX className="h-3 w-3" /></Button>

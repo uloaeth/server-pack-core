@@ -25,6 +25,7 @@ export function VictimFilters({
   const [tag, setTag] = useState(params.get('tag') ?? '');
   const [build, setBuild] = useState(params.get('build') ?? '');
   const [has, setHas] = useState(params.get('has') ?? '');
+  const [more, setMore] = useState(() => Boolean(params.get('os') || params.get('tag') || params.get('build') || params.get('has')));
 
   useEffect(() => {
     const next = new URLSearchParams(params.toString());
@@ -42,8 +43,8 @@ export function VictimFilters({
   const clear = () => { setQ(''); setOs(''); setStatus(''); setCountry(''); setTag(''); setBuild(''); setHas(''); };
 
   return (
-    <div className="sticky top-[104px] z-10 flex flex-wrap items-center gap-1.5 border-b border-line bg-bg px-3 py-1.5 lg:top-14">
-      <div className="relative w-64">
+    <div className="xp-filters z-10 shrink-0 grid grid-cols-2 gap-1.5 border-b border-line bg-bg px-3 py-2 sm:flex sm:flex-wrap sm:items-center lg:sticky lg:top-14 lg:flex-nowrap lg:py-1.5">
+      <div className="relative col-span-2 sm:w-56">
         <Search className="pointer-events-none absolute left-2 top-1.5 h-3.5 w-3.5 text-muted/60" />
         <Input
           id="victim-search"
@@ -51,33 +52,33 @@ export function VictimFilters({
           onChange={(event) => setQ(event.target.value)}
           onKeyDown={(event) => { if (event.key === 'Escape') { setQ(''); event.currentTarget.blur(); } }}
           placeholder="equipo, usuario, IP, etiqueta…"
-          className="h-7 w-64 pl-7 font-mono"
+          className="h-7 w-full pl-7 font-mono"
           aria-label="Buscar equipos"
         />
       </div>
-      <Select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Estado" className="h-7">
+      <Select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Estado" className="h-7 w-full sm:w-auto">
         <option value="">cualquier estado</option>
         <option value="online">online</option>
         <option value="stale">sin señal</option>
         <option value="offline">offline</option>
         <option value="revoked">revocada</option>
       </Select>
-      <Select value={os} onChange={(event) => setOs(event.target.value)} aria-label="Sistema" className="h-7">
+      <Select value={os} onChange={(event) => setOs(event.target.value)} aria-label="Sistema" className={`h-7 w-full sm:w-auto ${more ? '' : 'max-sm:hidden'}`}>
         <option value="">cualquier SO</option>
         <option value="windows">windows</option>
         <option value="linux">linux</option>
         <option value="macos">macos</option>
       </Select>
-      <Select value={country} onChange={(event) => setCountry(event.target.value)} aria-label="País" className="h-7">
+      <Select value={country} onChange={(event) => setCountry(event.target.value)} aria-label="País" className="h-7 w-full sm:w-auto">
         <option value="">cualquier país</option>
         {countries.map((item) => <option key={item} value={item}>{item}</option>)}
       </Select>
-      <Input value={tag} onChange={(event) => setTag(event.target.value)} placeholder="grupo/etiqueta" className="h-7 w-32" aria-label="Etiqueta" />
-      <Select value={build} onChange={(event) => setBuild(event.target.value)} aria-label="Build" className="h-7">
+      <Input value={tag} onChange={(event) => setTag(event.target.value)} placeholder="grupo/etiqueta" className={`h-7 w-full sm:w-32 ${more ? '' : 'max-sm:hidden'}`} aria-label="Etiqueta" />
+      <Select value={build} onChange={(event) => setBuild(event.target.value)} aria-label="Build" className="h-7 w-full sm:w-auto sm:max-w-[200px]">
         <option value="">cualquier build</option>
         {builds.map((item) => <option key={item.id} value={item.id}>{item.name} v{item.version}</option>)}
       </Select>
-      <Select value={has} onChange={(event) => setHas(event.target.value)} aria-label="Material" className="h-7">
+      <Select value={has} onChange={(event) => setHas(event.target.value)} aria-label="Material" className={`h-7 w-full sm:w-auto ${more ? '' : 'max-sm:hidden'}`}>
         <option value="">cualquier material</option>
         <option value="wallets">con wallets</option>
         <option value="seeds">con seeds</option>
@@ -87,8 +88,10 @@ export function VictimFilters({
       {active ? (
         <Button variant="ghost" size="sm" onClick={clear}><X className="h-3 w-3" /> limpiar</Button>
       ) : null}
-      <span className="ml-auto font-mono text-2xs text-muted">
-        {total != null ? `${total} equipos` : 'filtros en vivo'} · <kbd className="rounded border border-line px-1">/</kbd> buscar
+      <Button variant="ghost" size="sm" className="col-span-2 sm:hidden" aria-expanded={more} onClick={() => setMore((value) => !value)}>{more ? 'Menos filtros' : 'Más filtros'}</Button>
+      <span className="col-span-2 shrink-0 whitespace-nowrap font-mono text-2xs text-muted sm:ml-auto sm:col-span-1">
+        {total != null ? `${total} equipos` : 'filtros en vivo'}
+        <span className="hidden 2xl:inline"> · <kbd className="rounded border border-line px-1">/</kbd> buscar</span>
       </span>
     </div>
   );

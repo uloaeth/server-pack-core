@@ -10,7 +10,6 @@ import { cn } from '@/lib/cn';
 import { mutate } from '@/hooks/useApi';
 import type { Role } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
-import { ThemeToggle } from '@/components/theme-toggle';
 import { SpiderLogo } from '@/components/spider-logo';
 import { Button } from '@/components/ui/button';
 import { humanError } from '@/lib/errors';
@@ -67,13 +66,13 @@ export function Sidebar({
           open ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
         )}
       >
-        <div className="xp-brand flex h-16 items-center gap-2.5 border-b border-line/80 px-4">
+        <div className="xp-brand flex h-14 items-center gap-2.5 border-b border-line/80 px-3">
           <div className="xp-logo-tile grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand/30 to-brand/5 text-brand shadow-glow">
             <SpiderLogo className="xp-logo-mark" />
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold leading-none tracking-tight">SPC Console</p>
-            <p className="mt-1 font-mono text-2xs text-muted/80">v{version}</p>
+            <p className="mt-1 font-mono text-2xs text-muted/80">v{version} · {role}</p>
           </div>
           <Button size="icon" variant="ghost" className="ml-auto lg:hidden" onClick={onClose} aria-label="Cerrar menú"><X className="h-4 w-4" /></Button>
         </div>
@@ -101,15 +100,17 @@ export function Sidebar({
           })}
         </nav>
 
-        <div className="border-t border-line/80 p-3">
-          <div className="flex items-center justify-between rounded px-2 py-1.5">
-            <div className="min-w-0">
-              <p className="truncate text-2xs text-muted">{email}</p>
-              <Badge tone={role === 'admin' ? 'brand' : role === 'operator' ? 'ok' : 'default'} className="mt-1">{role}</Badge>
+        <div className="border-t border-line/80 bg-panel-2/40 p-2">
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-mono text-2xs text-muted" title={email}>{email}</p>
+              <div className="mt-1 flex items-center gap-1.5">
+                <Badge tone={role === 'admin' ? 'brand' : role === 'operator' ? 'ok' : 'default'}>{role}</Badge>
+                <span className="text-2xs text-muted/70">sesión activa</span>
+              </div>
             </div>
             <div className="flex items-center gap-1">
-              <ThemeToggle />
-              <button onClick={logout} title="Cerrar sesión" aria-label="Cerrar sesión" className="rounded p-1.5 text-muted hover:bg-line hover:text-bad">
+              <button onClick={logout} title="Cerrar sesión" aria-label="Cerrar sesión" className="grid h-7 w-7 place-items-center rounded text-muted hover:bg-line hover:text-bad">
                 <LogOut className="h-4 w-4" />
               </button>
             </div>

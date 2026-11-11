@@ -7,3 +7,4 @@ data
 secrets
 *.log
 .env
+.design

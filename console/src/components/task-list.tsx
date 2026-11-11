@@ -68,14 +68,14 @@ export function TaskList({ victim, status }: { victim?: string; status?: string 
 
   return (
     <Table>
-      <THead><TR><TH>Name</TH>{victim ? null : <TH>Victim</TH>}<TH>State</TH><TH>Attempts</TH><TH>Created</TH><TH className="w-24" /></TR></THead>
+      <THead><TR><TH data-col="name">Name</TH>{victim ? null : <TH data-col="victim">Victim</TH>}<TH data-col="state">State</TH><TH data-col="attempts">Attempts</TH><TH data-col="created">Created</TH><TH className="w-20"><span className="sr-only">Acciones</span></TH></TR></THead>
       <tbody>
         {data!.items.map((task) => (
           <TR key={task.id}>
-            <TD>
-              <button className="flex items-center gap-1 font-mono text-xs" onClick={() => setOpen(open === task.id ? null : task.id)}>
-                <ChevronDown className={`h-3 w-3 transition-transform ${open === task.id ? 'rotate-180' : ''}`} />
-                {task.name}
+            <TD data-col="name">
+              <button className="flex w-full min-w-0 items-center gap-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-xs" onClick={() => setOpen(open === task.id ? null : task.id)}>
+                <ChevronDown className={`h-3 w-3 shrink-0 transition-transform ${open === task.id ? 'rotate-180' : ''}`} />
+                <span className="min-w-0 truncate">{task.name}</span>
               </button>
               {open === task.id ? (
                 <div className="mt-1 max-w-[520px] rounded border border-line bg-bg p-2 font-mono text-2xs text-muted">
@@ -85,10 +85,10 @@ export function TaskList({ victim, status }: { victim?: string; status?: string 
                 </div>
               ) : null}
             </TD>
-            {victim ? null : <TD className="font-mono text-2xs">{task.victim?.hostname ?? '—'}</TD>}
-            <TD><Badge tone={tone(task.status)}>{task.status}</Badge></TD>
-            <TD className="num text-muted">{task.attempts}</TD>
-            <TD className="num text-2xs text-muted">{dateTime(task.createdAt)} <span className="text-muted/60">({ago(task.createdAt)})</span></TD>
+            {victim ? null : <TD data-col="victim" className="font-mono text-2xs">{task.victim?.hostname ?? '—'}</TD>}
+            <TD data-col="state"><Badge tone={tone(task.status)}>{task.status}</Badge></TD>
+            <TD data-col="attempts" className="num text-muted">{task.attempts}</TD>
+            <TD data-col="created" className="num text-2xs text-muted">{dateTime(task.createdAt)} <span className="text-muted/60">({ago(task.createdAt)})</span></TD>
             <TD>
               <div className="flex justify-end gap-1">
                 {task.status === 'queued' ? <Button size="icon" variant="ghost" title="delay 10 min" loading={busy === task.id} disabled={!canWrite || busy === task.id} onClick={() => reschedule(task.id, 10)}><Clock className="h-3 w-3" /></Button> : null}

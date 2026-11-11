@@ -328,7 +328,7 @@ export function OperationsView() {
   const onlineCount = (victims.data?.items ?? []).filter((item) => item.online).length;
 
   return (
-    <div className="xp-window relative flex h-[calc(100dvh-6.5rem)] min-h-[540px] flex-col overflow-hidden rounded-xl border border-line/80 bg-panel/20 shadow-panel">
+    <div className="xp-window relative flex h-[calc(100dvh-8rem)] min-h-[540px] flex-col overflow-hidden rounded-xl border border-line/80 bg-panel/20 shadow-panel lg:h-[calc(100dvh-6.5rem)]">
       <Topbar
         title={victim ? victim.hostname : 'Equipos'}
         subtitle={victim ? `${victim.username} · ${victim.os} · ${victim.ip ?? 'sin IP'}` : `${victims.data?.items.length ?? 0} equipos · ${onlineCount} online · ! = módulo degradado`}
@@ -417,7 +417,7 @@ export function OperationsView() {
         <span>{onlineCount} online</span>
         <span>·</span>
         <span>{live.connected ? 'stream activo' : 'sin stream'}</span>
-        <span className="ml-auto">clic derecho: módulos · Shift+F10</span>
+        <span className="ml-auto max-sm:hidden">clic derecho: módulos · Shift+F10</span>
       </div>
 
       {menu ? (

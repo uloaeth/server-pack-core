@@ -2,10 +2,11 @@
 import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import QRCode from 'qrcode';
-import { ShieldCheck } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input, Label } from '@/components/ui/input';
+import { SpiderLogo } from '@/components/spider-logo';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 type Step = 'password' | 'setup' | 'totp';
 
@@ -35,7 +36,7 @@ function LoginForm() {
       });
       if (result.setup) {
         setSecret(result.secret!);
-        setQr(await QRCode.toDataURL(result.uri!, { margin: 1, width: 220, color: { dark: '#e6e8eb', light: '#101216' } }));
+        setQr(await QRCode.toDataURL(result.uri!, { margin: 1, width: 220, color: { dark: '#e6e9ec', light: '#101216' } }));
         setStep('setup');
       } else {
         router.push(next);
@@ -46,7 +47,14 @@ function LoginForm() {
         setStep('totp');
         setError('Introduce el código de 6 dígitos de tu autenticador.');
       } else {
-        setError(caught instanceof ApiError ? caught.message : 'No se pudo entrar');
+        const fallback = caught instanceof ApiError ? caught.message : 'No se pudo entrar';
+        setError(
+          /authentication required|unauthorized/i.test(fallback)
+            ? 'Correo o contraseña incorrectos.'
+            : caught instanceof ApiError && caught.status === 429
+              ? 'Demasiados intentos. Espera un minuto y vuelve a probar.'
+              : fallback
+        );
       }
     } finally {
       setBusy(false);
@@ -69,66 +77,78 @@ function LoginForm() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center bg-bg p-6 grid-bg">
-      <div className="w-full max-w-[380px] rounded-xl border border-line bg-panel p-6 shadow-panel">
-        <div className="mb-5 flex items-center gap-2">
-          <div className="grid h-9 w-9 place-items-center rounded-lg bg-brand/15 text-brand">
-            <ShieldCheck className="h-4 w-4" />
-          </div>
-          <div>
-            <h1 className="text-sm font-semibold">SPC Console</h1>
-            <p className="font-mono text-2xs text-muted">acceso restringido</p>
-          </div>
+    <main className="grid-bg grid min-h-screen place-items-center bg-bg p-3">
+      <section data-xp-login="" className="w-full max-w-[380px]">
+        <div className="xp-login-bar">
+          <span className="xp-login-mark" aria-hidden="true"><SpiderLogo /></span>
+          <p className="xp-login-bar-title">SPC Console</p>
+          <span className="xp-login-bar-sub">acceso restringido</span>
+          <div className="xp-login-controls"><ThemeToggle /></div>
         </div>
 
-        {expired ? <p className="mb-3 rounded border border-warn/40 bg-warn/10 p-2 text-2xs text-warn">La sesión caducó. Vuelve a entrar; te devolvemos a donde estabas.</p> : null}
-        {step === 'password' ? (
-          <form onSubmit={submitPassword} className="space-y-3">
-            <div>
-              <Label htmlFor="email">Correo</Label>
-              <Input id="email" type="email" autoComplete="username" required value={email} onChange={(event) => setEmail(event.target.value)} />
-            </div>
-            <div>
-              <Label htmlFor="password">Contraseña</Label>
-              <Input id="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
-            </div>
-            {error ? <p className="rounded border border-bad/40 bg-bad/10 p-2 font-mono text-2xs text-bad">{error}</p> : null}
-            <Button className="w-full" size="lg" loading={busy}>Continuar</Button>
-          </form>
-        ) : null}
+        <div className="xp-login-brand">
+          <p className="xp-login-kicker">Consola de operación</p>
+          <h1 className="xp-login-title">Entra en el panel</h1>
+          <p className="xp-login-lede">Sesión de operador con segundo factor obligatorio.</p>
+        </div>
 
-        {step === 'totp' ? (
-          <form onSubmit={submitPassword} className="space-y-3">
-            <p className="text-xs text-muted">El segundo factor es obligatorio. Código para <span className="font-mono">{email}</span></p>
-            <div>
-              <Label htmlFor="code">TOTP</Label>
-              <Input id="code" inputMode="numeric" autoComplete="one-time-code" maxLength={8} required autoFocus value={code} onChange={(event) => setCode(event.target.value)} />
-            </div>
-            {error ? <p className="rounded border border-bad/40 bg-bad/10 p-2 text-2xs text-bad">{error}</p> : null}
-            <Button className="w-full" size="lg" loading={busy}>Verificar</Button>
-          </form>
-        ) : null}
+        <div className="xp-login-body">
+          {expired ? <p className="xp-login-notice">La sesión caducó. Vuelve a entrar; te devolvemos a donde estabas.</p> : null}
+          {step === 'password' ? (
+            <form onSubmit={submitPassword} className="space-y-3">
+              <div>
+                <Label htmlFor="email">Correo</Label>
+                <Input id="email" type="email" autoComplete="username" required autoFocus value={email} onChange={(event) => setEmail(event.target.value)} />
+              </div>
+              <div>
+                <Label htmlFor="password">Contraseña</Label>
+                <Input id="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
+              </div>
+              {error ? <p className="xp-login-error" role="alert">{error}</p> : null}
+              <Button className="w-full" size="lg" loading={busy}>Continuar</Button>
+            </form>
+          ) : null}
 
-        {step === 'setup' ? (
-          <form onSubmit={enableTotp} className="space-y-3">
-            <p className="text-xs text-muted">Primer acceso: escanea y confirma un código para activar TOTP.</p>
-            {qr ? <img src={qr} alt="TOTP QR" className="mx-auto rounded border border-line" /> : null}
-            <p className="break-all rounded border border-line bg-bg p-2 font-mono text-2xs">{secret}</p>
-            <div>
-              <Label htmlFor="setup-code">Código</Label>
-              <Input id="setup-code" inputMode="numeric" maxLength={8} required autoFocus value={code} onChange={(event) => setCode(event.target.value)} />
-            </div>
-            {error ? <p className="rounded border border-bad/40 bg-bad/10 p-2 text-2xs text-bad">{error}</p> : null}
-            <Button className="w-full" size="lg" loading={busy}>Activar y entrar</Button>
-          </form>
-        ) : null}
+          {step === 'totp' ? (
+            <form onSubmit={submitPassword} className="space-y-3">
+              <p className="text-xs text-muted">El segundo factor es obligatorio. Código para <span className="font-mono text-ink">{email}</span></p>
+              <div>
+                <Label htmlFor="code">TOTP</Label>
+                <Input id="code" inputMode="numeric" autoComplete="one-time-code" maxLength={8} required autoFocus value={code} onChange={(event) => setCode(event.target.value)} />
+              </div>
+              {error ? <p className="xp-login-error" role="alert">{error}</p> : null}
+              <Button className="w-full" size="lg" loading={busy}>Verificar</Button>
+            </form>
+          ) : null}
 
-        <p className="mt-5 text-center text-2xs text-muted">argon2id · TOTP · SameSite=Strict</p>
-      </div>
+          {step === 'setup' ? (
+            <form onSubmit={enableTotp} className="space-y-3">
+              <p className="text-xs text-muted">Primer acceso: escanea y confirma un código para activar TOTP.</p>
+              {qr ? <img src={qr} alt="TOTP QR" className="xp-qr" /> : null}
+              <p className="xp-login-secret">{secret}</p>
+              <div>
+                <Label htmlFor="setup-code">Código</Label>
+                <Input id="setup-code" inputMode="numeric" maxLength={8} required autoFocus value={code} onChange={(event) => setCode(event.target.value)} />
+              </div>
+              {error ? <p className="xp-login-error" role="alert">{error}</p> : null}
+              <Button className="w-full" size="lg" loading={busy}>Activar y entrar</Button>
+            </form>
+          ) : null}
+        </div>
+
+        <div className="xp-login-status">
+          <span>argon2id</span>
+          <span aria-hidden="true">·</span>
+          <span>TOTP</span>
+          <span aria-hidden="true">·</span>
+          <span>SameSite=Strict</span>
+          <span className="ml-auto">SPC v1</span>
+        </div>
+      </section>
     </main>
   );
 }
 
 export default function LoginPage() {
-  return <Suspense fallback={<main className="grid min-h-screen place-items-center bg-bg p-6 grid-bg"><p className="text-xs text-muted">Cargando…</p></main>}><LoginForm /></Suspense>;
+  return <Suspense fallback={<main className="grid-bg grid min-h-screen place-items-center bg-bg p-6"><p className="text-xs text-muted">Cargando…</p></main>}><LoginForm /></Suspense>;
 }

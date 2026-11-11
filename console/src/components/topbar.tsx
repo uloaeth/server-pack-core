@@ -47,16 +47,19 @@ export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string;
   }
 
   return (
-    <header className="xp-topbar sticky top-12 z-20 flex h-14 items-center justify-between gap-4 border-b border-line/80 bg-bg/80 px-4 backdrop-blur-xl lg:top-0 lg:px-5">
-      <div className="min-w-0 flex items-center gap-2">
-        <span className="xp-topbar-icon" aria-hidden="true"><SpiderLogo /></span>
-        <div className="min-w-0">
-          <h1 className="truncate text-base font-semibold tracking-tight">{title}</h1>
-          {subtitle ? <p className="truncate text-2xs text-muted/80">{subtitle}</p> : null}
+    <header className="xp-topbar shrink-0 sticky top-0 z-20 flex flex-col border-b border-line/80 bg-bg/80 backdrop-blur-xl lg:top-0 lg:h-14 lg:flex-row lg:items-center">
+      <div className="flex min-h-11 items-center justify-between gap-3 px-3 lg:min-h-0 lg:px-5">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="xp-topbar-icon" aria-hidden="true"><SpiderLogo /></span>
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-semibold tracking-tight">{title}</h1>
+            {subtitle ? <p className="truncate text-2xs text-muted/80">{subtitle}</p> : null}
+          </div>
         </div>
+        <span className="xp-titlebar-tray xp-tray-mobile shrink-0 font-mono text-2xs" title="Eventos recibidos en esta sesión">{events.length} evt</span>
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 border-t border-white/20 px-3 pb-1.5 pt-1 lg:border-0 lg:py-0 lg:pr-4">
         <ThemeToggle />
         <Badge tone={bridge.data?.enabled ? 'brand' : 'default'} className="hidden gap-1 sm:inline-flex" title={bridge.data?.error ?? 'Puente de Discord'}>
           <span className="h-1.5 w-1.5 rounded-full bg-current" />discord
@@ -73,14 +76,14 @@ export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string;
             {status === 'open' ? 'en vivo' : status === 'connecting' ? 'conectando' : 'sin stream'}
           </Badge>
         </button>
-        <button onClick={() => setSearch(true)} className="xp-titlebar-btn flex h-7 items-center gap-2 rounded border border-line px-2 text-2xs text-muted hover:text-ink" aria-label="Buscar equipos">
+        <button onClick={() => setSearch(true)} className="xp-titlebar-btn flex h-7 items-center gap-2 rounded border border-line px-2 text-2xs text-muted hover:text-ink" aria-label="Buscar equipos (Ctrl K)">
           <Search className="h-3 w-3" />
           <span className="hidden lg:inline">Buscar</span>
           <span className="hidden items-center gap-0.5 rounded bg-line px-1 font-mono text-2xs lg:flex"><Command className="h-2.5 w-2.5" />K</span>
         </button>
 
         <div className="relative">
-          <button onClick={() => setBell((value) => !value)} className="xp-titlebar-btn relative grid h-7 w-7 place-items-center rounded border border-line text-muted hover:text-ink" title="Notificaciones" aria-label="Notificaciones">
+          <button onClick={() => setBell((value) => !value)} className="xp-titlebar-btn relative grid h-7 w-7 place-items-center rounded border border-line text-muted hover:text-ink" title="Notificaciones" aria-label={notifications.data?.unread ? `Notificaciones, ${notifications.data.unread} sin leer` : 'Notificaciones'}>
             <Bell className="h-3.5 w-3.5" />
             {(notifications.data?.unread ?? 0) > 0 ? (
               <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-bad px-1 font-mono text-2xs text-white">
@@ -89,7 +92,7 @@ export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string;
             ) : null}
           </button>
           {bell ? (
-            <div className="absolute right-0 top-9 w-[340px] rounded-lg border border-line bg-panel shadow-2xl">
+            <div className="absolute right-0 top-9 w-[min(340px,calc(100vw-1.5rem))] rounded-lg border border-line bg-panel shadow-2xl">
               <div className="flex items-center justify-between border-b border-line px-3 py-2">
                 <p className="text-xs font-semibold">Notificaciones</p>
                 <button onClick={readAll} className="text-2xs text-muted hover:text-ink">marcar leídas</button>
@@ -110,14 +113,14 @@ export function Topbar({ title, subtitle, onCommand, onSlash }: { title: string;
             </div>
           ) : null}
         </div>
-        <span className="xp-titlebar-tray font-mono text-2xs" title="Eventos recibidos en esta sesión">{events.length} evt</span>
+        <span className="xp-titlebar-tray xp-tray-desktop hidden font-mono text-2xs lg:inline-flex" title="Eventos recibidos en esta sesión">{events.length} evt</span>
       </div>
 
       <Dialog open={search} onOpenChange={setSearch}>
         <DialogContent className="p-0">
           <div className="flex items-center gap-2 border-b border-line px-3">
             <Search className="h-4 w-4 text-muted" />
-            <Input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="equipo, usuario, ip, etiqueta…" className="h-11 border-0 bg-transparent px-0 focus-visible:ring-0" aria-label="Buscar equipos" />
+            <Input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="equipo, usuario, ip, etiqueta…" className="h-11 border-0 bg-transparent px-0 focus-visible:ring-0" aria-label="Buscar equipos (Ctrl K)" />
           </div>
           <div className="max-h-80 overflow-y-auto p-1">
             {(results.data?.items ?? []).map((victim) => (

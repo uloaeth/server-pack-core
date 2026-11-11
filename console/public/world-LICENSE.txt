@@ -1,0 +1,8 @@
+world.jpg — mapa de respaldo bajo los tiles de OpenStreetMap.
+
+Origen: "World map - low resolution.svg", Wikimedia Commons.
+Autor: Al MacDonald (http://hyper-metrix.com).
+Licencia: CC BY-SA 3.0 — https://creativecommons.org/licenses/by-sa/3.0/
+Cambios: rasterizado a 480×200, recortado y recomprimido en JPEG.
+
+Los tiles en vivo son © OpenStreetMap contributors (ODbL).

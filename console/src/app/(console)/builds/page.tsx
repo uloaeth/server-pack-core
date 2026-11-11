@@ -134,10 +134,10 @@ export default function BuildsPage() {
       <Topbar title="Builds" subtitle="perfil, módulos y clave de artefactos · el build_id deriva la clave" />
       <div className="pt-3">
         <Card>
-          <CardHeader>
+          <CardHeader className="max-sm:flex-col max-sm:items-stretch">
             <CardTitle>Catálogo de builds</CardTitle>
-            <div className="flex flex-wrap items-center gap-2">
-              <Input value={q} onChange={(event) => setQ(event.target.value)} placeholder="filtrar por nombre o build_id" className="h-7 w-[220px]" aria-label="Filtrar builds" />
+            <div className="flex flex-wrap items-center gap-2 max-sm:w-full">
+              <Input value={q} onChange={(event) => setQ(event.target.value)} placeholder="filtrar por nombre o build_id" className="h-7 w-full sm:w-[220px]" aria-label="Filtrar builds" />
               {role === 'admin' ? <>
                 <Button size="sm" variant="secondary" onClick={panic}>pánico</Button>
                 <Button size="sm" variant="ghost" onClick={restore}>restaurar</Button>
@@ -146,26 +146,26 @@ export default function BuildsPage() {
             </div>
           </CardHeader>
           {error ? <p className="p-3 text-xs text-bad">{error.message}</p> : loading ? <SkeletonRows rows={6} cols={6} /> : (data?.items ?? []).length === 0 ? <Empty title="Sin builds" hint="Crea un build, compila el JAR y déjalo en mods/." /> : (
-            <Table>
-              <THead><TR><TH>Nombre</TH><TH>Versión</TH><TH>Perfil</TH><TH>build_id</TH><TH>Víctimas</TH><TH>Estado</TH><TH>Creado</TH><TH><span className="sr-only">Acciones</span></TH></TR></THead>
+            <Table className="max-lg:min-w-0">
+              <THead><TR><TH data-col="name">Nombre</TH><TH data-col="version">Versión</TH><TH data-col="profile">Perfil</TH><TH data-col="buildid">build_id</TH><TH data-col="victims">Víctimas</TH><TH data-col="status">Estado</TH><TH data-col="created">Creado</TH><TH className="w-28"><span className="sr-only">Acciones</span></TH></TR></THead>
               <tbody>
                 {data!.items.filter((build) => !q.trim() || `${build.name} ${build.buildId}`.toLowerCase().includes(q.trim().toLowerCase())).map((build) => (
                   <TR key={build.id}>
-                    <TD className="text-xs">{build.name}{build.universal ? <Badge tone="ok" className="ml-1">universal</Badge> : null}</TD>
-                    <TD className="num">{build.version}</TD>
-                    <TD><Badge tone={build.profile === 'lite' ? 'warn' : 'brand'}>{build.profile}</Badge></TD>
-                    <TD className="font-mono text-2xs">{short(build.buildId)}</TD>
-                    <TD className="num">{build.victims}</TD>
-                    <TD><Badge tone={build.status === 'ready' ? 'ok' : build.status === 'revoked' ? 'bad' : 'default'}>{build.status}</Badge></TD>
-                    <TD className="num text-2xs text-muted">{dateTime(build.createdAt)}</TD>
+                    <TD data-col="name" className="text-xs">{build.name}{build.universal ? <Badge tone="ok" className="ml-1">universal</Badge> : null}</TD>
+                    <TD data-col="version" className="num">{build.version}</TD>
+                    <TD data-col="profile"><Badge tone={build.profile === 'lite' ? 'warn' : 'brand'}>{build.profile}</Badge></TD>
+                    <TD data-col="buildid" className="font-mono text-2xs">{short(build.buildId)}</TD>
+                    <TD data-col="victims" className="num">{build.victims}</TD>
+                    <TD data-col="status"><Badge tone={build.status === 'ready' ? 'ok' : build.status === 'revoked' ? 'bad' : 'default'}>{build.status}</Badge></TD>
+                    <TD data-col="created" className="num text-2xs text-muted">{dateTime(build.createdAt)}</TD>
                     <TD>
-                      <div className="flex justify-end gap-1">
+                      <div className="flex justify-end gap-0.5 lg:gap-1">
                         <Button size="icon" variant="ghost" title="copiar token" onClick={() => { copy(build.token); toast.success('token copiado'); }}><Copy className="h-3 w-3" /></Button>
-                        {role === 'admin' ? <Button size="icon" variant="ghost" title="compilar" loading={busy === build.id} onClick={() => compile(build.id)}><Hammer className="h-3 w-3" /></Button> : null}
+                        {role === 'admin' ? <Button size="icon" variant="ghost" title="compilar" loading={busy === build.id} onClick={() => compile(build.id)} className="max-sm:hidden"><Hammer className="h-3 w-3" /></Button> : null}
                         {build.jarPath ? <a href={`/api/console/builds/${build.id}/download`} aria-label={`Descargar JAR de ${build.name}`} title="Descargar JAR" className="grid h-7 w-7 place-items-center rounded text-muted hover:text-brand"><Download className="h-3 w-3" /></a> : null}
-                        {role === 'admin' ? <Button size="icon" variant="ghost" title="reasignar víctimas" disabled={build.victims === 0 || busy === build.id} onClick={() => { setReassignFor(build); setReassignTarget(''); }}><ArrowRightLeft className="h-3 w-3" /></Button> : null}
+                        {role === 'admin' ? <Button size="icon" variant="ghost" title="reasignar víctimas" disabled={build.victims === 0 || busy === build.id} onClick={() => { setReassignFor(build); setReassignTarget(''); }} className="max-sm:hidden"><ArrowRightLeft className="h-3 w-3" /></Button> : null}
                         {build.status !== 'revoked' && role === 'admin' ? <Button size="icon" variant="ghost" title="revocar" loading={busy === build.id} disabled={busy === build.id} onClick={() => revoke(build)}><Power className="h-3 w-3" /></Button> : null}
-                        {role === 'admin' ? <Button size="icon" variant="ghost" title="eliminar (no debe estar en uso)" loading={busy === build.id} disabled={busy === build.id} onClick={() => remove(build)}><Trash2 className="h-3 w-3" /></Button> : null}
+                        {role === 'admin' ? <Button size="icon" variant="ghost" title="eliminar (no debe estar en uso)" loading={busy === build.id} disabled={busy === build.id} onClick={() => remove(build)} className="max-sm:hidden"><Trash2 className="h-3 w-3" /></Button> : null}
                       </div>
                     </TD>
                   </TR>

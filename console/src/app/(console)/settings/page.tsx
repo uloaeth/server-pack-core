@@ -68,8 +68,8 @@ export default function SettingsPage() {
           <CardHeader><CardTitle>Cambiar contraseña</CardTitle></CardHeader>
           <CardContent>
             <form onSubmit={changePassword} className="space-y-2">
-              <div><Label>Actual</Label><Input type="password" required value={current} onChange={(event) => setCurrent(event.target.value)} /></div>
-              <div><Label>Nueva (12+, mayúscula, minúscula y dígito)</Label><Input type="password" required value={next} onChange={(event) => setNext(event.target.value)} /></div>
+              <div><Label htmlFor="current-password">Actual</Label><Input id="current-password" type="password" required value={current} onChange={(event) => setCurrent(event.target.value)} /></div>
+              <div><Label htmlFor="next-password">Nueva (12+, mayúscula, minúscula y dígito)</Label><Input id="next-password" type="password" required value={next} onChange={(event) => setNext(event.target.value)} /></div>
               <Button type="submit" loading={busy}>Actualizar</Button>
             </form>
           </CardContent>

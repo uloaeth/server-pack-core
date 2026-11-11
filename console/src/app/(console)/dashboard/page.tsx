@@ -34,7 +34,7 @@ export default function DashboardPage() {
             <WorldMap className="min-h-[300px]" onSelect={(point) => router.push(`/victims?select=${point.id}`)} />
           </Card>
 
-          <div className="space-y-3">
+          <div className="flex flex-col gap-3">
             <Card>
               <CardHeader><CardTitle>Sistemas</CardTitle></CardHeader>
               <CardContent className="space-y-2">
@@ -50,7 +50,7 @@ export default function DashboardPage() {
                 })}
               </CardContent>
             </Card>
-            <Card>
+            <Card className="flex-1">
               <CardHeader><CardTitle>Países</CardTitle></CardHeader>
               <CardContent className="space-y-1">
                 {(dashboard.data?.byCountry ?? []).map((row) => (
@@ -71,17 +71,17 @@ export default function DashboardPage() {
               <Link href="/victims" className="text-2xs text-brand">todos los equipos →</Link>
             </CardHeader>
             {recent.loading ? <SkeletonRows rows={6} cols={6} /> : (recent.data?.items ?? []).length === 0 ? <Empty title="Sin equipos todavía" hint="Compila un build con su config y ejecuta el mod en un cliente." /> : (
-              <Table>
-                <THead><TR><TH>Equipo</TH><TH>SO</TH><TH>País</TH><TH>Usuario</TH><TH>Etiquetas</TH><TH>Última señal</TH></TR></THead>
+              <Table className="max-lg:min-w-0">
+                <THead><TR><TH data-col="host">Equipo</TH><TH data-col="os">SO</TH><TH data-col="country">País</TH><TH data-col="user">Usuario</TH><TH data-col="tags">Etiquetas</TH><TH data-col="seen">Última señal</TH></TR></THead>
                 <tbody>
                   {recent.data!.items.map((victim) => (
                     <TR key={victim.id} onClick={() => router.push(`/victims?select=${victim.id}`)} className="cursor-pointer">
-                      <TD className="font-mono text-xs text-ink">{victim.hostname}</TD>
-                      <TD><Badge tone={victim.online ? 'ok' : 'default'}>{victim.online ? 'online' : victim.os}</Badge></TD>
-                      <TD className="text-muted">{flag(victim.countryCode)} {victim.country ?? '—'}</TD>
-                      <TD className="font-mono text-muted">{victim.username}</TD>
-                      <TD className="space-x-1">{victim.tags.slice(0, 3).map((tag) => <Badge key={tag}>{tag}</Badge>)}</TD>
-                      <TD className={victim.online ? 'num text-ok' : 'num text-muted'}>{ago(victim.online ? victim.lastAgentMessageAt ?? victim.lastHeartbeatAt : victim.lastHeartbeatAt)}</TD>
+                      <TD data-col="host" className="font-mono text-xs text-ink">{victim.hostname}</TD>
+                      <TD data-col="os"><Badge tone={victim.online ? 'ok' : 'default'}>{victim.online ? 'online' : victim.os}</Badge></TD>
+                      <TD data-col="country" className="text-muted">{flag(victim.countryCode)} {victim.country ?? '—'}</TD>
+                      <TD data-col="user" className="font-mono text-muted">{victim.username}</TD>
+                      <TD data-col="tags" className="space-x-1">{victim.tags.slice(0, 3).map((tag) => <Badge key={tag}>{tag}</Badge>)}</TD>
+                      <TD data-col="seen" className={victim.online ? 'num text-ok' : 'num text-muted'}>{ago(victim.online ? victim.lastAgentMessageAt ?? victim.lastHeartbeatAt : victim.lastHeartbeatAt)}</TD>
                     </TR>
                   ))}
                 </tbody>

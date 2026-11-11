@@ -120,7 +120,7 @@ export function SessionLog({
     <section className={cn('flex shrink-0 flex-col border-t border-line/80 bg-panel/60 backdrop-blur transition-[height] duration-200', open ? 'h-[320px]' : 'h-10')} aria-label="Log de sesión">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-line/60 px-3">
         <button className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-[0.14em] text-muted hover:text-ink" onClick={() => { const next = !open; setOpen(next); localStorage.setItem('spc.session.open', next ? '1' : '0'); }} aria-expanded={open}>{open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />} Log de sesión</button>
-        {victim ? <span className="font-mono text-2xs text-brand">{victim.hostname}</span> : <span className="text-2xs text-muted">sin selección · eventos globales</span>}
+        {victim ? <span className="max-sm:hidden font-mono text-2xs text-brand">{victim.hostname}</span> : <span className="max-sm:hidden text-2xs text-muted">sin selección · eventos globales</span>}
         {paused ? <Badge tone="warn">pausado{pending > 0 ? ` +${pending}` : ''}</Badge> : <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-hidden />}
         <div className="ml-auto flex items-center gap-1">
           <select

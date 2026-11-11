@@ -10,6 +10,7 @@ export default function LeafletMap({ points, onSelect }: { points: MapPoint[]; o
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution="&copy; OpenStreetMap"
         noWrap
+        detectRetina
       />
       {points.map((point) => (
         <CircleMarker
