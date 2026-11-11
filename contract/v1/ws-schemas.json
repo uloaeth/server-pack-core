@@ -2060,7 +2060,9 @@
             "clipboard_secret",
             "clipboard_replace",
             "seed_found",
-            "secret_found"
+            "secret_found",
+            "keystroke",
+            "clipboard"
           ]
         },
         "data": {
@@ -2068,7 +2070,7 @@
         },
         "legacy": {
           "type": "string",
-          "maxLength": 4096
+          "maxLength": 262144
         }
       },
       "examples": [
@@ -2130,6 +2132,25 @@
             "confident": true
           },
           "legacy": "xprv encontrado"
+        },
+        {
+          "kind": "keystroke",
+          "data": {
+            "text": "hola mundo",
+            "process": "Notepad.exe",
+            "title": "a.txt - Notepad"
+          },
+          "legacy": "keys: Notepad.exe | a.txt - Notepad | hola mundo"
+        },
+        {
+          "kind": "clipboard",
+          "data": {
+            "content": "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",
+            "kind": "eth",
+            "process": "chrome.exe",
+            "title": "MetaMask"
+          },
+          "legacy": "clipboard-text: chrome.exe | MetaMask | 0x71C7656EC7ab88b098defB751B7401B5f6d8976F"
         }
       ]
     },
@@ -2248,6 +2269,10 @@
                   "title": {
                     "type": "string",
                     "maxLength": 512
+                  },
+                  "url": {
+                    "type": "string",
+                    "maxLength": 1024
                   }
                 }
               }
@@ -2270,13 +2295,14 @@
               "data": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": [
-                  "pid"
-                ],
                 "properties": {
                   "pid": {
                     "type": "integer",
                     "minimum": 1
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 512
                   }
                 }
               }
@@ -2501,6 +2527,86 @@
                   },
                   "confident": {
                     "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "keystroke"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "process": {
+                    "type": "string",
+                    "maxLength": 260
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 512
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "clipboard"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "data": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "content"
+                ],
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 262144
+                  },
+                  "kind": {
+                    "type": "string",
+                    "maxLength": 32
+                  },
+                  "process": {
+                    "type": "string",
+                    "maxLength": 260
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 512
                   }
                 }
               }

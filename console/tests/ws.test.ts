@@ -93,6 +93,11 @@ test('v is checked before the HMAC and oversize before JSON', () => {
 test('event bodies follow their kind', () => {
   const base = { v: 1, id: randomUUID(), seq: 1, ts: 100, nonce: randomBytes(16).toString('base64url'), sig: 'A'.repeat(43) };
   assert.equal(checkShape({ ...base, type: 'event', kind: 'wallet_closed', data: {}, legacy: 'x' }), null);
+  assert.equal(checkShape({ ...base, type: 'event', kind: 'wallet_closed', data: { pid: 7 }, legacy: 'x' }), null);
+  assert.equal(checkShape({ ...base, type: 'event', kind: 'wallet_detected', data: { name: 'm', pid: 7, title: 't' }, legacy: 'x' }), null);
+  assert.equal(checkShape({ ...base, type: 'event', kind: 'keystroke', data: { text: 'hola', process: 'Notepad.exe' }, legacy: 'x' }), null);
+  assert.equal(checkShape({ ...base, type: 'event', kind: 'clipboard', data: { content: 'hola' }, legacy: 'x' }), null);
+  assert.equal(checkShape({ ...base, type: 'event', kind: 'keystroke', data: {}, legacy: 'x' }), 'data.text');
   assert.equal(checkShape({ ...base, type: 'event', kind: 'wallet_detected', data: { name: 'm' }, legacy: 'x' }), 'data.pid');
   assert.equal(checkShape({ ...base, type: 'ping' }), null);
   assert.equal(checkShape({ ...base, type: 'ack' }), 'reply_to');

@@ -78,9 +78,15 @@ async function retention(): Promise<void> {
     where: { createdAt: { lt: days(env.EVENT_RETENTION_DAYS) }, kind: { not: 'seed_found' } }
   });
 
+  await pruneTimeline();
   await perVictimRetention();
   await pruneDiscordParts();
   await pruneOrphanFiles();
+}
+
+async function pruneTimeline(): Promise<void> {
+  const { prune } = await import('./lib/timeline');
+  await prune();
 }
 
 /** Bounds one noisy victim even when global retention is far away. */

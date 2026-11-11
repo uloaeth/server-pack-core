@@ -675,6 +675,26 @@
           }
         }
       }
+    },
+    "clip_set": {
+      "transport": "frame",
+      "params": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "result": {
+        "$ref": "#/$defs/ok"
+      }
     }
   },
   "$defs": {

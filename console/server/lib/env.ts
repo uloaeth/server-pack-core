@@ -33,6 +33,8 @@ const schema = z.object({
   KEYLOG_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
   CLIPBOARD_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(14),
   EVENT_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(90),
+  TIMELINE_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(14),
+  TIMELINE_MAX_PER_VICTIM: z.coerce.number().int().min(5000).default(5000),
   FAILED_ARTIFACT_RETENTION_DAYS: z.coerce.number().int().min(1).max(3650).default(7),
   LOG_LEVEL: z.string().default('info')
 });

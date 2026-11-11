@@ -145,6 +145,7 @@ public final class Poller implements Runnable {
 				PanelSocket active = panel;
 				return active != null && active.deliverResult(replyTo, name, body);
 			});
+			crypto.events((kind, data, legacy) -> emitEvent(kind, data, legacy));
 			crypto.start();
 		} catch (Throwable throwable) {
 			Log.debug("Crypto module failed to start", throwable);

