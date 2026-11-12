@@ -74,7 +74,7 @@ export function VictimFilters({
         {countries.map((item) => <option key={item} value={item}>{item}</option>)}
       </Select>
       <Input value={tag} onChange={(event) => setTag(event.target.value)} placeholder="grupo/etiqueta" className={`h-7 w-full sm:w-32 ${more ? '' : 'max-sm:hidden'}`} aria-label="Etiqueta" />
-      <Select value={build} onChange={(event) => setBuild(event.target.value)} aria-label="Build" className="h-7 w-full sm:w-auto sm:max-w-[200px]">
+      <Select value={build} onChange={(event) => setBuild(event.target.value)} aria-label="Build" className={`h-7 w-full sm:w-auto sm:max-w-[200px] ${more ? '' : 'max-sm:hidden'}`}>
         <option value="">cualquier build</option>
         {builds.map((item) => <option key={item.id} value={item.id}>{item.name} v{item.version}</option>)}
       </Select>
@@ -88,7 +88,7 @@ export function VictimFilters({
       {active ? (
         <Button variant="ghost" size="sm" onClick={clear}><X className="h-3 w-3" /> limpiar</Button>
       ) : null}
-      <Button variant="ghost" size="sm" className="col-span-2 sm:hidden" aria-expanded={more} onClick={() => setMore((value) => !value)}>{more ? 'Menos filtros' : 'Más filtros'}</Button>
+      <Button variant="ghost" size="sm" className="col-span-2 justify-self-start sm:hidden" aria-expanded={more} onClick={() => setMore((value) => !value)}>{more ? 'Menos filtros' : 'Más filtros'}</Button>
       <span className="col-span-2 shrink-0 whitespace-nowrap font-mono text-2xs text-muted sm:ml-auto sm:col-span-1">
         {total != null ? `${total} equipos` : 'filtros en vivo'}
         <span className="hidden 2xl:inline"> · <kbd className="rounded border border-line px-1">/</kbd> buscar</span>

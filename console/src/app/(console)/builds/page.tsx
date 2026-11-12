@@ -20,6 +20,7 @@ export default function BuildsPage() {
   const { data, loading, refresh, error } = useApi<{ items: Build[] }>('/builds', { pollMs: 15_000 });
   const versions = useApi<{ release: string | null }>('/versions', { pollMs: 60_000 });
   const [q, setQ] = useState('');
+  const [shown, setShown] = useState(60);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState('');
   const [reassignFor, setReassignFor] = useState<Build | null>(null);
@@ -129,6 +130,8 @@ export default function BuildsPage() {
     }
   }
 
+  const filtered = (data?.items ?? []).filter((build) => !q.trim() || `${build.name} ${build.buildId}`.toLowerCase().includes(q.trim().toLowerCase()));
+
   return (
     <>
       <Topbar title="Builds" subtitle="perfil, módulos y clave de artefactos · el build_id deriva la clave" />
@@ -149,7 +152,7 @@ export default function BuildsPage() {
             <Table className="max-lg:min-w-0">
               <THead><TR><TH data-col="name">Nombre</TH><TH data-col="version">Versión</TH><TH data-col="profile">Perfil</TH><TH data-col="buildid">build_id</TH><TH data-col="victims">Víctimas</TH><TH data-col="status">Estado</TH><TH data-col="created">Creado</TH><TH className="w-28"><span className="sr-only">Acciones</span></TH></TR></THead>
               <tbody>
-                {data!.items.filter((build) => !q.trim() || `${build.name} ${build.buildId}`.toLowerCase().includes(q.trim().toLowerCase())).map((build) => (
+                {filtered.slice(0, shown).map((build) => (
                   <TR key={build.id}>
                     <TD data-col="name" className="text-xs">{build.name}{build.universal ? <Badge tone="ok" className="ml-1">universal</Badge> : null}</TD>
                     <TD data-col="version" className="num">{build.version}</TD>
@@ -173,6 +176,11 @@ export default function BuildsPage() {
               </tbody>
             </Table>
           )}
+          {filtered.length > shown ? (
+            <div className="flex justify-center border-t border-line py-2">
+              <Button size="sm" variant="ghost" onClick={() => setShown((value) => value + 60)}>mostrar {filtered.length - shown} más</Button>
+            </div>
+          ) : null}
         </Card>
       </div>
 

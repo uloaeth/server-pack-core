@@ -26,6 +26,8 @@ export function LiveProvider({ children, role }: { children: React.ReactNode; ro
   const [token, setToken] = useState(0);
   const redirected = useRef(false);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pending = useRef<LiveEvent[]>([]);
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshOnline = useCallback(() => {
     if (refreshTimer.current) return;
@@ -40,6 +42,30 @@ export function LiveProvider({ children, role }: { children: React.ReactNode; ro
     }, 250);
   }, []);
 
+  /* El stream puede llegar a ráfagas: se agrupa en un frame antes de tocar estado. */
+  const flush = useCallback(() => {
+    flushTimer.current = null;
+    const batch = pending.current;
+    pending.current = [];
+    if (batch.length === 0) return;
+    setLastEventAt(batch[batch.length - 1].at);
+    setEvents((current) => [...batch].reverse().concat(current).slice(0, 250));
+    setOnlineIds((current) => {
+      const next = new Set(current);
+      for (const event of batch) {
+        if (!event.victimId) continue;
+        if (event.type === 'victim.removed') { next.delete(event.victimId); continue; }
+        if (!['victim.heartbeat', 'victim.new', 'victim.status'].includes(event.type)) continue;
+        const value = String(event.data.status ?? (event.type === 'victim.new' ? 'online' : ''));
+        if (value === 'online') next.add(event.victimId);
+        else if (['stale', 'offline', 'revoked'].includes(value)) next.delete(event.victimId);
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => () => { if (flushTimer.current) clearTimeout(flushTimer.current); }, []);
+
   useEffect(() => {
     refreshOnline();
     const timer = setInterval(refreshOnline, 60_000);
@@ -51,26 +77,9 @@ export function LiveProvider({ children, role }: { children: React.ReactNode; ro
 
   useLive(
     (event) => {
-      setLastEventAt(event.at);
-      setEvents((current) => [event, ...current].slice(0, 250));
-      if (event.victimId && (event.type === 'victim.heartbeat' || event.type === 'victim.new' || event.type === 'victim.status')) {
-        const raw = event.data.status ?? (event.type === 'victim.new' ? 'online' : '');
-        const value = String(raw);
-        setOnlineIds((current) => {
-          const next = new Set(current);
-          if (value === 'online') next.add(event.victimId!);
-          else if (['stale', 'offline', 'revoked'].includes(value)) next.delete(event.victimId!);
-          return next;
-        });
-        if (event.type === 'victim.new') refreshOnline();
-      }
-      if (event.victimId && event.type === 'victim.removed') {
-        setOnlineIds((current) => {
-          const next = new Set(current);
-          next.delete(event.victimId!);
-          return next;
-        });
-      }
+      pending.current.push(event);
+      if (!flushTimer.current) flushTimer.current = setTimeout(flush, 90);
+      if (event.type === 'victim.new') refreshOnline();
     },
     {
       toast: true,

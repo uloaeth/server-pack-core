@@ -121,7 +121,7 @@ export function VictimTable({
                   </button>
                 </TH>
               ))}
-              <TH className="w-10">
+              <TH data-col="action" className="w-10">
                 <Dropdown>
                   <DropdownTrigger asChild><Button variant="ghost" size="icon" title="Columnas"><Columns3 className="h-3.5 w-3.5" /></Button></DropdownTrigger>
                   <DropdownContent align="end">

@@ -14,8 +14,8 @@ export function WorldMap({ onSelect, className }: { onSelect?: (point: MapPoint)
 
   /* Leaflet es el chunk más pesado: se monta tras el primer pintado. */
   useEffect(() => {
-    const idle = window.requestIdleCallback?.(() => setReady(true), { timeout: 900 });
-    const timer = idle ? null : window.setTimeout(() => setReady(true), 350);
+    const idle = window.requestIdleCallback?.(() => setReady(true), { timeout: 4000 });
+    const timer = idle ? null : window.setTimeout(() => setReady(true), 1200);
     return () => {
       if (idle) window.cancelIdleCallback?.(idle);
       if (timer) window.clearTimeout(timer);

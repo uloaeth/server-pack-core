@@ -112,18 +112,16 @@ function ActionCard({
 }) {
   const busy = state === 'queued' || state === 'running';
   return (
-    <div className={cn('xp-card flex flex-col rounded-xl border border-line bg-panel/50 p-3', busy && 'border-warn/40', state === 'done' && 'border-ok/40')}>
-      <div className="flex items-start gap-2">
-        <div className={cn('xp-card-icon grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-panel-2 text-muted', state === 'done' && 'bg-ok/10 text-ok', busy && 'bg-warn/10 text-warn')}>
-          {state === 'done' ? <CheckCircle2 className="h-5 w-5" /> : busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Icon className="h-5 w-5" />}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-ink">{title}</p>
-          <p className="mt-0.5 text-2xs text-muted">{busy ? 'Ejecutando…' : state === 'done' ? 'Completado' : state === 'error' ? (error || 'Error') : result}</p>
-        </div>
+    <div className={cn('xp-action', busy && 'bg-brand/[0.04]', state === 'error' && 'bg-bad/[0.04]')} data-state={state}>
+      <div className="xp-action-icon">
+        {state === 'done' ? <CheckCircle2 className="h-3.5 w-3.5" /> : busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Icon className="h-3.5 w-3.5" />}
       </div>
-      {busy ? <div className="mt-3 h-1 overflow-hidden rounded bg-warn/20"><div className="h-full w-1/3 animate-shimmer bg-warn" /></div> : null}
-      <div className="mt-3 flex gap-1.5">
+      <div className="min-w-0 flex-1">
+        <p className="xp-action-title">{title}</p>
+        <p className="xp-action-note">{busy ? 'Ejecutando…' : state === 'done' ? 'Completado' : state === 'error' ? (error || 'Error') : result}</p>
+        {busy ? <span className="mt-1 block h-0.5 w-16 overflow-hidden bg-line"><span className="block h-full w-1/3 animate-shimmer bg-brand" /></span> : null}
+      </div>
+      <div className="flex shrink-0 gap-1.5">
         {busy ? <Button size="sm" variant="secondary" onClick={onCancel}>Cancelar</Button> : state === 'done' ? <Button size="sm" variant="secondary" onClick={onView}>Ver resultados</Button> : (
           <Button size="sm" disabled={disabled} title={disabled ? reason : undefined} onClick={onRun}>{state === 'error' ? 'Reintentar' : 'Ejecutar'}</Button>
         )}
@@ -239,7 +237,7 @@ export function VictimDetail({
           <Button size="icon" variant="ghost" onClick={onClose} title="Cerrar detalle" aria-label="Cerrar detalle"><X className="h-4 w-4" /></Button>
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1">
-          <Badge tone={victim.online ? 'ok' : victim.revokedAt ? 'bad' : 'warn'}>{victim.online ? 'online' : victim.status}</Badge>
+          <Badge tone={victim.online ? 'ok' : 'bad'}>{victim.online ? 'online' : victim.status}</Badge>
           <Badge tone={victim.socket ? 'ok' : 'warn'}>{victim.socket ? 'socket' : 'sin socket'}</Badge>
           <Badge>{osIcon(victim.os)} {victim.os}</Badge>
           <Badge tone="brand">{victim.profile}</Badge>
@@ -254,7 +252,7 @@ export function VictimDetail({
         </TabsList>
         <div className="scroll-panel min-h-0 flex-1 p-4">
           <TabsContent value="resumen" className="mt-0 space-y-4">
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="grid grid-cols-1 divide-y divide-line border-y border-line">
               <ActionCard
                 title="Escanear wallets" icon={WalletIcon} state={stateFor('scan')} error={taskFor('scan')?.error}
                 disabled={disabled || starting === 'scan'} reason="Equipo sin socket de control"

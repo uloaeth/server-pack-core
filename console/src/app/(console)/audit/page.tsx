@@ -34,7 +34,7 @@ export default function AuditPage() {
                   <TR key={row.id}>
                     <TD data-col="date" className="num text-2xs text-muted">{dateTime(row.createdAt)}</TD>
                     <TD data-col="operator" className="truncate text-xs" title={row.operator?.email}>{row.operator?.email ?? 'agent'}</TD>
-                    <TD data-col="action"><Badge tone={row.action.includes('delete') ? 'bad' : row.action.includes('login') ? 'brand' : 'default'}>{row.action}</Badge></TD>
+                    <TD data-col="action"><Badge tone={/fail|error|delete/.test(row.action) ? 'bad' : row.action.includes('login') ? 'brand' : 'default'}>{row.action}</Badge></TD>
                     <TD data-col="entity" className="font-mono text-2xs">{row.entity} {row.entityId ? `#${row.entityId.slice(0, 8)}` : ''}</TD>
                     <TD data-col="ip" className="num text-2xs">{row.ip ?? '—'}</TD>
                     <TD data-col="data" className="max-w-[420px] truncate font-mono text-2xs text-muted" title={JSON.stringify(row.data)}>{JSON.stringify(row.data)}</TD>

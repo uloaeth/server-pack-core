@@ -77,13 +77,13 @@ function LoginForm() {
   }
 
   return (
-    <main className="grid-bg grid min-h-screen place-items-center bg-bg p-3">
+    <main className="grid-bg grid min-h-screen place-items-center bg-bg p-4">
       <section data-xp-login="" className="w-full max-w-[380px]">
-        <div className="xp-login-bar">
+        <div className="xp-login-top">
           <span className="xp-login-mark" aria-hidden="true"><SpiderLogo /></span>
-          <p className="xp-login-bar-title">SPC Console</p>
-          <span className="xp-login-bar-sub">acceso restringido</span>
-          <div className="xp-login-controls"><ThemeToggle /></div>
+          <span>SPC / OPS</span>
+          <span className="xp-login-ver">acceso restringido</span>
+          <ThemeToggle />
         </div>
 
         <div className="xp-login-brand">
